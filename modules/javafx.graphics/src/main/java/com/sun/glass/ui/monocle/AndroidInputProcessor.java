@@ -23,6 +23,7 @@
  * questions.
  */
 package com.sun.glass.ui.monocle;
+import javafx.application.Platform;
 
 class AndroidInputProcessor {
 
@@ -53,5 +54,34 @@ class AndroidInputProcessor {
     synchronized void pushKeyEvent(KeyState keyState) {
         keyInput.setState(keyState);
     }
+
+
+    synchronized void dispatchKeyEvent(int type, int key, char[] chars, int modifiers) {
+System.err.println("PROCESSOR, DKPE00!");
+Platform.runLater( () -> {
+System.err.println("PROCESSOR, DKPE!");
+System.err.println("PROCESSOR, mwi = "+MonocleWindowManager.getInstance());
+System.err.println("PROCESSOR, mwif = "+MonocleWindowManager.getInstance().getFocusedWindow());
+        MonocleWindow window = (MonocleWindow) MonocleWindowManager.getInstance().getFocusedWindow();
+System.err.println("window = "+window);
+        if (window == null) {
+            return;
+        }
+        MonocleView view = (MonocleView) window.getView();
+System.err.println("view = "+view);
+        if (view == null) {
+            return;
+        }
+        RunnableProcessor.runLater(new Runnable() {
+            @Override
+            public void run() {
+System.err.println ("InputProcessor will call view.notifyKey on "+view);
+                view.notifyKey(type, key, chars, modifiers);
+            }
+        });
+}
+);
+    }
+
 
 }

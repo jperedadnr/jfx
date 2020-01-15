@@ -163,6 +163,8 @@ JNIEXPORT jlong JNICALL Java_com_sun_glass_ui_monocle_EGL__1eglCreateWindowSurfa
     eglSurface =  eglCreateWindowSurface(asPtr(eglDisplay), asPtr(config),
                                          (EGLNativeWindowType) asPtr(nativeWindow),
                                          (EGLint *) NULL);
+    int ec = (jint)eglGetError();
+    fprintf(stderr, "eglCreteWindowSurface returns %p and err = %d\n",eglSurface, ec);
     if (attrArray != NULL) {
         (*env)->ReleaseIntArrayElements(env, attribs, attrArray, JNI_ABORT);
     }

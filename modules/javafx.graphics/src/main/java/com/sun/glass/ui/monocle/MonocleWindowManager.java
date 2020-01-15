@@ -120,7 +120,9 @@ final class MonocleWindowManager {
     }
 
     boolean requestFocus(MonocleWindow window) {
+System.err.println("MWI, request focus for "+window);
         int index = getWindowIndex(window);
+System.err.println("MWI, request focus for index "+index);
         if (index != -1) {
             focusedWindow = window;
             window.notifyFocus(WindowEvent.FOCUS_GAINED);
@@ -158,6 +160,8 @@ final class MonocleWindowManager {
     }
 
     MonocleWindow getFocusedWindow() {
+System.err.println("MONOCLEWINDOWMANAGER, getFocusedWindow asked");
+System.err.println("MONOCLEWINDOWMANAGER, fw = "+focusedWindow);
         return focusedWindow;
     }
 

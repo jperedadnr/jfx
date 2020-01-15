@@ -119,7 +119,7 @@ project(":graphics") {
 project(":controls") {
 
     apply plugin: 'java'
-
+    sourceSets.main.java.srcDirs += ['src/android/java']
     task copyResources()  {
         copy {
             from ("src/android/resources")

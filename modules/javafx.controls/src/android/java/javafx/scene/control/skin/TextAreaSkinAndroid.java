@@ -23,7 +23,7 @@
  * questions.
  */
 
-package com.sun.javafx.scene.control.skin;
+package javafx.scene.control.skin;
 
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
@@ -32,20 +32,41 @@ import javafx.scene.control.skin.TextAreaSkin;
 
 public class TextAreaSkinAndroid extends TextAreaSkin {
 
+    private final TextArea control;
+
     public TextAreaSkinAndroid(final TextArea textArea) {
         super(textArea);
+        this.control = textArea;
 
         textArea.focusedProperty().addListener(new ChangeListener<Boolean>() {
             public void changed(ObservableValue<? extends Boolean> observable,
                     Boolean wasFocused, Boolean isFocused) {
                 if (textArea.isEditable()) {
                     if (isFocused) {
-                        com.sun.glass.ui.android.SoftwareKeyboard.show();
+                        showSoftwareKeyboard();
+                        adjustSize(460);
                     } else {
-                        com.sun.glass.ui.android.SoftwareKeyboard.hide();
+                        hideSoftwareKeyboard();
+                            if(control.getScene() != null) {
+                                control.getScene().getRoot().setTranslateY(0);
+                            }
                     }
                 }
             }
         });
     }
+
+    private void adjustSize(double kh) {
+        double tTot = control.getScene().getHeight();
+        double ty = control.getLocalToSceneTransform().getTy()+ control.getHeight();
+        if (ty > (tTot - kh) ) { 
+            control.getScene().getRoot().setTranslateY(tTot - ty - kh);
+        } else if (kh < 1) {
+            control.getScene().getRoot().setTranslateY(0);
+        }
+    }
+
+    native void showSoftwareKeyboard();
+    native void hideSoftwareKeyboard();
+
 }

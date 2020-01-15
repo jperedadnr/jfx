@@ -544,6 +544,8 @@ public abstract class View {
     private void handleKeyEvent(long time, int action,
             int keyCode, char[] keyChars, int modifiers) {
         if (this.eventHandler != null) {
+System.err.println("handleKeyEvent, action = "+ action+", keycode = "+keyCode+", mods = "+modifiers);
+if (keyChars != null) System.err.println("keychars = "+java.util.Arrays.toString(keyChars));
             this.eventHandler.handleKeyEvent(this, time, action, keyCode, keyChars, modifiers);
         }
     }

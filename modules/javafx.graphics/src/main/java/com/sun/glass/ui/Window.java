@@ -770,6 +770,7 @@ public abstract class Window {
      * @return {@code true} if the operation succeeded
      */
     public boolean requestFocus(int event) {
+System.err.println("[JVDBG] WINDOW requestFocus called with event "+event);
         Application.checkEventThread();
         checkNotClosed();
 
@@ -1450,7 +1451,9 @@ public abstract class Window {
 
     @Override
     public String toString() {
+System.err.println("WTS called");
         Application.checkEventThread();
+System.err.println("WTS called ok");
         return  "Window:"+"\n"
                 + "    ptr: " + getNativeWindow() + "\n"
                 + "    screen ptr: " + (screen != null ? screen.getNativeScreen() : "null") + "\n"

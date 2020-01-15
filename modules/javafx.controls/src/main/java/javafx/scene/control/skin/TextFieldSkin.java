@@ -146,6 +146,7 @@ public class TextFieldSkin extends TextInputControlSkin<TextField> {
      */
     public TextFieldSkin(final TextField control) {
         super(control);
+System.err.println("TEXTFIELD created");
 
         // install default input map for the text field control
         this.behavior = (control instanceof PasswordField)

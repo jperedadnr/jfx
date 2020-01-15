@@ -23,35 +23,55 @@
  * questions.
  */
 
-package com.sun.javafx.scene.control.skin;
+package javafx.scene.control.skin;
 
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
 import javafx.scene.control.TextField;
 
-import com.sun.javafx.scene.control.behavior.TextFieldBehavior;
 import javafx.scene.control.skin.TextFieldSkin;
 
 public class TextFieldSkinAndroid extends TextFieldSkin {
 
+    private final TextField control;
+
     public TextFieldSkinAndroid(final TextField textField) {
         super(textField);
+        this.control = textField;
+System.err.println("TEXTFIELDskinandroid created");
 
         textField.focusedProperty().addListener(new ChangeListener<Boolean>() {
             public void changed(ObservableValue<? extends Boolean> observable,
                     Boolean wasFocused, Boolean isFocused) {
+System.err.println("TEXTFIELDskinandroid changed");
                 if (textField.isEditable()) {
                     if (isFocused) {
-                        com.sun.glass.ui.android.SoftwareKeyboard.show();
+System.err.println("TEXTFIELDskinandroid focused");
+                        showSoftwareKeyboard();
+adjustSize(460);
                     } else {
-                        com.sun.glass.ui.android.SoftwareKeyboard.hide();
+System.err.println("TEXTFIELDskinandroid not focused");
+                        hideSoftwareKeyboard();
+        if(control.getScene() != null) {
+            control.getScene().getRoot().setTranslateY(0);
+        }
+
                     }
                 }
             }
         });
     }
 
-    public TextFieldSkinAndroid(final TextField textField, final TextFieldBehavior behavior) {
-        super(textField, behavior);
+    private void adjustSize(double kh) {
+        double tTot = control.getScene().getHeight();
+        double ty = control.getLocalToSceneTransform().getTy()+ control.getHeight();
+        if (ty > (tTot - kh) ) {
+            control.getScene().getRoot().setTranslateY(tTot - ty - kh);
+        } else if (kh < 1) {
+            control.getScene().getRoot().setTranslateY(0);
+        }
     }
+
+    native void showSoftwareKeyboard();
+    native void hideSoftwareKeyboard();
 }

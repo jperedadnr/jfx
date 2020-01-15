@@ -37,7 +37,7 @@
  ******************************************************************************/
 
 .text-field {
-    -fx-skin: "com.sun.javafx.scene.control.skin.TextFieldSkinAndroid";
+    -fx-skin: "javafx.scene.control.skin.TextFieldSkinAndroid";
 }
 
 
@@ -48,6 +48,6 @@
  ******************************************************************************/
 
 .text-area {
-    -fx-skin: "com.sun.javafx.scene.control.skin.TextAreaSkinAndroid";
+    -fx-skin: "javafx.scene.control.skin.TextAreaSkinAndroid";
 }
 
