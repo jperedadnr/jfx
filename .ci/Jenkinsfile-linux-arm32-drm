@@ -1,0 +1,74 @@
+pipeline {
+    agent any
+
+    tools {
+        jdk 'openjdk-14'
+    }
+
+    environment {
+        TOOLCHAIN_DIR = '/opt/arm32'
+    }
+
+    stages {
+        stage('Clone repository (branch)') {
+            when {
+                anyOf {
+                    environment name: 'PROMOTED_BUILD_NUMBER', value: '0'
+                    not {
+                        environment name: 'BRANCH', value: 'build'
+                    }
+                }
+            }
+            steps {
+                checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: "git@github.com:${env.REPO}.git", credentialsId: 'github-account-tiainen']], branches: [[name: "${env.BRANCH}"]]], poll: false
+            }    
+        }
+
+        stage('Clone repository (promoted tag)') {
+            when {
+                allOf {
+                    environment name: 'BRANCH', value: 'build'
+                    not {
+                        environment name: 'PROMOTED_BUILD_NUMBER', value: '0'
+                    }
+                }
+            }
+            steps {
+                checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: "git@github.com:${env.REPO}.git", credentialsId: 'github-account-tiainen']], branches: [[name: "${env.MAJOR_VERSION}-ea+gvm${env.PROMOTED_BUILD_NUMBER}"]]], poll: false
+            }    
+        }
+
+        stage('Clean repository') {
+            steps {
+                sh "git clean -d -x -f"
+            }
+        }
+
+        stage('Gradle build') {
+            steps {
+                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PUSE_DRM -PCOMPILE_TARGETS=arm32fb -PCROSS_TOOLS_DIR=${env.TOOLCHAIN_DIR} clean sdk"
+            }
+        }
+
+        stage('Create zip') {
+            steps {
+                sh "cd build && zip -r openjfx-${env.MAJOR_VERSION}-ea+gvm${env.PROMOTED_BUILD_NUMBER}-linux-arm32-drm.zip arm32fb-sdk"
+            }
+        }
+
+        stage('Upload zip (branch)') {
+            when {
+                anyOf {
+                    environment name: 'PROMOTED_BUILD_NUMBER', value: '0'
+                    not {
+                        environment name: 'BRANCH', value: 'build'
+                    }
+                }
+            }
+            steps {
+                sh "scp build/openjfx-${env.MAJOR_VERSION}-ea+gvm${env.PROMOTED_BUILD_NUMBER}-linux-arm32-drm.zip root@download2.gluonhq.com:/var/www/html/openjfx/16/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-linux-arm32-drm.zip"
+            }
+        }
+
+    }
+}
