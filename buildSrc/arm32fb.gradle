@@ -190,7 +190,7 @@ ARM32FB.glass.javahInclude = [
     "com/sun/glass/ui/*"]
 ARM32FB.glass.variants = [ ]
 if (ARM32FB.includeMonocle) {
-    ARM32FB.glass.variants.addAll("monocle", "drm", "monocle_x11");
+    ARM32FB.glass.variants.addAll("monocle", "monocle_x11");
     ARM32FB.glass.javahInclude.addAll(
         "com/sun/glass/ui/monocle/*",
         "com/sun/glass/ui/monocle/linux/*",
@@ -217,15 +217,6 @@ ARM32FB.glass.monocle.ccFlags = monocleCFlags
 ARM32FB.glass.monocle.linker = linker
 ARM32FB.glass.monocle.linkFlags = monocleLFlags
 ARM32FB.glass.monocle.lib = "glass_monocle"
-
-ARM32FB.glass.drm = [:]
-ARM32FB.glass.drm.nativeSource = [
-        file("${project("graphics").projectDir}/src/main/native-glass/monocle/drm")]
-ARM32FB.glass.drm.compiler = compiler
-ARM32FB.glass.drm.ccFlags = monocleCFlags
-ARM32FB.glass.drm.linker = linker
-ARM32FB.glass.drm.linkFlags = monocleEGLLFlags
-ARM32FB.glass.drm.lib = "gluon_drm"
 
 ARM32FB.glass.monocle_x11 = [:]
 ARM32FB.glass.monocle_x11.nativeSource = [
