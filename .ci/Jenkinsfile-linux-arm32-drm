@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        jdk 'openjdk-14'
+        jdk 'openjdk-15'
     }
 
     environment {
@@ -14,6 +14,9 @@ pipeline {
             when {
                 anyOf {
                     environment name: 'PROMOTED_BUILD_NUMBER', value: '0'
+                    not {
+                        environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                    }
                     not {
                         environment name: 'BRANCH', value: 'build'
                     }
@@ -34,7 +37,7 @@ pipeline {
                 }
             }
             steps {
-                checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: "git@github.com:${env.REPO}.git", credentialsId: 'github-account-tiainen']], branches: [[name: "${env.MAJOR_VERSION}-ea+gvm${env.PROMOTED_BUILD_NUMBER}"]]], poll: false
+                checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: "git@github.com:${env.REPO}.git", credentialsId: 'github-account-tiainen']], branches: [[name: "${env.MAJOR_VERSION}+${env.PROMOTED_BUILD_NUMBER}-gluon"]]], poll: false
             }    
         }
 
@@ -46,29 +49,40 @@ pipeline {
 
         stage('Gradle build') {
             steps {
-                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PUSE_DRM -PCOMPILE_TARGETS=arm32fb -PCROSS_TOOLS_DIR=${env.TOOLCHAIN_DIR} clean sdk"
+                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PUSE_DRM -PCOMPILE_TARGETS=arm32fb -PCROSS_TOOLS_DIR=${env.TOOLCHAIN_DIR} clean all"
             }
         }
 
-        stage('Create zip') {
-            steps {
-                sh "cd build && zip -r openjfx-${env.MAJOR_VERSION}-ea+gvm${env.PROMOTED_BUILD_NUMBER}-linux-arm32-drm.zip arm32fb-sdk"
-            }
-        }
-
-        stage('Upload zip (branch)') {
+        stage('Add DRM lib') {
             when {
-                anyOf {
-                    environment name: 'PROMOTED_BUILD_NUMBER', value: '0'
-                    not {
-                        environment name: 'BRANCH', value: 'build'
-                    }
+                not {
+                    environment name: 'GLUON_DRM_VERSION', value: ''
                 }
             }
             steps {
-                sh "scp build/openjfx-${env.MAJOR_VERSION}-ea+gvm${env.PROMOTED_BUILD_NUMBER}-linux-arm32-drm.zip root@download2.gluonhq.com:/var/www/html/openjfx/16/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-linux-arm32-drm.zip"
+                sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/libgluon_drm-${GLUON_DRM_VERSION}.so build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/lib/"
+                sh "cd build/artifacts && zip -ur bundles/javafx-sdk-${env.MAJOR_VERSION}.zip javafx-sdk-${env.MAJOR_VERSION}"
             }
         }
 
+        stage('Upload zip (ea)') {
+            when {
+                environment name: 'MILESTONE_FCS', value: 'false'
+            }
+            steps {
+                sh "scp build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_linux-arm32_bin-sdk.zip"
+                sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/${MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_linux-arm32_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_linux-arm32_bin-sdk.zip.sha256'"
+            }
+        }
+
+        stage('Upload zip (fcs)') {
+            when {
+                environment name: 'MILESTONE_FCS', value: 'true'
+            }
+            steps {
+                sh "scp build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}_linux-arm32_bin-sdk.zip"
+                sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/${MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}_linux-arm32_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}_linux-arm32_bin-sdk.zip.sha256'"
+            }
+        }
     }
 }
