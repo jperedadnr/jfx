@@ -1,4 +1,17 @@
 [
+ {
+    "name" : "com.sun.prism.es2.MonocleGLFactory",
+    "methods":[{"name":"<init>","parameterTypes":[] }]
+  }
+,
+  {
+    "name" : "com.sun.glass.ui.monocle.EGLPlatformFactory",
+    "methods":[{"name":"<init>","parameterTypes":[] }]
+  }
+,{
+    "name" : "com.sun.glass.ui.monocle.MonoclePlatformFactory",
+    "methods":[{"name":"<init>","parameterTypes":[] }]
+  },
   {
     "name" : "com.sun.prism.es2.ES2Pipeline",
     "methods":[
