@@ -9,7 +9,7 @@
  *   - TAG:   defines the tag used to checkout
  *
  * Optional Job Parameters:
- *   - MILESTONE_FCS:     if set to false: build an early access release; if set to true: build a milestone release
+ *   - MILESTONE_FCS: if set to false: build an early access release; if set to true: build a milestone release
  *
  * Release types:
  *   - fork:         REPO does not equal to gluonhq/gluonjfx
@@ -35,7 +35,7 @@ pipeline {
     }
 
     stages {
-        stage('Verify required REPO parameter) {
+        stage('Verify required REPO parameter') {
             when {
                 expression {
                     return params.REPO == ''
@@ -46,7 +46,7 @@ pipeline {
             }
         }
 
-        stage('Verify required TAG parameter) {
+        stage('Verify required TAG parameter') {
             when {
                 expression {
                     return params.TAG == ''

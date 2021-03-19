@@ -42,7 +42,7 @@ pipeline {
     }
 
     stages {
-        stage('Verify required REPO parameter) {
+        stage('Verify required REPO parameter') {
             when {
                 expression {
                     return params.REPO == ''
@@ -53,7 +53,7 @@ pipeline {
             }
         }
 
-        stage('Verify required TAG parameter) {
+        stage('Verify required TAG parameter') {
             when {
                 expression {
                     return params.TAG == ''
