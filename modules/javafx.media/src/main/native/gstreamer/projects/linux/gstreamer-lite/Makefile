@@ -35,7 +35,11 @@ DIRLIST = gstreamer/gst \
           gst-plugins-bad/gst/aiff \
           gst-plugins-base/gst/app
 
-TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+ifeq ($(STATIC), true) 
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).a
+else
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+endif
 
 CFLAGS =-fPIC                   \
         -Wformat                \
@@ -53,6 +57,10 @@ CFLAGS =-fPIC                   \
         -DGST_DISABLE_GST_DEBUG \
         -DGST_DISABLE_LOADSAVE  \
         -ffunction-sections -fdata-sections
+
+ifeq ($(STATIC), true)
+    CFLAGS += -DSTATIC_BUILD
+endif
 
 ifeq ($(BUILD_TYPE), Release)
     CFLAGS += -Os
@@ -276,5 +284,11 @@ $(OBJ_DIRS):
 $(TARGET_DIRS):
 	mkdir -p $(TARGET_DIRS)
 
+ifeq ($(STATIC), true) 
+    LINKARGS = r $@ $(OBJECTS)
+else 
+    LINKARGS = -shared $(OBJECTS) $(LDFLAGS) -o $@
+endif
+
 $(TARGET): $(OBJECTS)
-	$(LINKER) -shared $(OBJECTS) $(LDFLAGS) -o $@
+	$(LINKER) $(LINKARGS)

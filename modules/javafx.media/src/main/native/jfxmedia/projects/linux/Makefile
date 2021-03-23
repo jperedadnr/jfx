@@ -15,7 +15,11 @@ DIRLIST = jni                \
           Utils/posix 	     \
           platform/gstreamer
 
-TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+ifeq ($(STATIC), true) 
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).a
+else
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+endif
 
 CFLAGS = -DTARGET_OS_LINUX=1     \
          -D_GNU_SOURCE           \
@@ -63,6 +67,10 @@ else
 	CFLAGS += $(EXTRA_CFLAGS)
 	INCLUDES = $(BASE_INCLUDES)
 	LDFLAGS = -Wl,-rpath,\$$ORIGIN -L$(BUILD_DIR) $(EXTRA_LDFLAGS)
+endif
+
+ifeq ($(STATIC), true)
+    CFLAGS += -DSTATIC_BUILD
 endif
 
 ifeq ($(BUILD_TYPE), Release)
@@ -133,8 +141,14 @@ $(DEPFILES): | $(DEP_DIRS)
 $(DEP_DIRS):
 	mkdir -p $(DEP_DIRS)
 
+ifeq ($(STATIC), true) 
+    LINKARGS = r $@ $(OBJECTS)
+else 
+    LINKARGS = -shared $(OBJECTS) $(LDFLAGS) -o $@
+endif
+
 $(TARGET): $(DEPFILES) $(OBJECTS)
-	$(LINKER) -shared $(OBJECTS) $(LDFLAGS) -o $@
+	$(LINKER) $(LINKARGS)
 
 $(OBJBASE_DIR)/%.o: $(SRCBASE_DIR)/%.cpp
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(INCLUDES) -x c++ -c $< -o $@

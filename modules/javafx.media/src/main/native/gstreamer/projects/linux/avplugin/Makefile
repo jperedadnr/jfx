@@ -9,11 +9,17 @@ SRCBASE_DIR = ../../../plugins
 
 DIRLIST = av
 
+ifeq ($(STATIC), true)
+SUFFIX = a
+else
+SUFFIX = so
+endif
+
 ifneq ($(strip $(VERSION)),)
-TARGET = $(BUILD_DIR)/lib$(BASE_NAME)$(SUFFIX)-$(VERSION).so
+TARGET = $(BUILD_DIR)/lib$(BASE_NAME)$(SUFFIX)-$(VERSION).$(SUFFIX)
 OBJBASE_DIR = $(BUILD_DIR)/obj/plugins/$(BASE_NAME)$(SUFFIX)-$(VERSION)
 else
-TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+TARGET = $(BUILD_DIR)/lib$(BASE_NAME).$(SUFFIX)
 OBJBASE_DIR = $(BUILD_DIR)/obj/plugins/avplugin
 endif
 
@@ -36,6 +42,10 @@ ifeq ($(BUILD_TYPE), Release)
     CFLAGS += -Os
 else
     CFLAGS += -g -Wall
+endif
+
+ifeq ($(STATIC), true)
+    CFLAGS += -DSTATIC_BUILD
 endif
 
 PACKAGES_INCLUDES := $(shell pkg-config --cflags glib-2.0)
@@ -91,5 +101,11 @@ $(OBJ_DIRS):
 $(TARGET_DIRS):
 	mkdir -p $(TARGET_DIRS)
 
+ifeq ($(STATIC), true)
+	LINKARGS = r $@ $(OBJECTS)
+else
+	LINKARGS = -shared $(OBJECTS) $(LDFLAGS) -o $@
+endif
+
 $(TARGET): $(OBJECTS)
-	$(LINKER) -shared $(OBJECTS) $(LDFLAGS) -o $@
+	$(LINKER) $(LINKARGS)
