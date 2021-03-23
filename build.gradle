@@ -2516,7 +2516,11 @@ project(":controls") {
         }
     }
 
-    project.ext.moduleSourcePath = defaultModuleSourcePath
+    if (!project.hasProperty('moduleSourcePath')) {
+        project.ext.moduleSourcePath = defaultModuleSourcePath
+    } else {
+        project.ext.moduleSourcePath = project.ext.moduleSourcePath + ":" + defaultModuleSourcePath
+    }
     project.ext.moduleSourcePathShim = defaultModuleSourcePathShim
 
     commonModuleSetup(project, [ 'base', 'graphics', 'controls' ])
