@@ -102,9 +102,9 @@ $(TARGET_DIRS):
 	mkdir -p $(TARGET_DIRS)
 
 ifeq ($(STATIC), true)
-	LINKARGS = r $@ $(OBJECTS)
+    LINKARGS = r $@ $(OBJECTS)
 else
-	LINKARGS = -shared $(OBJECTS) $(LDFLAGS) -o $@
+    LINKARGS = -shared $(OBJECTS) $(LDFLAGS) -o $@
 endif
 
 $(TARGET): $(OBJECTS)
