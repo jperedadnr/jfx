@@ -3353,7 +3353,12 @@ project(":web") {
         }
     }
 
-    project.ext.moduleSourcePath = defaultModuleSourcePath
+    if (!project.hasProperty('moduleSourcePath')) {
+        project.ext.moduleSourcePath = defaultModuleSourcePath
+    }
+    if (project.hasProperty('bundledWebkit')) {
+        addNative(project, "webview")
+    }
     project.ext.moduleSourcePathShim = defaultModuleSourcePathShim
 
     commonModuleSetup(project, [ 'base', 'graphics', 'controls', 'media', 'web' ])
@@ -3380,7 +3385,7 @@ project(":web") {
     // add in the wrappers to the compile
     sourceSets.main.java.srcDirs += "${gensrcDir}"
 
-    if (IS_COMPILE_WEBKIT) {
+    if (IS_COMPILE_WEBKIT || project.hasProperty('bundledWebkit')) {
         compileJava {
             // generate the native headers during compile
             // only needed if we are doing the native compile
@@ -3396,7 +3401,9 @@ project(":web") {
         into "${gensrcDir}"
     }
 
-    compileJava.dependsOn(copyWrappers);
+    if (!project.hasProperty('bundledWebkit')) {
+        compileJava.dependsOn(copyWrappers);
+    }
 
     test {
         doFirst {
