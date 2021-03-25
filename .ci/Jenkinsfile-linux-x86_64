@@ -169,6 +169,7 @@ pipeline {
             steps {
                 sh "sh gradlew clean"
                 sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.BUILD_NUMBER} -PCOMPILE_MEDIA=true -PCOMPILE_WEBKIT=true -PSTATIC_BUILD=true sdk"
+                sh "objcopy --localize-hidden build/sdk/lib/libjavafx_iio.a"
                 sh "cp -r modules/javafx.web/build/linux/Release/lib/* build/sdk/lib"
             }
         }
