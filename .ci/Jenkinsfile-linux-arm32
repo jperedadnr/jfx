@@ -1,37 +1,32 @@
 /*
- * Jenkins Pipeline script for building OpenJFX.
+ * Jenkins Pipeline script for building OpenJFX. Final SDKs are stored as job artifacts.
  *
  * Target: linux-arm32
  * Versions: dynamic
  *
  * Mandatory Job Parameters:
- *   - REPO:  defines what repository to checkout: git@github.com:${REPO}.git
- *   - TAG:   defines the tag used to checkout: refs/tags/${TAG}
+ *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
+ *   - TAG:   defines the tag to checkout: refs/tags/${TAG}
  *
  * Optional Job Parameters:
  *   - MILESTONE_FCS:     if set to false: build an early access release; if set to true: build a milestone release
+ *   - BUILD_DYNAMIC:     builds the dynamic SDK for use with a regular JVM
  *   - GLUON_DRM_VERSION: the version of the Gluon DRM library to include in the final SDK
- *
- * Release types:
- *   - fork:         REPO does not equal to gluonhq/gluonjfx
- *   - early access: REPO matches gluonhq/gluonjfx and MILESTONE_FCS is false
- *   - milestone:    REPO matches gluonhq/gluonjfx and MILESTONE_FCS is true
- *
- * Final dynamic SDKs:
- *    - fork:         https://download2.gluonhq.com/openjfx/forks/${REPO_ACCOUNT}/${MAJOR_VERSION}/openjfx-${MAJOR_VERSION}+${TAG}_linux-arm32_bin-sdk.zip
- *    - early access: https://download2.gluonhq.com/openjfx/${MAJOR_VERSION}/openjfx-${MAJOR_VERSION}-ea+${BUILD_NUMBER}_linux-arm32_bin-sdk.zip
- *    - milestone:    https://download2.gluonhq.com/openjfx/${MAJOR_VERSION}/openjfx-${MAJOR_VERSION}_linux-arm32_bin-sdk.zip
  */
 
 pipeline {
     agent any
 
-    tools {
-        jdk 'openjdk-15'
-    }
-
     environment {
         TOOLCHAIN_DIR = '/opt/arm32'
+    }
+
+    options {
+        copyArtifactPermission('OpenJFX-build')
+    }
+
+    tools {
+        jdk 'openjdk-15'
     }
 
     stages {
@@ -103,7 +98,7 @@ pipeline {
 
         /*
          * Load environment variables specific to fork builds.
-         * BUILD_NUMBER: set to the TAG parameter
+         * PROMOTED_BUILD_NUMBER: set to the TAG parameter
          */
         stage('Load env vars (fork)') {
             when {
@@ -113,7 +108,7 @@ pipeline {
             }
             steps {
                 script {
-                    env.BUILD_NUMBER = """${sh(
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
                         returnStdout: true,
                         script: 'echo ${TAG} | tr -d "\\n"'
                     )}"""
@@ -123,7 +118,7 @@ pipeline {
 
         /*
          * Load environment variables specific to official builds.
-         * BUILD_NUMBER: set to the promoted build number of the promoted tag (i.e. number 3 from the tag 17+3-gluon)
+         * PROMOTED_BUILD_NUMBER: set to the promoted build number of the promoted tag (i.e. number 3 from the tag 17+3-gluon)
          */
         stage('Load env vars (official)') {
             when {
@@ -131,7 +126,7 @@ pipeline {
             }
             steps {
                 script {
-                    env.BUILD_NUMBER = """${sh(
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
                         returnStdout: true,
                         script: 'echo ${TAG} | cut -d- -f1 | cut -d+ -f2 | tr -d "\\n"'
                     )}"""
@@ -140,15 +135,25 @@ pipeline {
         }
 
         stage('Gradle build') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
             steps {
-                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.BUILD_NUMBER} -PCOMPILE_TARGETS=arm32fb -PCROSS_TOOLS_DIR=${env.TOOLCHAIN_DIR} clean all"
+                sh "sh gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PCOMPILE_TARGETS=arm32fb -PCROSS_TOOLS_DIR=${env.TOOLCHAIN_DIR} clean all"
             }
         }
 
         stage('Add dynamic DRM lib') {
             when {
-                not {
-                    environment name: 'GLUON_DRM_VERSION', value: ''
+                allOf {
+                    expression {
+                        return params.BUILD_DYNAMIC
+                    }
+                    not {
+                        environment name: 'GLUON_DRM_VERSION', value: ''
+                    }
                 }
             }
             steps {
@@ -157,44 +162,14 @@ pipeline {
             }
         }
 
-        stage('Upload zip (fork)') {
+        stage('Archive dynamic zip') {
             when {
-                not {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                expression {
+                    return params.BUILD_DYNAMIC
                 }
             }
             steps {
-                sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/openjfx/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}'"
-                sh "scp build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}+${env.TAG}_linux-arm32_bin-sdk.zip"
-                sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}+${env.TAG}_linux-arm32_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}+${env.TAG}_linux-arm32_bin-sdk.zip.sha256'"
-            }
-        }
-
-        stage('Upload zip (official / ea)') {
-            when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'MILESTONE_FCS', value: 'false'
-                }
-            }
-            steps {
-                sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/openjfx/${env.MAJOR_VERSION}'"
-                sh "scp build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.BUILD_NUMBER}_linux-arm32_bin-sdk.zip"
-                sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.BUILD_NUMBER}_linux-arm32_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.BUILD_NUMBER}_linux-arm32_bin-sdk.zip.sha256'"
-            }
-        }
-
-        stage('Upload zip (official / fcs)') {
-            when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'MILESTONE_FCS', value: 'true'
-                }
-            }
-            steps {
-                sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/openjfx/${env.MAJOR_VERSION}'"
-                sh "scp build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}_linux-arm32_bin-sdk.zip"
-                sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}_linux-arm32_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}_linux-arm32_bin-sdk.zip.sha256'"
+                archiveArtifacts artifacts: 'build/artifacts/bundles/javafx-sdk-*.zip', fingerprint: true
             }
         }
     }

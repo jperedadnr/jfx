@@ -1,8 +1,8 @@
 /*
  * Jenkins Pipeline script for building OpenJFX. Final SDKs are stored as job artifacts.
  *
- * Target: windows-x86_64
- * Versions: dynamic and static
+ * Target: windows-x86_32
+ * Versions: dynamic
  *
  * Mandatory Job Parameters:
  *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
@@ -12,7 +12,6 @@
  *   - MILESTONE_FCS:  if set to false: build an early access release; if set to true: build a milestone release
  *   - RUN_TESTS:      if set to true: runs JavaFX unit tests after the dynamic gradle build
  *   - BUILD_DYNAMIC:  builds the dynamic SDK for use with a regular JVM
- *   - BUILD_STATIC:   builds the static SDK for use with Gluon Substrate
  *   - COMPILE_MEDIA:  enable compiling native media components
  *   - COMPILE_WEBKIT: enable compiling native webkit
  */
@@ -35,7 +34,7 @@ pipeline {
     }
 
     tools {
-        jdk 'openjdk-15'
+        jdk 'openjdk-15 32bit'
     }
 
     stages {
@@ -200,75 +199,6 @@ pipeline {
             steps {
                 dir("repo") {
                     archiveArtifacts artifacts: 'build/artifacts/bundles/javafx-jmods-*.zip,build/artifacts/bundles/javafx-sdk-*.zip,build/publications/*-win.jar', fingerprint: true
-                }
-            }
-        }
-
-        stage('Clean repository after dynamic') {
-            when {
-                expression {
-                    return params.BUILD_DYNAMIC && params.BUILD_STATIC
-                }
-            }
-            steps {
-                dir("repo") {
-                    sh "git clean -d -x -f"
-                }
-            }
-        }
-
-        stage('Gradle static build') {
-            when {
-                expression {
-                    return params.BUILD_STATIC
-                }
-            }
-            steps {
-                dir("repo") {
-                    sh "chmod +x gradlew.bat"
-                    sh "./gradlew.bat --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true clean sdk"
-                }
-            }
-        }
-
-        stage('Rename artifacts') {
-            when {
-                expression {
-                    return params.BUILD_STATIC
-                }
-            }
-            steps {
-                dir("repo") {
-                    sh "cp build/sdk/lib/javafx.base.jar build/sdk/lib/javafx-base.jar"
-                    sh "cp build/sdk/lib/javafx.controls.jar build/sdk/lib/javafx-controls.jar"
-                    sh "cp build/sdk/lib/javafx.fxml.jar build/sdk/lib/javafx-fxml.jar"
-                    sh "cp build/sdk/lib/javafx.graphics.jar build/sdk/lib/javafx-graphics.jar"
-                }
-            }
-        }
-
-        stage('Create static zip') {
-            when {
-                expression {
-                    return params.BUILD_STATIC
-                }
-            }
-            steps {
-                dir("repo") {
-                    sh "cd build && zip -r javafx-static-sdk-${env.MAJOR_VERSION}.zip sdk"
-                }
-            }
-        }
-
-        stage('Archive static zip') {
-            when {
-                expression {
-                    return params.BUILD_STATIC
-                }
-            }
-            steps {
-                dir("repo") {
-                    archiveArtifacts artifacts: 'build/javafx-static-sdk-*.zip', fingerprint: true
                 }
             }
         }

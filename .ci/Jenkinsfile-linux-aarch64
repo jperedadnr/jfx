@@ -1,44 +1,35 @@
 /*
- * Jenkins Pipeline script for building OpenJFX.
+ * Jenkins Pipeline script for building OpenJFX. Final SDKs are stored as job artifacts.
  *
  * Target: linux-aarch64
  * Versions: dynamic and static
  *
  * Mandatory Job Parameters:
- *   - REPO:  defines what repository to checkout: git@github.com:${REPO}.git
- *   - TAG:   defines the tag used to checkout
+ *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
+ *   - TAG:   defines the tag to checkout: refs/tags/${TAG}
  *
  * Optional Job Parameters:
  *   - MILESTONE_FCS:     if set to false: build an early access release; if set to true: build a milestone release
+ *   - BUILD_DYNAMIC:     builds the dynamic SDK for use with a regular JVM
+ *   - BUILD_STATIC:      builds the static SDK for use with Gluon Substrate
  *   - GLUON_DRM_VERSION: the version of the Gluon DRM library to include in the final SDK
- *
- * Release types:
- *   - fork:         REPO does not equal to gluonhq/gluonjfx
- *   - early access: REPO matches gluonhq/gluonjfx and MILESTONE_FCS is false
- *   - milestone:    REPO matches gluonhq/gluonjfx and MILESTONE_FCS is true
- *
- * Final dynamic SDKs:
- *    - fork:         https://download2.gluonhq.com/openjfx/forks/${REPO_ACCOUNT}/${MAJOR_VERSION}/openjfx-${MAJOR_VERSION}+${TAG}_linux-aarch64_bin-sdk.zip
- *    - early access: https://download2.gluonhq.com/openjfx/${MAJOR_VERSION}/openjfx-${MAJOR_VERSION}-ea+${BUILD_NUMBER}_linux-aarch64_bin-sdk.zip
- *    - milestone:    https://download2.gluonhq.com/openjfx/${MAJOR_VERSION}/openjfx-${MAJOR_VERSION}_linux-aarch64_bin-sdk.zip
- *
- * Final static SDKs:
- *    - fork:         https://download2.gluonhq.com/substrate/javafxstaticsdk/forks/${REPO_ACCOUNT}/openjfx-${MAJOR_VERSION}+${TAG}-linux-aarch64-static.zip
- *    - early access: https://download2.gluonhq.com/substrate/javafxstaticsdk/openjfx-${MAJOR_VERSION}-ea+${BUILD_NUMBER}-linux-aarch64-static.zip
- *    - milestone:    https://download2.gluonhq.com/substrate/javafxstaticsdk/openjfx-${MAJOR_VERSION}-linux-aarch64-static.zip
  */
 
 pipeline {
     agent any
 
-    tools {
-        jdk 'openjdk-15'
-    }
-
     environment {
         TOOLCHAIN_DIR = '/opt/aarch64-linux/aarch64'
         PKG_CONFIG_SYSROOT_DIR = '/opt/aarch64-linux/aarch64'
         PKG_CONFIG_LIBDIR = '/opt/aarch64-linux/aarch64/usr/lib/aarch64-linux-gnu/pkgconfig:/opt/aarch64-linux/aarch64/usr/share/pkgconfig'
+    }
+
+    options {
+        copyArtifactPermission('OpenJFX-build')
+    }
+
+    tools {
+        jdk 'openjdk-15'
     }
 
     stages {
@@ -110,7 +101,7 @@ pipeline {
 
         /*
          * Load environment variables specific to fork builds.
-         * BUILD_NUMBER: set to the TAG parameter
+         * PROMOTED_BUILD_NUMBER: set to the TAG parameter
          */
         stage('Load env vars (fork)') {
             when {
@@ -120,7 +111,7 @@ pipeline {
             }
             steps {
                 script {
-                    env.BUILD_NUMBER = """${sh(
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
                         returnStdout: true,
                         script: 'echo ${TAG} | tr -d "\\n"'
                     )}"""
@@ -130,7 +121,7 @@ pipeline {
 
         /*
          * Load environment variables specific to official builds.
-         * BUILD_NUMBER: set to the promoted build number of the promoted tag (i.e. number 3 from the tag 17+3-gluon)
+         * PROMOTED_BUILD_NUMBER: set to the promoted build number of the promoted tag (i.e. number 3 from the tag 17+3-gluon)
          */
         stage('Load env vars (official)') {
             when {
@@ -138,7 +129,7 @@ pipeline {
             }
             steps {
                 script {
-                    env.BUILD_NUMBER = """${sh(
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
                         returnStdout: true,
                         script: 'echo ${TAG} | cut -d- -f1 | cut -d+ -f2 | tr -d "\\n"'
                     )}"""
@@ -147,15 +138,25 @@ pipeline {
         }
 
         stage('Gradle dynamic build') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
             steps {
-                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.BUILD_NUMBER} -PCOMPILE_MEDIA=false -PCOMPILE_TARGETS=linux_aarch64 -PTOOLCHAINDIR=${env.TOOLCHAIN_DIR} clean all"
+                sh "sh gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PCOMPILE_TARGETS=linux_aarch64 -PTOOLCHAINDIR=${env.TOOLCHAIN_DIR} clean all"
             }
         }
 
         stage('Add dynamic DRM lib') {
             when {
-                not {
-                    environment name: 'GLUON_DRM_VERSION', value: ''
+                allOf {
+                    expression {
+                        return params.BUILD_DYNAMIC
+                    }
+                    not {
+                        environment name: 'GLUON_DRM_VERSION', value: ''
+                    }
                 }
             }
             steps {
@@ -164,52 +165,45 @@ pipeline {
             }
         }
 
-        stage('Upload dynamic zip (fork)') {
+        stage('Archive dynamic zip') {
             when {
-                not {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                expression {
+                    return params.BUILD_DYNAMIC
                 }
             }
             steps {
-                sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/openjfx/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}'"
-                sh "scp build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-${env.TAG}_linux-aarch64_bin-sdk.zip"
-                sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-${env.TAG}_linux-aarch64_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}-${env.TAG}_linux-aarch64_bin-sdk.zip.sha256'"
+                archiveArtifacts artifacts: 'build/artifacts/bundles/javafx-sdk-*.zip', fingerprint: true
             }
         }
 
-        stage('Upload dynamic zip (official / ea)') {
+        stage('Clean repository after dynamic') {
             when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'MILESTONE_FCS', value: 'false'
+                expression {
+                    return params.BUILD_DYNAMIC && params.BUILD_STATIC
                 }
             }
             steps {
-                sh "scp build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.BUILD_NUMBER}_linux-aarch64_bin-sdk.zip"
-                sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.BUILD_NUMBER}_linux-aarch64_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.BUILD_NUMBER}_linux-aarch64_bin-sdk.zip.sha256'"
-            }
-        }
-
-        stage('Upload dynamic zip (official / fcs)') {
-            when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'MILESTONE_FCS', value: 'true'
-                }
-            }
-            steps {
-                sh "scp build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}_linux-aarch64_bin-sdk.zip"
-                sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}_linux-aarch64_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}_linux-aarch64_bin-sdk.zip.sha256'"
+                sh "git clean -d -x -f"
             }
         }
 
         stage('Gradle static build') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
             steps {
-                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.BUILD_NUMBER} -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true -PCOMPILE_TARGETS=linux_aarch64 -PTOOLCHAINDIR=${env.TOOLCHAIN_DIR} clean all"
+                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true -PCOMPILE_TARGETS=linux_aarch64 -PTOOLCHAINDIR=${env.TOOLCHAIN_DIR} clean all"
             }
         }
 
-        stage('Rename sdk folder) {
+        stage('Rename sdk folder') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
             steps {
                 sh "mv build/linux_aarch64-sdk build/sdk"
             }
@@ -217,8 +211,13 @@ pipeline {
 
         stage('Add static DRM lib') {
             when {
-                not {
-                    environment name: 'GLUON_DRM_VERSION', value: ''
+                allOf {
+                    expression {
+                        return params.BUILD_STATIC
+                    }
+                    not {
+                        environment name: 'GLUON_DRM_VERSION', value: ''
+                    }
                 }
             }
             steps {
@@ -227,6 +226,11 @@ pipeline {
         }
 
         stage('Rename artifacts') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
             steps {
                 sh "cp build/sdk/lib/javafx.base.jar build/sdk/lib/javafx-base.jar"
                 sh "cp build/sdk/lib/javafx.controls.jar build/sdk/lib/javafx-controls.jar"
@@ -236,46 +240,24 @@ pipeline {
         }
 
         stage('Create static zip') {
-            steps {
-                sh "cd build && zip -r ../javafx-static-sdk-${env.MAJOR_VERSION}.zip sdk"
-            }
-        }
-
-        stage('Upload static zip (fork)') {
             when {
-                not {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                expression {
+                    return params.BUILD_STATIC
                 }
             }
             steps {
-                sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}'"
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}/openjfx-${env.MAJOR_VERSION}+${env.TAG}-linux-aarch64-static.zip"
+                sh "cd build && zip -r javafx-static-sdk-${env.MAJOR_VERSION}.zip sdk"
             }
         }
 
-        stage('Upload static zip (official / ea)') {
+        stage('Archive static zip') {
             when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'MILESTONE_FCS', value: 'false'
+                expression {
+                    return params.BUILD_STATIC
                 }
             }
             steps {
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-ea+${env.BUILD_NUMBER}-linux-aarch64-static.zip"
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-linux-aarch64-static.zip"
-            }
-        }
-
-        stage('Upload static zip (official / fcs)') {
-            when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'MILESTONE_FCS', value: 'true'
-                }
-            }
-            steps {
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-linux-aarch64-static.zip"
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-linux-aarch64-static.zip"
+                archiveArtifacts artifacts: 'build/javafx-static-sdk-*.zip', fingerprint: true
             }
         }
     }

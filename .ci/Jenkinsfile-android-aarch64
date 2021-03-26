@@ -1,37 +1,32 @@
 /*
- * Jenkins Pipeline script for building OpenJFX.
+ * Jenkins Pipeline script for building OpenJFX. Final SDKs are stored as job artifacts.
  *
  * Target: android-aarch64
  * Versions: static
  *
  * Mandatory Job Parameters:
- *   - REPO:  defines what repository to checkout: git@github.com:${REPO}.git
- *   - TAG:   defines the tag used to checkout
+ *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
+ *   - TAG:   defines the tag to checkout: refs/tags/${TAG}
  *
  * Optional Job Parameters:
- *   - MILESTONE_FCS: if set to false: build an early access release; if set to true: build a milestone release
- *
- * Release types:
- *   - fork:         REPO does not equal to gluonhq/gluonjfx
- *   - early access: REPO matches gluonhq/gluonjfx and MILESTONE_FCS is false
- *   - milestone:    REPO matches gluonhq/gluonjfx and MILESTONE_FCS is true
- *
- * Final static SDKs:
- *    - fork:         https://download2.gluonhq.com/substrate/javafxstaticsdk/forks/${REPO_ACCOUNT}/openjfx-${MAJOR_VERSION}+${TAG}-linux-aarch64-static.zip
- *    - early access: https://download2.gluonhq.com/substrate/javafxstaticsdk/openjfx-${MAJOR_VERSION}-ea+${BUILD_NUMBER}-linux-aarch64-static.zip
- *    - milestone:    https://download2.gluonhq.com/substrate/javafxstaticsdk/openjfx-${MAJOR_VERSION}-linux-aarch64-static.zip
+ *   - MILESTONE_FCS:  if set to false: build an early access release; if set to true: build a milestone release
+ *   - BUILD_STATIC:   builds the static SDK for use with Gluon Substrate
  */
 
 pipeline {
     agent any
 
-    tools {
-        jdk 'openjdk-15'
-    }
-
     environment {
         ANDROID_NDK = '/opt/android-ndk-r20b'
         FREETYPE_DIR = '/opt/freetype/install/arm64-v8a'
+    }
+
+    options {
+        copyArtifactPermission('OpenJFX-build')
+    }
+
+    tools {
+        jdk 'openjdk-15'
     }
 
     stages {
@@ -103,7 +98,7 @@ pipeline {
 
         /*
          * Load environment variables specific to fork builds.
-         * BUILD_NUMBER: set to the TAG parameter
+         * PROMOTED_BUILD_NUMBER: set to the TAG parameter
          */
         stage('Load env vars (fork)') {
             when {
@@ -113,7 +108,7 @@ pipeline {
             }
             steps {
                 script {
-                    env.BUILD_NUMBER = """${sh(
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
                         returnStdout: true,
                         script: 'echo ${TAG} | tr -d "\\n"'
                     )}"""
@@ -123,7 +118,7 @@ pipeline {
 
         /*
          * Load environment variables specific to official builds.
-         * BUILD_NUMBER: set to the promoted build number of the promoted tag (i.e. number 3 from the tag 17+3-gluon)
+         * PROMOTED_BUILD_NUMBER: set to the promoted build number of the promoted tag (i.e. number 3 from the tag 17+3-gluon)
          */
         stage('Load env vars (official)') {
             when {
@@ -131,7 +126,7 @@ pipeline {
             }
             steps {
                 script {
-                    env.BUILD_NUMBER = """${sh(
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
                         returnStdout: true,
                         script: 'echo ${TAG} | cut -d- -f1 | cut -d+ -f2 | tr -d "\\n"'
                     )}"""
@@ -140,18 +135,33 @@ pipeline {
         }
 
         stage('Gradle static build') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
             steps {
-                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.BUILD_NUMBER} -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true -PCOMPILE_TARGETS=android -PANDROID_NDK=${env.ANDROID_NDK} -PFREETYPE_DIR=${env.FREETYPE_DIR} clean sdk"
+                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true -PCOMPILE_TARGETS=android -PANDROID_NDK=${env.ANDROID_NDK} -PFREETYPE_DIR=${env.FREETYPE_DIR} clean sdk"
             }
         }
 
-        stage('Rename sdk folder) {
+        stage('Rename sdk folder') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
             steps {
                 sh "mv build/android-sdk build/sdk"
             }
         }
 
         stage('Rename artifacts') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
             steps {
                 sh "cp build/sdk/lib/javafx.base.jar build/sdk/lib/javafx-base.jar"
                 sh "cp build/sdk/lib/javafx.controls.jar build/sdk/lib/javafx-controls.jar"
@@ -161,52 +171,35 @@ pipeline {
         }
 
         stage('Copy native libs') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
             steps {
                 sh "cp ${env.FREETYPE_DIR}/lib/libfreetype.so build/sdk/lib"
             }
         }
 
         stage('Create static zip') {
-            steps {
-                sh "cd build && zip -r ../javafx-static-sdk-${env.MAJOR_VERSION}.zip sdk"
-            }
-        }
-
-        stage('Upload static zip (fork)') {
             when {
-                not {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                expression {
+                    return params.BUILD_STATIC
                 }
             }
             steps {
-                sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}'"
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}/openjfx-${env.MAJOR_VERSION}+${env.TAG}-android-aarch64-static.zip"
+                sh "cd build && zip -r javafx-static-sdk-${env.MAJOR_VERSION}.zip sdk"
             }
         }
 
-        stage('Upload static zip (official / ea)') {
+        stage('Archive static zip') {
             when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'MILESTONE_FCS', value: 'false'
+                expression {
+                    return params.BUILD_STATIC
                 }
             }
             steps {
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-ea+${env.BUILD_NUMBER}-android-aarch64-static.zip"
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-android-aarch64-static.zip"
-            }
-        }
-
-        stage('Upload static zip (official / fcs)') {
-            when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'MILESTONE_FCS', value: 'true'
-                }
-            }
-            steps {
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-android-aarch64-static.zip"
-                sh "scp javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-android-aarch64-static.zip"
+                archiveArtifacts artifacts: 'build/javafx-static-sdk-*.zip', fingerprint: true
             }
         }
     }
