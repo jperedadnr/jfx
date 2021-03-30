@@ -5010,7 +5010,7 @@ compileTargets { t ->
                     [ "jfxmedia_qtkit", "jfxmedia_avf", "glib-lite" ].each { name ->
                         from ("${mediaProject.buildDir}/native/${t.name}/${mediaBuildType}/${library(name)}") }
                 } else if (t.name == "linux") {
-                    from("${mediaProject.buildDir}/native/${t.name}/${mediaBuildType}") { include "libavplugin*.so" }
+                    from("${mediaProject.buildDir}/native/${t.name}/${mediaBuildType}") { include "libavplugin*.${IS_STATIC_BUILD ? 'a' : 'so'}" }
                 } else from ("${mediaProject.buildDir}/native/${t.name}/${mediaBuildType}/${library("glib-lite")}")
             } else {
                 if (t.name != "android"  && t.name != "dalvik" ) {
@@ -5023,7 +5023,7 @@ compileTargets { t ->
                     [ "jfxmedia_qtkit", "jfxmedia_avf", "glib-lite" ].each { name ->
                         from ("$MEDIA_STUB/${library(name)}") }
                 } else if (t.name == "linux") {
-                    from(MEDIA_STUB) { include "libavplugin*.so" }
+                    from(MEDIA_STUB) { include "libavplugin*.${IS_STATIC_BUILD ? 'a' : 'so'}" }
                 }
                 else if (t.name != "android"  && t.name != "dalvik" ) {
                     from ("$MEDIA_STUB/${library("glib-lite")}")
