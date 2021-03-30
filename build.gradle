@@ -4988,6 +4988,10 @@ compileTargets { t ->
                     from ("$winsdklib");
                 }
             }
+            if (target == "android") {
+                def lib = 'fontNativeFreetype'
+                from ("${graphicsProject.buildDir}/libs/$lib/$target/${library(targetProperties[lib].lib)}")
+            }
         }
 
         def buildModuleMediaTask = task("buildModuleMedia$t.capital", type: Copy, dependsOn: [mediaProject.assemble, prepOpenJfxStubs]) {
