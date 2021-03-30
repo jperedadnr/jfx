@@ -4988,7 +4988,7 @@ compileTargets { t ->
                     from ("$winsdklib");
                 }
             }
-            if (target == "android") {
+            if (t.name == "android") {
                 def lib = 'fontNativeFreetype'
                 from ("${graphicsProject.buildDir}/libs/$lib/$target/${library(targetProperties[lib].lib)}")
             }
