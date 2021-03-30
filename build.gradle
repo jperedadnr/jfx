@@ -4990,7 +4990,7 @@ compileTargets { t ->
             }
             if (t.name == "android") {
                 def lib = 'fontNativeFreetype'
-                from ("${graphicsProject.buildDir}/libs/$lib/$target/${library(targetProperties[lib].lib)}")
+                from ("${graphicsProject.buildDir}/libs/$lib/${t.name}/${library(targetProperties[lib].lib)}")
             }
         }
 
