@@ -460,6 +460,7 @@ project(":web") {
     apply plugin: 'java'
 
     sourceSets.main.java.srcDirs = [ 'src/ios/java' ]
+    sourceSets.main.resources.srcDirs += ['src/ios/resources']
     project.ext.moduleSourcePath = cygpath(rootProject.projectDir.path + '/modules/*/src/ios/java')
     project.ext.bundledWebkit = true
 }

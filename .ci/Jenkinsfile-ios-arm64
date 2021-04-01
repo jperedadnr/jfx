@@ -173,22 +173,6 @@ pipeline {
             }
         }
 
-        stage('Copy native libs') {
-            when {
-                allOf {
-                    expression {
-                        return params.BUILD_STATIC
-                    }
-                    expression {
-                        fileExists 'modules/javafx.web/build/libs/webview/ios/libjavafx_ios_webnode.a'
-                    }
-                }
-            }
-            steps {
-                sh "cp modules/javafx.web/build/libs/webview/ios/libjavafx_ios_webnode.a build/sdk/lib"
-            }
-        }
-
         stage('Create static zip') {
             when {
                 expression {

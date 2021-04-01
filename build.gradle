@@ -5044,6 +5044,11 @@ compileTargets { t ->
                     from ("$WEB_STUB/${library('jfxwebkit')}")
                 }
             }
+
+            if (t.name == "ios") {
+                def lib = 'webview'
+                from ("${webProject.buildDir}/libs/$lib/${t.name}/${library(targetProperties[lib].lib)}")
+            }
         }
 
         def buildModuleSWT = task("buildModuleSWT$t.capital", type: Copy) {
