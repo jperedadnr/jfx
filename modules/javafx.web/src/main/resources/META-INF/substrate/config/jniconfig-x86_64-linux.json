@@ -320,7 +320,6 @@
       {"name":"closeSubpath","parameterTypes":[]},
       {"name":"clear","parameterTypes":[]},
       {"name":"isEmpty","parameterTypes":[]},
-      {"name":"hasCurrentPoint","parameterTypes":[]},
       {"name":"addPath","parameterTypes":["com.sun.webkit.graphics.WCPath"]}
     ]
   },
