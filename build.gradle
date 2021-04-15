@@ -5076,7 +5076,7 @@ compileTargets { t ->
                 }
             }
 
-            if (t.name == "ios") {
+            if (t.name == "ios" || t.name == "android") {
                 def lib = 'webview'
                 from ("${webProject.buildDir}/libs/$lib/${t.name}/${library(targetProperties[lib].lib)}")
             }
