@@ -167,8 +167,8 @@ pipeline {
                 sh "cp build/sdk/lib/javafx.controls.jar build/sdk/lib/javafx-controls.jar"
                 sh "cp build/sdk/lib/javafx.fxml.jar build/sdk/lib/javafx-fxml.jar"
                 sh "cp build/sdk/lib/javafx.graphics.jar build/sdk/lib/javafx-graphics.jar"
-                sh "cp build/android-sdk/lib/javafx.media.jar build/android-sdk/lib/javafx-media.jar"
-                sh "cp build/android-sdk/lib/javafx.web.jar build/android-sdk/lib/javafx-web.jar"
+                sh "cp build/sdk/lib/javafx.media.jar build/sdk/lib/javafx-media.jar"
+                sh "cp build/sdk/lib/javafx.web.jar build/sdk/lib/javafx-web.jar"
             }
         }
 
