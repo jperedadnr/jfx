@@ -57,7 +57,7 @@ def generateTargetUploadStage(target, buildNumber) {
                 if (Globals.staticSDKTargets.containsKey(target)) {
                     copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
                     sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}'"
-                    sh "scp artifacts/${target}/javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}/openjfx-${env.MAJOR_VERSION}-${env.TAG}-${Globals.staticSDKTargets[target]}-static.zip"
+                    sh "scp artifacts/${target}/javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}/openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticSDKTargets[target]}-static.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT} && sha256sum openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticSDKTargets[target]}-static.zip > openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticSDKTargets[target]}-static.zip.sha256'"
                 }
             }
