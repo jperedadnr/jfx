@@ -68,7 +68,6 @@
   {
     "name":"com.sun.webkit.MainThread",
     "methods" : [
-      {"name":"fwkIsMainThread","parameterTypes":[]},
       {"name":"fwkScheduleDispatchFunctions","parameterTypes":[]}
     ]
   },
@@ -106,6 +105,10 @@
       {"name":"fwkStopTimer","parameterTypes":[]},
       {"name":"fwkSetFireTime","parameterTypes":["double"]}
     ]
+  },
+  {
+    "name":"com.sun.webkit.Utilities",
+    "methods":[{"name":"fwkInvokeWithContext","parameterTypes":["java.lang.reflect.Method","java.lang.Object","java.lang.Object[]","java.security.AccessControlContext"] }]
   },
   {
     "name":"com.sun.webkit.WCWidget",
@@ -167,11 +170,17 @@
       {"name":"fwkFrameDestroyed","parameterTypes":["long"]},
       {"name":"fwkRepaintAll","parameterTypes":[]},
       {"name":"fwkSendInspectorMessageToFrontend","parameterTypes":["java.lang.String"]},
-      {"name":"fwkPrint","parameterTypes":[]}
+      {"name":"fwkPrint","parameterTypes":[]},
+      {"name":"twkExecuteScript","parameterTypes":["long","java.lang.String"] }
     ]
   },
   {
-    "name":"com.sun.webkit.dom.JSObject"
+    "name":"com.sun.webkit.dom.JSObject",
+    "fields":[{"name":"UNDEFINED"}],
+    "methods":[
+      {"name":"<init>","parameterTypes":["long","int"] },
+      {"name":"fwkMakeException","parameterTypes":["java.lang.Object"] }
+    ]
   },
   {
     "name":"com.sun.webkit.dom.NodeImpl",
