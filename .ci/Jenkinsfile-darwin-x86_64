@@ -186,7 +186,8 @@ pipeline {
                 }
             }
             steps {
-                sh "sh ./gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true clean sdk"
+                sh "sh ./gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true clean sdk"
+                sh "cp -r modules/javafx.web/build/mac/Release/lib/* build/sdk/lib"
             }
         }
 
@@ -201,6 +202,7 @@ pipeline {
                 sh "cp build/sdk/lib/javafx.controls.jar build/sdk/lib/javafx-controls.jar"
                 sh "cp build/sdk/lib/javafx.fxml.jar build/sdk/lib/javafx-fxml.jar"
                 sh "cp build/sdk/lib/javafx.graphics.jar build/sdk/lib/javafx-graphics.jar"
+                sh "cp build/sdk/lib/javafx.web.jar build/sdk/lib/javafx-web.jar"
             }
         }
 

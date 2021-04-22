@@ -3505,6 +3505,10 @@ project(":web") {
                         environment(WINDOWS_NATIVE_COMPILE_ENVIRONMENT)
                     } else if (t.name == "mac") {
                         cmakeArgs = " $cmakeArgs -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_MIN_VERSION -DCMAKE_OSX_SYSROOT=$MACOSX_SDK_PATH"
+                        if (IS_STATIC_BUILD) {
+                            def cFlags = " -DSTATIC_BUILD=1";
+                            cmakeArgs = "$cmakeArgs -DCMAKE_C_FLAGS='${cFlags}' -DCMAKE_CXX_FLAGS='${cFlags}'"
+                        }
                     } else if (t.name == "linux") {
                         cmakeArgs = " $cmakeArgs -DCMAKE_SYSTEM_NAME=Linux"
                         if (IS_64) {

@@ -253,4 +253,6 @@ MAC.media.ar = "${toolchainDir}libtool"
 
 MAC.webkit = [:]
 MAC.webkit.compiler = compiler
+MAC.webkit.ccFlags = [ccFlags].flatten()
 MAC.webkit.linker = linker
+MAC.webkit.linkFlags = [linkFlags].flatten()
