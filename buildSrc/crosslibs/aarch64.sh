@@ -390,6 +390,7 @@ installLibs() {
             libudev0 \
             libgraphite2-dev \
             libharfbuzz-dev \
+            libharfbuzz0b \
             libxkbcommon-dev \
             libepoxy-dev \
             libatk1.0-dev \
@@ -404,6 +405,10 @@ installLibs() {
             libgles2-mesa \
             libegl1-mesa-dev \
             libegl1-mesa \
+            libgl1 \
+            libgl1-mesa-dev \
+            libgl1-mesa-glx \
+            libdrm2 \
             libdrm-dev \
             libgbm-dev \
             libgbm1 \
