@@ -25,7 +25,6 @@ CFLAGS = -fPIC                   \
          -fstack-protector       \
          -Werror=implicit-function-declaration \
          -Werror=trampolines     \
-         -msse2                  \
          -fbuiltin               \
          -DHAVE_STDINT_H         \
          -DLINUX                 \
@@ -39,6 +38,10 @@ CFLAGS = -fPIC                   \
 
 ifeq ($(STATIC), true)
     CFLAGS += -DSTATIC_BUILD
+endif
+
+ifneq ($(ARCH), aarch64)
+    CFLAGS += -msse2
 endif
 
 ifeq ($(BUILD_TYPE), Release)
