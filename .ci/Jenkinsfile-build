@@ -23,11 +23,14 @@ for (k in parsedTargets.keySet()) {
     }
 }
 
-def generateTargetUploadStages() {
-    def uploadStages = [:]
+def loadBuildNumbersFromBuildResults() {
     for (k in Globals.buildResults.keySet()) {
         Globals.buildNumbers[k] = Globals.buildResults[k].number
     }
+}
+
+def generateTargetUploadStages() {
+    def uploadStages = [:]
     for (k in Globals.buildNumbers.keySet()) {
         uploadStages["${k}"] = generateTargetUploadStage(k, Globals.buildNumbers["${k}"])
     }
@@ -290,6 +293,7 @@ pipeline {
                         }
                     }
                     Globals.buildResults = parallel targetBuildStages
+                    loadBuildNumbersFromBuildResults()
                 }
             }
         }
