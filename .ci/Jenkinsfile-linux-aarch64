@@ -12,16 +12,14 @@
  *   - MILESTONE_FCS:     if set to false: build an early access release; if set to true: build a milestone release
  *   - BUILD_DYNAMIC:     builds the dynamic SDK for use with a regular JVM
  *   - BUILD_STATIC:      builds the static SDK for use with Gluon Substrate
+ *   - COMPILE_MEDIA:     enable compiling native media components
+ *   - COMPILE_WEBKIT:    enable compiling native webkit
  *   - GLUON_DRM_VERSION: the version of the Gluon DRM library to include in the final SDK
  */
 
 pipeline {
-    agent any
-
-    environment {
-        TOOLCHAIN_DIR = '/opt/aarch64-linux/aarch64'
-        PKG_CONFIG_SYSROOT_DIR = '/opt/aarch64-linux/aarch64'
-        PKG_CONFIG_LIBDIR = '/opt/aarch64-linux/aarch64/usr/lib/aarch64-linux-gnu/pkgconfig:/opt/aarch64-linux/aarch64/usr/share/pkgconfig'
+    agent {
+        label 'aws && linux && aarch64'
     }
 
     options {
@@ -144,7 +142,7 @@ pipeline {
                 }
             }
             steps {
-                sh "sh gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PCOMPILE_TARGETS=linux_aarch64 -PTOOLCHAINDIR=${env.TOOLCHAIN_DIR} clean all"
+                sh "sh gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PUSE_DEPEND=false -PBUILD_SRC_ZIP=true -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PBUILD_LIBAV_STUBS=true -PSTUB_RUNTIME= all -x apps"
             }
         }
 
@@ -194,18 +192,9 @@ pipeline {
                 }
             }
             steps {
-                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true -PCOMPILE_TARGETS=linux_aarch64 -PTOOLCHAINDIR=${env.TOOLCHAIN_DIR} clean all"
-            }
-        }
-
-        stage('Rename sdk folder') {
-            when {
-                expression {
-                    return params.BUILD_STATIC
-                }
-            }
-            steps {
-                sh "mv build/linux_aarch64-sdk build/sdk"
+                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PSTATIC_BUILD=true clean all -x apps"
+                sh "objcopy --localize-hidden build/sdk/lib/libjavafx_iio.a"
+                sh "cp -r modules/javafx.web/build/linux/Release/lib/* build/sdk/lib"
             }
         }
 
@@ -236,6 +225,8 @@ pipeline {
                 sh "cp build/sdk/lib/javafx.controls.jar build/sdk/lib/javafx-controls.jar"
                 sh "cp build/sdk/lib/javafx.fxml.jar build/sdk/lib/javafx-fxml.jar"
                 sh "cp build/sdk/lib/javafx.graphics.jar build/sdk/lib/javafx-graphics.jar"
+                sh "cp build/sdk/lib/javafx.media.jar build/sdk/lib/javafx-media.jar"
+                sh "cp build/sdk/lib/javafx.web.jar build/sdk/lib/javafx-web.jar"
             }
         }
 
