@@ -11,7 +11,7 @@ class Globals {
     // a map of targets that have static SDK zip artifacts
     static Map<String, String> staticSDKTargets = ["android-aarch64": "android-aarch64", "ios-arm64": "ios-arm64", "linux-aarch64": "linux-aarch64", "linux-x86_64": "linux-x86_64", "mac-aarch64": "darwin-aarch64", "mac-x86_64": "darwin-x86_64", "windows-x86_64": "windows-x86_64"]
     // a map of targets that have jar artifacts for maven publication
-    static Map<String, String> publicationTargets = ["linux-x86_64": "linux", "mac-aarch64", "mac-aarch64", "mac-x86_64": "mac", "windows-x86_64": "win"]
+    static Map<String, String> publicationTargets = ["linux-x86_64": "linux", "mac-aarch64": "mac-aarch64", "mac-x86_64": "mac", "windows-x86_64": "win"]
     static Map<String, Object> buildResults = [:]
     static Map<String, Integer> buildNumbers = [:]
 }

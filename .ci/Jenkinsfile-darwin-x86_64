@@ -157,6 +157,17 @@ pipeline {
             }
         }
 
+        stage('Sign dylibs') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
+            steps {
+                sh "sh ./tools/scripts/sign-macos-dylibs.sh ${env.MAJOR_VERSION}"
+            }
+        }
+
         stage('Archive dynamic zips') {
             when {
                 expression {
