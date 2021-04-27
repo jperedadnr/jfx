@@ -1,0 +1,242 @@
+/*
+ * Jenkins Pipeline script for building OpenJFX. Final SDKs are stored as job artifacts.
+ *
+ * Target: darwin-aarch64
+ * Versions: dynamic and static
+ *
+ * Mandatory Job Parameters:
+ *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
+ *   - TAG:   defines the tag to checkout: refs/tags/${TAG}
+ *
+ * Optional Job Parameters:
+ *   - MILESTONE_FCS:  if set to false: build an early access release; if set to true: build a milestone release
+ *   - RUN_TESTS:      if set to true: runs JavaFX unit tests after the dynamic gradle build
+ *   - BUILD_DYNAMIC:  builds the dynamic SDK for use with a regular JVM
+ *   - BUILD_STATIC:   builds the static SDK for use with Gluon Substrate
+ *   - COMPILE_MEDIA:  enable compiling native media components
+ *   - COMPILE_WEBKIT: enable compiling native webkit
+ */
+
+pipeline {
+    agent {
+        label 'mac && aarch64'
+    }
+
+    options {
+        copyArtifactPermission('OpenJFX-build')
+    }
+
+    tools {
+        jdk 'openjdk-15'
+    }
+
+    stages {
+        stage('Verify required REPO parameter') {
+            when {
+                expression {
+                    return params.REPO == ''
+                }
+            }
+            steps {
+                error("REPO parameter is required.")
+            }
+        }
+
+        stage('Verify required TAG parameter') {
+            when {
+                expression {
+                    return params.TAG == ''
+                }
+            }
+            steps {
+                error("TAG parameter is required.")
+            }
+        }
+
+        stage('Clone repository') {
+            steps {
+                checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: "git@github.com:${env.REPO}.git", credentialsId: 'github-account-tiainen']], branches: [[name: "refs/tags/${env.TAG}"]]], poll: false
+            }    
+        }
+
+        stage('Clean repository') {
+            steps {
+                sh "git clean -d -x -f"
+            }
+        }
+
+        /*
+         * Load generic environment variables.
+         * MAJOR_VERSION: determined from the "jfx.release.*.version" properties in build.properties (i.e. 17, 17.0.1)
+         * REPO_ACCOUNT: the GitHub account name of the repository that is being cloned
+         */
+        stage('Load generic env vars') {
+            steps {
+                script {
+                    env.MAJOR_VERSION = """${sh(
+                        returnStdout: true,
+                        script: '''#!/bin/bash -xe
+                            JFX_MAJOR=$(cat build.properties | grep "^jfx\\.release\\.major\\.version" | cut -d= -f2 | tr -d "\\n")
+                            JFX_MINOR=$(cat build.properties | grep "^jfx\\.release\\.minor\\.version" | cut -d= -f2 | tr -d "\\n")
+                            JFX_SECURITY=$(cat build.properties | grep "^jfx\\.release\\.security\\.version" | cut -d= -f2 | tr -d "\\n")
+                            JFX_PATCH=$(cat build.properties | grep "^jfx\\.release\\.patch\\.version" | cut -d= -f2 | tr -d "\\n")
+                            if [[ ${JFX_PATCH} -gt 0 ]]; then
+                                echo -n "${JFX_MAJOR}.${JFX_MINOR}.${JFX_SECURITY}.${JFX_PATCH}"
+                            elif [[ ${JFX_MINOR} -gt 0 || ${JFX_SECURITY} -gt 0 ]]; then
+                                echo -n "${JFX_MAJOR}.${JFX_MINOR}.${JFX_SECURITY}"
+                            else
+                                echo -n "${JFX_MAJOR}"
+                            fi
+                        '''
+                    )}"""
+                    env.REPO_ACCOUNT = """${sh(
+                        returnStdout: true,
+                        script: 'echo ${REPO} | cut -d/ -f1 | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        /*
+         * Load environment variables specific to fork builds.
+         * PROMOTED_BUILD_NUMBER: set to the TAG parameter
+         */
+        stage('Load env vars (fork)') {
+            when {
+                not {
+                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                }
+            }
+            steps {
+                script {
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
+                        returnStdout: true,
+                        script: 'echo ${TAG} | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        /*
+         * Load environment variables specific to official builds.
+         * PROMOTED_BUILD_NUMBER: set to the promoted build number of the promoted tag (i.e. number 3 from the tag 17+3-gluon)
+         */
+        stage('Load env vars (official)') {
+            when {
+                environment name: 'REPO', value: 'gluonhq/gluonjfx'
+            }
+            steps {
+                script {
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
+                        returnStdout: true,
+                        script: 'echo ${TAG} | cut -d- -f1 | cut -d+ -f2 | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        stage('Gradle dynamic build') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
+            steps {
+                sh "sh ./gradlew --no-daemon -PTARGET_ARCH=arm64 -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PUSE_DEPEND=false -PBUILD_SRC_ZIP=true -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PBUILD_LIBAV_STUBS=true -PSTUB_RUNTIME= all publishToMavenLocal"
+            }
+        }
+
+        stage('Run unit tests') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.RUN_TESTS
+                }
+            }
+            steps {
+                sh "sh ./gradlew --no-daemon -PTARGET_ARCH=arm64 -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PUSE_DEPEND=false -PBUILD_SRC_ZIP=true -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PBUILD_LIBAV_STUBS=true -PSTUB_RUNTIME= test"
+            }
+        }
+
+        stage('Rename maven publication artifacts') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
+            steps {
+                sh "for i in `find build/publications/*-mac.jar`; do mv $i ${i%%.jar}-aarch64.jar; done"
+            }
+        }
+
+        stage('Archive dynamic zips') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
+            steps {
+                archiveArtifacts artifacts: 'build/artifacts/bundles/javafx-jmods-*.zip,build/artifacts/bundles/javafx-sdk-*.zip,build/publications/*-mac-aarch64.jar', fingerprint: true
+            }
+        }
+
+        stage('Clean repository after dynamic') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.BUILD_STATIC
+                }
+            }
+            steps {
+                sh "git clean -d -x -f"
+            }
+        }
+
+        stage('Gradle static build') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                sh "sh ./gradlew --no-daemon --info --refresh-dependencies -PTARGET_ARCH=arm64 -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true clean sdk"
+                sh "cp -r modules/javafx.web/build/mac/Release/lib/* build/sdk/lib"
+            }
+        }
+
+        stage('Rename artifacts') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                sh "cp build/sdk/lib/javafx.base.jar build/sdk/lib/javafx-base.jar"
+                sh "cp build/sdk/lib/javafx.controls.jar build/sdk/lib/javafx-controls.jar"
+                sh "cp build/sdk/lib/javafx.fxml.jar build/sdk/lib/javafx-fxml.jar"
+                sh "cp build/sdk/lib/javafx.graphics.jar build/sdk/lib/javafx-graphics.jar"
+                sh "cp build/sdk/lib/javafx.web.jar build/sdk/lib/javafx-web.jar"
+            }
+        }
+
+        stage('Create static zip') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                sh "cd build && zip -r javafx-static-sdk-${env.MAJOR_VERSION}.zip sdk"
+            }
+        }
+
+        stage('Archive static zip') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                archiveArtifacts artifacts: 'build/javafx-static-sdk-*.zip', fingerprint: true
+            }
+        }
+    }
+}
