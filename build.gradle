@@ -403,6 +403,9 @@ ext.IS_COMPILE_PARFAIT = Boolean.parseBoolean(COMPILE_PARFAIT)
 defineProperty("STATIC_BUILD", "false")
 ext.IS_STATIC_BUILD = Boolean.parseBoolean(STATIC_BUILD)
 
+defineProperty("INCLUDE_MONOCLE", "false")
+ext.IS_INCLUDE_MONOCLE = Boolean.parseBoolean(INCLUDE_MONOCLE)
+
 // By default, target architecture = host architecture, but we allow different ones.
 defineProperty("TARGET_ARCH", OS_ARCH)
 
@@ -1184,7 +1187,8 @@ compileTargets { t ->
     if (!targetProperties.containsKey('includeSWT')) targetProperties.includeSWT = true
     if (!targetProperties.containsKey('includeSwing')) targetProperties.includeSwing = true
     if (!targetProperties.containsKey('includeNull3d')) targetProperties.includeNull3d = true
-    if (!targetProperties.containsKey('includeMonocle')) targetProperties.includeMonocle = false
+    if (!targetProperties.containsKey('includeMonocle')) targetProperties.includeMonocle = IS_INCLUDE_MONOCLE
+
     if (!targetProperties.containsKey('includeEGL')) targetProperties.includeEGL = false
 
     if (!targetProperties.containsKey('includeGTK')) targetProperties.includeGTK = IS_LINUX
