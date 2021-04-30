@@ -300,62 +300,6 @@ pipeline {
             }
         }
 
-        /*
-         * Load maven repository variables for public releases.
-         */
-        stage('Load maven repo vars (public)') {
-            when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'false'
-                }
-            }
-            steps {
-                script {
-                    env.MAVEN_REPOSITORY_URL = "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
-                    env.MAVEN_REPOSITORY_CREDENTIALS = "nexusMavenCentralOpenJFX"
-                }
-            }
-        }
-
-        /*
-         * Load maven repository variables for private releases.
-         */
-        stage('Load maven repo vars (private)') {
-            when {
-                allOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
-                }
-            }
-            steps {
-                script {
-                    env.MAVEN_REPOSITORY_URL = "https://nexus.gluonhq.com/nexus/content/repositories/openjfx-lts/"
-                    env.MAVEN_REPOSITORY_CREDENTIALS = "nexusGluonOpenJFX"
-                }
-            }
-        }
-
-        /*
-         * Load maven repository variables for fork releases.
-         */
-        stage('Load maven repo vars (fork)') {
-            when {
-                allOf {
-                    not {
-                        environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    }
-                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
-                }
-            }
-            steps {
-                script {
-                    env.MAVEN_REPOSITORY_URL = "https://nexus.gluonhq.com/nexus/content/repositories/openjfx-test/"
-                    env.MAVEN_REPOSITORY_CREDENTIALS = "nexusGluonOpenJFX"
-                }
-            }
-        }
-
         stage('Build targets') {
             steps {
                 script {
@@ -384,12 +328,77 @@ pipeline {
                 }
             }
         }
-        
-        stage('Create javadoc and sources folder') {
+
+        /*
+         * Load maven repository variables for public releases.
+         */
+        stage('Load maven repo vars (public)') {
             when {
-                anyOf {
+                allOf {
+                    environment name: 'PUBLISH_MAVEN_ARTIFACTS', value: 'true'
+                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'false'
+                }
+            }
+            steps {
+                script {
+                    env.MAVEN_REPOSITORY_URL = "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+                    env.MAVEN_REPOSITORY_CREDENTIALS = "nexusMavenCentralOpenJFX"
+                }
+            }
+        }
+
+        /*
+         * Load maven repository variables for private releases.
+         */
+        stage('Load maven repo vars (private)') {
+            when {
+                allOf {
+                    environment name: 'PUBLISH_MAVEN_ARTIFACTS', value: 'true'
                     environment name: 'REPO', value: 'gluonhq/gluonjfx'
                     environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
+                }
+            }
+            steps {
+                script {
+                    env.MAVEN_REPOSITORY_URL = "https://nexus.gluonhq.com/nexus/content/repositories/openjfx-lts/"
+                    env.MAVEN_REPOSITORY_CREDENTIALS = "nexusGluonOpenJFX"
+                }
+            }
+        }
+
+        /*
+         * Load maven repository variables for fork releases.
+         */
+        stage('Load maven repo vars (fork)') {
+            when {
+                allOf {
+                    environment name: 'PUBLISH_MAVEN_ARTIFACTS', value: 'true'
+                    not {
+                        environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                    }
+                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
+                }
+            }
+            steps {
+                script {
+                    env.MAVEN_REPOSITORY_URL = "https://nexus.gluonhq.com/nexus/content/repositories/openjfx-test/"
+                    env.MAVEN_REPOSITORY_CREDENTIALS = "nexusGluonOpenJFX"
+                }
+            }
+        }
+
+        stage('Create javadoc and sources folder') {
+            when {
+                allOf {
+                    anyOf {
+                        environment name: 'PUBLISH_MAVEN_ARTIFACTS', value: 'true'
+                        environment name: 'UPLOAD_ZIP_ARTIFACTS', value: 'true'
+                    }
+                    anyOf {
+                        environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                        environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
+                    }
                 }
             }
             steps {
@@ -398,11 +407,14 @@ pipeline {
             }
         }
 
-        stage('Publish to maven central') {
+        stage('Publish to maven repository') {
             when {
-                anyOf {
-                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
-                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
+                allOf {
+                    environment name: 'PUBLISH_MAVEN_ARTIFACTS', value: 'true'
+                    anyOf {
+                        environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                        environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
+                    }
                 }
             }
             steps {
@@ -446,13 +458,16 @@ pipeline {
 
         stage('Create javadoc zip') {
             when {
-                environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                allOf {
+                    environment name: 'UPLOAD_ZIP_ARTIFACTS', value: 'true'
+                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                }
             }
             steps {
-                dir("mavenpublication/${env.MAJOR_VERSION}/${env.PROMOTED_BUILD_NUMBER}") {
+                dir("build") {
                     sh "mkdir javafx-${env.MAJOR_VERSION}-javadoc"
                     sh "cp -r javadoc/* javafx-${env.MAJOR_VERSION}-javadoc/"
-                    sh "zip -r openjfx-javadoc-${MAJOR_VERSION}.zip javafx-${MAJOR_VERSION}-javadoc"
+                    sh "zip -r openjfx-javadoc-${env.MAJOR_VERSION}.zip javafx-${env.MAJOR_VERSION}-javadoc"
                 }
             }
         }
@@ -460,6 +475,7 @@ pipeline {
         stage('Upload javadoc zip (public / ea)') {
             when {
                 allOf {
+                    environment name: 'UPLOAD_ZIP_ARTIFACTS', value: 'true'
                     environment name: 'REPO', value: 'gluonhq/gluonjfx'
                     environment name: 'MILESTONE_FCS', value: 'false'
                     environment name: 'GLUON_PRIVATE_RELEASE', value: 'false'
@@ -467,7 +483,7 @@ pipeline {
             }
             steps {
                 sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/openjfx/${env.MAJOR_VERSION}'"
-                sh "scp mavenpublication/${env.MAJOR_VERSION}/${env.PROMOTED_BUILD_NUMBER}/openjfx-javadoc-${MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-javadoc.zip"
+                sh "scp build/openjfx-javadoc-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-javadoc.zip"
                 sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-javadoc.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-javadoc.zip.sha256'"
             }
         }
@@ -475,6 +491,7 @@ pipeline {
         stage('Upload javadoc zip (public / fcs)') {
             when {
                 allOf {
+                    environment name: 'UPLOAD_ZIP_ARTIFACTS', value: 'true'
                     environment name: 'REPO', value: 'gluonhq/gluonjfx'
                     environment name: 'MILESTONE_FCS', value: 'true'
                     environment name: 'GLUON_PRIVATE_RELEASE', value: 'false'
@@ -482,7 +499,7 @@ pipeline {
             }
             steps {
                 sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/openjfx/${env.MAJOR_VERSION}'"
-                sh "scp mavenpublication/${env.MAJOR_VERSION}/${env.PROMOTED_BUILD_NUMBER}/openjfx-javadoc-${MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-javadoc.zip"
+                sh "scp build/openjfx-javadoc-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-javadoc.zip"
                 sh "ssh root@download2.gluonhq.com 'cd /var/www/html/openjfx/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-javadoc.zip > openjfx-${env.MAJOR_VERSION}-javadoc.zip.sha256'"
             }
         }
@@ -490,6 +507,7 @@ pipeline {
         stage('Upload javadoc zip (private / ea)') {
             when {
                 allOf {
+                    environment name: 'UPLOAD_ZIP_ARTIFACTS', value: 'true'
                     environment name: 'REPO', value: 'gluonhq/gluonjfx'
                     environment name: 'MILESTONE_FCS', value: 'false'
                     environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
@@ -497,7 +515,7 @@ pipeline {
             }
             steps {
                 sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/restricted/openjfx/${env.MAJOR_VERSION}'"
-                sh "scp mavenpublication/${env.MAJOR_VERSION}/${env.PROMOTED_BUILD_NUMBER}/openjfx-javadoc-${MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/restricted/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-javadoc.zip"
+                sh "scp build/openjfx-javadoc-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/restricted/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-javadoc.zip"
                 sh "ssh root@download2.gluonhq.com 'cd /var/www/html/restricted/openjfx/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-javadoc.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-javadoc.zip.sha256'"
             }
         }
@@ -505,6 +523,7 @@ pipeline {
         stage('Upload javadoc zip (private / fcs)') {
             when {
                 allOf {
+                    environment name: 'UPLOAD_ZIP_ARTIFACTS', value: 'true'
                     environment name: 'REPO', value: 'gluonhq/gluonjfx'
                     environment name: 'MILESTONE_FCS', value: 'true'
                     environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
@@ -512,12 +531,15 @@ pipeline {
             }
             steps {
                 sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/restricted/openjfx/${env.MAJOR_VERSION}'"
-                sh "scp mavenpublication/${env.MAJOR_VERSION}/${env.PROMOTED_BUILD_NUMBER}/openjfx-javadoc-${MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/restricted/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-javadoc.zip"
+                sh "scp build/openjfx-javadoc-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/restricted/openjfx/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-javadoc.zip"
                 sh "ssh root@download2.gluonhq.com 'cd /var/www/html/restricted/openjfx/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-javadoc.zip > openjfx-${env.MAJOR_VERSION}-javadoc.zip.sha256'"
             }
         }
 
         stage('Upload zips') {
+            when {
+                environment name: 'UPLOAD_ZIP_ARTIFACTS', value: 'true'
+            }
             steps {
                 script {
                     parallel generateTargetUploadStages()
