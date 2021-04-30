@@ -6,12 +6,16 @@ class Globals {
     static Map<String, String> targets = [:]
     // a map of targets that have dynamic SDK zip artifacts
     static Map<String, String> dynamicSDKTargets = ["linux-aarch64": "linux-aarch64", "linux-arm32": "linux-arm32", "linux-x86_64": "linux-x64", "mac-aarch64": "osx-aarch64", "mac-x86_64": "osx-x64", "windows-x86_32": "windows-x86", "windows-x86_64": "windows-x64"]
+    // a map of targets that have dynamic monocle SDK zip artifacts
+    static Map<String, String> dynamicMonocleSDKTargets = ["linux-aarch64": "linux-aarch64", "linux-x86_64": "linux-x64", "mac-aarch64": "osx-aarch64", "mac-x86_64": "osx-x64", "windows-x86_32": "windows-x86", "windows-x86_64": "windows-x64"]
     // a map of targets that have dynamic jmod zip artifacts
-    static Map<String, String> jmodsTargets = ["linux-x86_64": "linux-x64", "mac-aarch64": "osx-aarch64", "mac-x86_64": "osx-x64", "windows-x86_32": "windows-x86", "windows-x86_64": "windows-x64"]
+    static Map<String, String> jmodsTargets = ["linux-aarch64": "linux-aarch64", "linux-x86_64": "linux-x64", "mac-aarch64": "osx-aarch64", "mac-x86_64": "osx-x64", "windows-x86_32": "windows-x86", "windows-x86_64": "windows-x64"]
     // a map of targets that have static SDK zip artifacts
     static Map<String, String> staticSDKTargets = ["android-aarch64": "android-aarch64", "ios-arm64": "ios-arm64", "linux-aarch64": "linux-aarch64", "linux-x86_64": "linux-x86_64", "mac-aarch64": "darwin-aarch64", "mac-x86_64": "darwin-x86_64", "windows-x86_64": "windows-x86_64"]
+    // a map of targets that have static monocle SDK zip artifacts
+    static Map<String, String> staticMonocleSDKTargets = ["linux-aarch64": "linux-aarch64", "linux-x86_64": "linux-x86_64", "mac-aarch64": "darwin-aarch64", "mac-x86_64": "darwin-x86_64", "windows-x86_64": "windows-x86_64"]
     // a map of targets that have jar artifacts for maven publication
-    static Map<String, String> publicationTargets = ["linux-x86_64": "linux", "mac-aarch64": "mac-aarch64", "mac-x86_64": "mac", "windows-x86_64": "win"]
+    static Map<String, String> publicationTargets = ["linux-aarch64": "linux-aarch64", "linux-x86_64": "linux", "mac-aarch64": "mac-aarch64", "mac-x86_64": "mac", "windows-x86_32": "win-x86", "windows-x86_64": "win"]
     static Map<String, Object> buildResults = [:]
     static Map<String, Integer> buildNumbers = [:]
 }
@@ -42,78 +46,138 @@ def generateTargetUploadStage(target, buildNumber) {
         stage("Upload dynamic zips ${target} (fork)") {
             if (params.BUILD_DYNAMIC && params.REPO != 'gluonhq/gluonjfx') {
                 if (Globals.dynamicSDKTargets.containsKey(target)) {
-                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-sdk-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-sdk-regular-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
                     sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}'"
-                    sh "scp artifacts/${target}/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}+${env.TAG}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip"
+                    sh "scp artifacts/${target}/javafx-sdk-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}+${env.TAG}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}+${env.TAG}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}+${env.TAG}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip.sha256'"
                 }
                 if (Globals.jmodsTargets.containsKey(target)) {
-                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-jmods-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-jmods-regular-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
                     sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}'"
-                    sh "scp artifacts/${target}/javafx-jmods-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}+${env.TAG}_${Globals.jmodsTargets[target]}_bin-jmods.zip"
+                    sh "scp artifacts/${target}/javafx-jmods-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}+${env.TAG}_${Globals.jmodsTargets[target]}_bin-jmods.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}+${env.TAG}_${Globals.dynamicSDKTargets[target]}_bin-jmods.zip > openjfx-${env.MAJOR_VERSION}+${env.TAG}_${Globals.dynamicSDKTargets[target]}_bin-jmods.zip.sha256'"
+                }
+            }
+        }
+        stage("Upload dynamic monocle zips ${target} (fork)") {
+            if (params.BUILD_DYNAMIC && params.BUILD_MONOCLE && params.REPO != 'gluonhq/gluonjfx') {
+                if (Globals.dynamicMonocleSDKTargets.containsKey(target)) {
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-sdk-monocle-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}'"
+                    sh "scp artifacts/${target}/javafx-sdk-monocle-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}+${env.TAG}_monocle-${Globals.dynamicMonocleSDKTargets[target]}_bin-sdk.zip"
+                    sh "ssh root@download2.gluonhq.com 'cd /var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}+${env.TAG}_monocle-${Globals.dynamicMonocleSDKTargets[target]}_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}+${env.TAG}_monocle-${Globals.dynamicMonocleSDKTargets[target]}_bin-sdk.zip.sha256'"
                 }
             }
         }
         stage("Upload static zips ${target} (fork)") {
             if (params.BUILD_STATIC && params.REPO != 'gluonhq/gluonjfx') {
                 if (Globals.staticSDKTargets.containsKey(target)) {
-                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-regular-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
                     sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}'"
-                    sh "scp artifacts/${target}/javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}/openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticSDKTargets[target]}-static.zip"
+                    sh "scp artifacts/${target}/javafx-static-sdk-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}/openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticSDKTargets[target]}-static.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT} && sha256sum openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticSDKTargets[target]}-static.zip > openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticSDKTargets[target]}-static.zip.sha256'"
+                }
+            }
+        }
+        stage("Upload static monocle zips ${target} (fork)") {
+            if (params.BUILD_STATIC && params.BUILD_MONOCLE && params.REPO != 'gluonhq/gluonjfx') {
+                if (Globals.staticMonocleSDKTargets.containsKey(target)) {
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-monocle-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}'"
+                    sh "scp artifacts/${target}/javafx-static-sdk-monocle-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT}/openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip"
+                    sh "ssh root@download2.gluonhq.com 'cd /var/www/html/substrate/javafxstaticsdk/forks/${env.REPO_ACCOUNT} && sha256sum openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip > openjfx-${env.MAJOR_VERSION}+${env.TAG}-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip.sha256'"
                 }
             }
         }
         stage("Upload dynamic zips ${target} (official / ea)") {
             if (params.BUILD_DYNAMIC && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS) {
                 if (Globals.dynamicSDKTargets.containsKey(target)) {
-                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-sdk-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-sdk-regular-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
                     sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}'"
-                    sh "scp artifacts/${target}/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip"
+                    sh "scp artifacts/${target}/javafx-sdk-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip.sha256'"
                 }
                 if (Globals.jmodsTargets.containsKey(target)) {
-                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-jmods-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-jmods-regular-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
                     sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}'"
-                    sh "scp artifacts/${target}/javafx-jmods-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_${Globals.jmodsTargets[target]}_bin-jmods.zip"
+                    sh "scp artifacts/${target}/javafx-jmods-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_${Globals.jmodsTargets[target]}_bin-jmods.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_${Globals.dynamicSDKTargets[target]}_bin-jmods.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_${Globals.dynamicSDKTargets[target]}_bin-jmods.zip.sha256'"
+                }
+            }
+        }
+        stage("Upload dynamic monocle zips ${target} (official / ea)") {
+            if (params.BUILD_DYNAMIC && params.BUILD_MONOCLE && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS) {
+                if (Globals.dynamicMonocleSDKTargets.containsKey(target)) {
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-sdk-monocle-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}'"
+                    sh "scp artifacts/${target}/javafx-sdk-monocle-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_monocle-${Globals.dynamicMonocleSDKTargets[target]}_bin-sdk.zip"
+                    sh "ssh root@download2.gluonhq.com 'cd /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_monocle-${Globals.dynamicMonocleSDKTargets[target]}_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_monocle-${Globals.dynamicMonocleSDKTargets[target]}_bin-sdk.zip.sha256'"
                 }
             }
         }
         stage("Upload static zips ${target} (official / ea)") {
             if (params.BUILD_STATIC && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS) {
                 if (Globals.staticSDKTargets.containsKey(target)) {
-                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
-                    sh "scp artifacts/${target}/javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-${Globals.staticSDKTargets[target]}-static.zip"
-                    sh "scp artifacts/${target}/javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-${Globals.staticSDKTargets[target]}-static.zip"
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-regular-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    sh "scp artifacts/${target}/javafx-static-sdk-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-${Globals.staticSDKTargets[target]}-static.zip"
+                    sh "scp artifacts/${target}/javafx-static-sdk-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-${Globals.staticSDKTargets[target]}-static.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/substrate/javafxstaticsdk && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-${Globals.staticSDKTargets[target]}-static.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-${Globals.staticSDKTargets[target]}-static.zip.sha256'"
+                }
+            }
+        }
+        stage("Upload static monocle zips ${target} (official / ea)") {
+            if (params.BUILD_STATIC && params.BUILD_MONOCLE && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS) {
+                if (Globals.staticMonocleSDKTargets.containsKey(target)) {
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-monocle-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    sh "scp artifacts/${target}/javafx-static-sdk-monocle-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip"
+                    sh "scp artifacts/${target}/javafx-static-sdk-monocle-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip"
+                    sh "ssh root@download2.gluonhq.com 'cd /var/www/html/substrate/javafxstaticsdk && sha256sum openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip > openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip.sha256'"
                 }
             }
         }
         stage("Upload dynamic zips ${target} (official / fcs)") {
             if (params.BUILD_DYNAMIC && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS) {
                 if (Globals.dynamicSDKTargets.containsKey(target)) {
-                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-sdk-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-sdk-regular-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
                     sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}'"
-                    sh "scp artifacts/${target}/javafx-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip"
+                    sh "scp artifacts/${target}/javafx-sdk-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}_${Globals.dynamicSDKTargets[target]}_bin-sdk.zip.sha256'"
                 }
                 if (Globals.jmodsTargets.containsKey(target)) {
-                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-jmods-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-jmods-regular-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
                     sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/${openjfxFolder}/forks/${env.REPO_ACCOUNT}/${env.MAJOR_VERSION}'"
-                    sh "scp artifacts/${target}/javafx-jmods-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}_${Globals.jmodsTargets[target]}_bin-jmods.zip"
+                    sh "scp artifacts/${target}/javafx-jmods-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}_${Globals.jmodsTargets[target]}_bin-jmods.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}_${Globals.dynamicSDKTargets[target]}_bin-jmods.zip > openjfx-${env.MAJOR_VERSION}_${Globals.dynamicSDKTargets[target]}_bin-jmods.zip.sha256'"
+                }
+            }
+        }
+        stage("Upload dynamic monocle zips ${target} (official / fcs)") {
+            if (params.BUILD_DYNAMIC && params.BUILD_MONOCLE && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS) {
+                if (Globals.dynamicMonocleSDKTargets.containsKey(target)) {
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-sdk-monocle-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    sh "ssh root@download2.gluonhq.com 'mkdir -p /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}'"
+                    sh "scp artifacts/${target}/javafx-sdk-monocle-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/${openjfxFolder}/${env.MAJOR_VERSION}/openjfx-${env.MAJOR_VERSION}_monocle-${Globals.dynamicMonocleSDKTargets[target]}_bin-sdk.zip"
+                    sh "ssh root@download2.gluonhq.com 'cd /var/www/html/${openjfxFolder}/${env.MAJOR_VERSION} && sha256sum openjfx-${env.MAJOR_VERSION}_monocle-${Globals.dynamicMonocleSDKTargets[target]}_bin-sdk.zip > openjfx-${env.MAJOR_VERSION}_monocle-${Globals.dynamicMonocleSDKTargets[target]}_bin-sdk.zip.sha256'"
                 }
             }
         }
         stage("Upload static zips ${target} (official / fcs)") {
             if (params.BUILD_STATIC && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS) {
                 if (Globals.staticSDKTargets.containsKey(target)) {
-                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
-                    sh "scp artifacts/${target}/javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-${Globals.staticSDKTargets[target]}-static.zip"
-                    sh "scp artifacts/${target}/javafx-static-sdk-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-${Globals.staticSDKTargets[target]}-static.zip"
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-regular-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    sh "scp artifacts/${target}/javafx-static-sdk-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-${Globals.staticSDKTargets[target]}-static.zip"
+                    sh "scp artifacts/${target}/javafx-static-sdk-regular-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-${Globals.staticSDKTargets[target]}-static.zip"
                     sh "ssh root@download2.gluonhq.com 'cd /var/www/html/substrate/javafxstaticsdk && sha256sum openjfx-${env.MAJOR_VERSION}-${Globals.staticSDKTargets[target]}-static.zip > openjfx-${env.MAJOR_VERSION}-${Globals.staticSDKTargets[target]}-static.zip.sha256'"
+                }
+            }
+        }
+        stage("Upload static monocle zips ${target} (official / fcs)") {
+            if (params.BUILD_STATIC && params.BUILD_MONOCLE && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS) {
+                if (Globals.staticMonocleSDKTargets.containsKey(target)) {
+                    copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/javafx-static-sdk-monocle-*.zip', target: "artifacts/${target}", fingerprintArtifacts: true
+                    sh "scp artifacts/${target}/javafx-static-sdk-monocle-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip"
+                    sh "scp artifacts/${target}/javafx-static-sdk-monocle-${env.MAJOR_VERSION}.zip root@download2.gluonhq.com:/var/www/html/substrate/javafxstaticsdk/openjfx-${env.MAJOR_VERSION}-latest-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip"
+                    sh "ssh root@download2.gluonhq.com 'cd /var/www/html/substrate/javafxstaticsdk && sha256sum openjfx-${env.MAJOR_VERSION}-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip > openjfx-${env.MAJOR_VERSION}-${Globals.staticMonocleSDKTargets[target]}-static-monocle.zip.sha256'"
                 }
             }
         }
@@ -241,8 +305,9 @@ pipeline {
          */
         stage('Load maven repo vars (public)') {
             when {
-                expression {
-                    return !params.GLUON_PRIVATE_RELEASE
+                allOf {
+                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'false'
                 }
             }
             steps {
@@ -258,13 +323,34 @@ pipeline {
          */
         stage('Load maven repo vars (private)') {
             when {
-                expression {
-                    return params.GLUON_PRIVATE_RELEASE
+                allOf {
+                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
                 }
             }
             steps {
                 script {
                     env.MAVEN_REPOSITORY_URL = "https://nexus.gluonhq.com/nexus/content/repositories/openjfx-lts/"
+                    env.MAVEN_REPOSITORY_CREDENTIALS = "nexusGluonOpenJFX"
+                }
+            }
+        }
+
+        /*
+         * Load maven repository variables for fork releases.
+         */
+        stage('Load maven repo vars (fork)') {
+            when {
+                allOf {
+                    not {
+                        environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                    }
+                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
+                }
+            }
+            steps {
+                script {
+                    env.MAVEN_REPOSITORY_URL = "https://nexus.gluonhq.com/nexus/content/repositories/openjfx-test/"
                     env.MAVEN_REPOSITORY_CREDENTIALS = "nexusGluonOpenJFX"
                 }
             }
@@ -285,6 +371,7 @@ pipeline {
                                     booleanParam(name: 'RUN_TESTS', value: params.RUN_TESTS),
                                     booleanParam(name: 'BUILD_DYNAMIC', value: params.BUILD_DYNAMIC),
                                     booleanParam(name: 'BUILD_STATIC', value: params.BUILD_STATIC),
+                                    booleanParam(name: 'BUILD_MONOCLE', value: params.BUILD_MONOCLE),
                                     booleanParam(name: 'COMPILE_MEDIA', value: params.COMPILE_MEDIA),
                                     booleanParam(name: 'COMPILE_WEBKIT', value: params.COMPILE_WEBKIT),
                                     string(name: 'GLUON_DRM_VERSION', value: params.GLUON_DRM_VERSION)
@@ -300,7 +387,10 @@ pipeline {
         
         stage('Create javadoc and sources folder') {
             when {
-                environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                anyOf {
+                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
+                }
             }
             steps {
                 sh "chmod +x gradlew"
@@ -310,7 +400,10 @@ pipeline {
 
         stage('Publish to maven central') {
             when {
-                environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                anyOf {
+                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                    environment name: 'GLUON_PRIVATE_RELEASE', value: 'true'
+                }
             }
             steps {
                 sh "mkdir -p mavenpublication/${env.MAJOR_VERSION}/${env.PROMOTED_BUILD_NUMBER}"
@@ -334,6 +427,9 @@ pipeline {
                                     env.PUBLICATION_TARGETS += ","
                                 }
                                 env.PUBLICATION_TARGETS += Globals.publicationTargets["${target}"]
+                                if (params.BUILD_MONOCLE) {
+                                    env.PUBLICATION_TARGETS += "," + Globals.publicationTargets["${target}"] + "-monocle"
+                                }
 
                                 def buildNumber = Globals.buildNumbers["${target}"]
                                 copyArtifacts projectName: "OpenJFX-build-${target}", selector: specific("${buildNumber}"), flatten: true, filter: '**/publications/*-*.jar', target: "${env.PROMOTED_BUILD_NUMBER}", fingerprintArtifacts: true

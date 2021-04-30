@@ -2,7 +2,7 @@
  * Jenkins Pipeline script for building OpenJFX. Final SDKs are stored as job artifacts.
  *
  * Target: linux-arm32
- * Versions: dynamic
+ * Versions: dynamic monocle
  *
  * Mandatory Job Parameters:
  *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
@@ -145,7 +145,7 @@ pipeline {
             }
         }
 
-        stage('Add dynamic DRM lib') {
+        stage('Add DRM lib (dynamic)') {
             when {
                 allOf {
                     expression {
@@ -162,6 +162,17 @@ pipeline {
             }
         }
 
+        stage('Rename dynamic artifact zips') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip build/artifacts/bundles/javafx-sdk-regular-${env.MAJOR_VERSION}.zip"
+            }
+        }
+
         stage('Archive dynamic zip') {
             when {
                 expression {
@@ -169,7 +180,7 @@ pipeline {
                 }
             }
             steps {
-                archiveArtifacts artifacts: 'build/artifacts/bundles/javafx-sdk-*.zip', fingerprint: true
+                archiveArtifacts artifacts: 'build/artifacts/bundles/javafx-sdk-regular-*.zip', fingerprint: true
             }
         }
     }

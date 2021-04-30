@@ -190,7 +190,7 @@ pipeline {
                 }
             }
             steps {
-                sh "cd build && zip -r javafx-static-sdk-${env.MAJOR_VERSION}.zip sdk"
+                sh "cd build && zip -r javafx-static-sdk-regular-${env.MAJOR_VERSION}.zip sdk"
             }
         }
 
@@ -201,7 +201,7 @@ pipeline {
                 }
             }
             steps {
-                archiveArtifacts artifacts: 'build/javafx-static-sdk-*.zip', fingerprint: true
+                archiveArtifacts artifacts: 'build/javafx-static-sdk-regular-*.zip', fingerprint: true
             }
         }
     }

@@ -173,7 +173,8 @@ def linker = IS_STATIC_BUILD ? "libtool" : IS_COMPILE_PARFAIT ? "parfait-clang++
 
 MAC.glass = [:]
 if (IS_INCLUDE_MONOCLE) {
-    MAC.glass.variants = ["monocle"]
+// disabled for now, as it requires some changes to the compiler flags to make the build work etc...
+//    MAC.glass.variants = ["monocle"]
 }
 MAC.glass.javahInclude = [
     "com/sun/glass/events/**",
@@ -186,6 +187,7 @@ MAC.glass.linker = linker
 MAC.glass.linkFlags = [linkFlags].flatten()
 MAC.glass.lib = "glass"
 
+MAC.glass.monocle = [:]
 MAC.glass.monocle.nativeSource = file("${project("graphics").projectDir}/src/main/native-glass/monocle")
 MAC.glass.monocle.compiler = compiler
 MAC.glass.monocle.ccFlags = [ccFlags].flatten()
