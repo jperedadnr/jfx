@@ -1,11 +1,9 @@
 #!/bin/bash -xe
 
-# set variables
-VERSION=$1
-
-# unlock gluon custom keychain
-security -v unlock-keychain -p jenkins /Users/m1/gluon-custom.keychain
-security -v list-keychains -d system -s /Users/m1/gluon-custom.keychain
+# setup keychain
+security -v unlock-keychain -p $KEYCHAIN_PASSWORD $KEYCHAIN
+security -v set-key-partition-list -S apple-tool:,apple: -k $KEYCHAIN_PASSWORD $KEYCHAIN
+security -v list-keychains -d user -s $KEYCHAIN login.keychain
 security -v find-identity
 
 # sign dylib files inside maven publication jars
@@ -22,8 +20,8 @@ cd ../../
 
 # sign dylib files inside jmods
 cd build/artifacts/bundles
-unzip javafx-jmods-${VERSION}.zip
-cd javafx-jmods-${VERSION}
+unzip javafx-jmods-${MAJOR_VERSION}.zip
+cd javafx-jmods-${MAJOR_VERSION}
 for jmod in `ls javafx.graphics.jmod javafx.media.jmod javafx.web.jmod`; do
   mkdir ${jmod%%.jmod}
   cd ${jmod%%.jmod}
@@ -35,5 +33,5 @@ for jmod in `ls javafx.graphics.jmod javafx.media.jmod javafx.web.jmod`; do
   rm -rf ${jmod%%.jmod}
 done
 cd ..
-zip -ur javafx-jmods-${VERSION}.zip javafx-jmods-${VERSION}
+zip -ur javafx-jmods-${MAJOR_VERSION}.zip javafx-jmods-${MAJOR_VERSION}
 cd ../../../

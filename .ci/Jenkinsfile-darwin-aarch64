@@ -5,8 +5,10 @@
  * Versions: dynamic, static, dynamic monocle, static monocle
  *
  * Mandatory Job Parameters:
- *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
- *   - TAG:   defines the tag to checkout: refs/tags/${TAG}
+ *   - REPO:              defines the repository to clone: git@github.com:${REPO}.git
+ *   - TAG:               defines the tag to checkout: refs/tags/${TAG}
+ *   - KEYCHAIN:          the keychain to use for signing the macOS dylibs
+ *   - KEYCHAIN_PASSWORD: the password for the KEYCHAIN_PASSWORD
  *
  * Optional Job Parameters:
  *   - MILESTONE_FCS:  if set to false: build an early access release; if set to true: build a milestone release
@@ -51,6 +53,28 @@ pipeline {
             }
             steps {
                 error("TAG parameter is required.")
+            }
+        }
+
+        stage('Verify required KEYCHAIN parameter') {
+            when {
+                expression {
+                    return params.KEYCHAIN == ''
+                }
+            }
+            steps {
+                error("KEYCHAIN parameter is required.")
+            }
+        }
+
+        stage('Verify required KEYCHAIN_PASSWORD parameter') {
+            when {
+                expression {
+                    return params.KEYCHAIN_PASSWORD == ''
+                }
+            }
+            steps {
+                error("KEYCHAIN_PASSWORD parameter is required.")
             }
         }
 
@@ -165,7 +189,7 @@ pipeline {
                 }
             }
             steps {
-                sh "sh ./tools/scripts/sign-macos-dylibs.sh ${env.MAJOR_VERSION}"
+                sh "sh ./tools/scripts/sign-macos-dylibs.sh"
             }
         }
 
@@ -221,7 +245,7 @@ pipeline {
                 }
             }
             steps {
-                sh "sh ./tools/scripts/sign-macos-dylibs.sh ${env.MAJOR_VERSION}"
+                sh "sh ./tools/scripts/sign-macos-dylibs.sh"
             }
         }
 
