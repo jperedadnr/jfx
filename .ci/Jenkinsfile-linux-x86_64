@@ -19,7 +19,9 @@
  */
 
 pipeline {
-    agent any
+    agent {
+        label 'aws && linux && x64'
+    }
 
     options {
         copyArtifactPermission('OpenJFX-build')
