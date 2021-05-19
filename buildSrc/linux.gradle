@@ -230,6 +230,7 @@ FileTree ft_gtk = fileTree("${project(":graphics").projectDir}/src/main/native-g
 FileTree ft_monocle = fileTree("${project(":graphics").projectDir}/src/main/native-glass/monocle/") {
     include("*.c")
     include("egl/*.c")
+    include("util/C.c")
     include("linux/*.c")
 }
 
