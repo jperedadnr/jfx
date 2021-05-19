@@ -10,7 +10,6 @@
  *
  * Optional Job Parameters:
  *   - MILESTONE_FCS:  if set to false: build an early access release; if set to true: build a milestone release
- *   - RUN_TESTS:      if set to true: runs JavaFX unit tests after the dynamic gradle build
  *   - BUILD_DYNAMIC:  builds the dynamic SDK for use with a regular JVM
  *   - BUILD_MONOCLE:  builds a dynamic SDK including monocle
  *   - COMPILE_MEDIA:  enable compiling native media components
@@ -173,20 +172,6 @@ pipeline {
                 dir("repo") {
                     sh "chmod +x gradlew.bat"
                     sh "./gradlew.bat --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PUSE_DEPEND=false -PBUILD_SRC_ZIP=true -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PBUILD_LIBAV_STUBS=true -PSTUB_RUNTIME= all publishToMavenLocal"
-                }
-            }
-        }
-
-        stage('Run unit tests') {
-            when {
-                expression {
-                    return params.BUILD_DYNAMIC && params.RUN_TESTS
-                }
-            }
-            steps {
-                dir("repo") {
-                    sh "chmod +x gradlew.bat"
-                    sh "./gradlew.bat --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PUSE_DEPEND=false -PBUILD_SRC_ZIP=true -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PBUILD_LIBAV_STUBS=true -PSTUB_RUNTIME= test"
                 }
             }
         }
