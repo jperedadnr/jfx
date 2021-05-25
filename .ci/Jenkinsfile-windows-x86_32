@@ -23,8 +23,8 @@ pipeline {
 
     environment {
         VS150COMNTOOLS = "C:\\progra~2\\micros~1\\2019\\Community\\VC\\Auxiliary\\Build"
-        MSVC_VER = "14.27.29110"
-        MSVC_REDIST_VER = "14.27.29016"
+        MSVC_VER = "14.28.29910"
+        MSVC_REDIST_VER = "14.28.29910"
         WINDOWS_CRT_VER = "142"
     }
 
