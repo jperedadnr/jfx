@@ -141,6 +141,7 @@ pipeline {
                 }
             }
             steps {
+                sh "mkdir -p artifacts/dynamic"
                 sh "sh gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PCOMPILE_TARGETS=arm32fb -PCROSS_TOOLS_DIR=${env.TOOLCHAIN_DIR} clean all"
             }
         }
@@ -162,25 +163,47 @@ pipeline {
             }
         }
 
-        stage('Rename dynamic artifact zips') {
+        stage('Rename dynamic artifact zips (fork)') {
             when {
                 expression {
-                    return params.BUILD_DYNAMIC
+                    return params.BUILD_DYNAMIC && params.REPO != 'gluonhq/gluonjfx'
                 }
             }
             steps {
-                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip build/artifacts/bundles/javafx-sdk-regular-${env.MAJOR_VERSION}.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}+${env.TAG}_linux-arm32_bin-sdk.zip"
             }
         }
 
-        stage('Archive dynamic zip') {
+        stage('Rename dynamic artifact zips (official / ea)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_linux-arm32_bin-sdk.zip"
+            }
+        }
+
+        stage('Rename dynamic artifact zips (official / fcs)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}_linux-arm32_bin-sdk.zip"
+            }
+        }
+
+        stage('Archive dynamic artifacts') {
             when {
                 expression {
                     return params.BUILD_DYNAMIC
                 }
             }
             steps {
-                archiveArtifacts artifacts: 'build/artifacts/bundles/javafx-sdk-regular-*.zip', fingerprint: true
+                archiveArtifacts artifacts: 'artifacts/dynamic/openjfx-*-sdk.zip', fingerprint: true
             }
         }
     }

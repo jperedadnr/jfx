@@ -5,10 +5,13 @@
  * Versions: dynamic, static, dynamic monocle, static monocle
  *
  * Mandatory Job Parameters:
- *   - REPO:              defines the repository to clone: git@github.com:${REPO}.git
- *   - TAG:               defines the tag to checkout: refs/tags/${TAG}
- *   - KEYCHAIN:          the keychain to use for signing the macOS dylibs
- *   - KEYCHAIN_PASSWORD: the password for the KEYCHAIN_PASSWORD
+ *   - REPO:                      defines the repository to clone: git@github.com:${REPO}.git
+ *   - TAG:                       defines the tag to checkout: refs/tags/${TAG}
+ *   - KEYCHAIN:                  the keychain to use for signing the macOS dylibs
+ *   - KEYCHAIN_PASSWORD:         the password for the KEYCHAIN
+ *   - NOTARIZATION_USERNAME:     the username of the apple user
+ *   - NOTARIZATION_PASSWORD:     the password of the apple user
+ *   - NOTARIZATION_ASC_PROVIDER: the provider of the apple user to use
  *
  * Optional Job Parameters:
  *   - MILESTONE_FCS:  if set to false: build an early access release; if set to true: build a milestone release
@@ -167,6 +170,7 @@ pipeline {
                 }
             }
             steps {
+                sh "mkdir -p artifacts/dynamic"
                 sh "sh ./gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PUSE_DEPEND=false -PBUILD_SRC_ZIP=true -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PBUILD_LIBAV_STUBS=true -PSTUB_RUNTIME= all publishToMavenLocal"
             }
         }
@@ -189,30 +193,65 @@ pipeline {
                 }
             }
             steps {
-                sh "sh ./tools/scripts/sign-macos-dylibs.sh"
+                sh "sh ./tools/scripts/sign-macos-components.sh"
             }
         }
 
-        stage('Rename dynamic artifact zips') {
+        stage('Rename dynamic artifact zips (fork)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.REPO != 'gluonhq/gluonjfx'
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}+${env.TAG}_osx-x64_bin-jmods.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}+${env.TAG}_osx-x64_bin-sdk.zip"
+            }
+        }
+
+        stage('Rename dynamic artifact zips (official / ea)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_osx-x64_bin-jmods.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_osx-x64_bin-sdk.zip"
+            }
+        }
+
+        stage('Rename dynamic artifact zips (official / fcs)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}_osx-x64_bin-jmods.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}_osx-x64_bin-sdk.zip"
+            }
+        }
+
+        stage('Notarize dynamic sdk') {
             when {
                 expression {
                     return params.BUILD_DYNAMIC
                 }
             }
             steps {
-                sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip build/artifacts/bundles/javafx-jmods-regular-${env.MAJOR_VERSION}.zip"
-                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip build/artifacts/bundles/javafx-sdk-regular-${env.MAJOR_VERSION}.zip"
+                sh "sh ./tools/scripts/notarize-macos-sdk.sh dynamic"
             }
         }
 
-        stage('Archive dynamic zips') {
+        stage('Archive dynamic artifacts') {
             when {
                 expression {
                     return params.BUILD_DYNAMIC
                 }
             }
             steps {
-                archiveArtifacts artifacts: 'build/artifacts/bundles/javafx-jmods-regular-*.zip,build/artifacts/bundles/javafx-sdk-regular-*.zip,build/publications/*-mac.jar', fingerprint: true
+                archiveArtifacts artifacts: 'artifacts/dynamic/openjfx-*-jmods.zip,artifacts/dynamic/openjfx-*-sdk.zip,build/publications/*-mac.jar', fingerprint: true
             }
         }
 
@@ -223,6 +262,7 @@ pipeline {
                 }
             }
             steps {
+                sh "mkdir -p artifacts/dynamic-monocle"
                 sh "sh ./gradlew --no-daemon -PINCLUDE_MONOCLE=true -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PUSE_DEPEND=false -PBUILD_SRC_ZIP=true -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PBUILD_LIBAV_STUBS=true -PSTUB_RUNTIME= all"
             }
         }
@@ -234,7 +274,7 @@ pipeline {
                 }
             }
             steps {
-                sh "sh ./tools/scripts/sign-macos-dylibs.sh"
+                sh "sh ./tools/scripts/sign-macos-components.sh"
             }
         }
 
@@ -249,25 +289,58 @@ pipeline {
             }
         }
 
-        stage('Rename dynamic monocle artifact zips') {
+        stage('Rename dynamic monocle artifact zips (fork)') {
             when {
                 expression {
-                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && params.REPO != 'gluonhq/gluonjfx'
                 }
             }
             steps {
-                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip build/artifacts/bundles/javafx-sdk-monocle-${env.MAJOR_VERSION}.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.MAJOR_VERSION}+${env.TAG}_monocle-osx-x64_bin-sdk.zip"
             }
         }
 
-        stage('Archive dynamic monocle zips') {
+        stage('Rename dynamic monocle artifact zips (official / ea)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_monocle-osx-x64_bin-sdk.zip"
+            }
+        }
+
+        stage('Rename dynamic monocle artifact zips (official / fcs)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.MAJOR_VERSION}_monocle-osx-x64_bin-sdk.zip"
+            }
+        }
+
+        stage('Notarize dynamic monocle sdk') {
             when {
                 expression {
                     return params.BUILD_DYNAMIC && params.BUILD_MONOCLE
                 }
             }
             steps {
-                archiveArtifacts artifacts: 'build/artifacts/bundles/javafx-sdk-monocle-*.zip,build/publications/*-mac-monocle.jar', fingerprint: true
+                sh "sh ./tools/scripts/notarize-macos-sdk.sh dynamic-monocle"
+            }
+        }
+
+        stage('Archive dynamic monocle artifacts') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE
+                }
+            }
+            steps {
+                archiveArtifacts artifacts: 'artifacts/dynamic-monocle/openjfx-*-sdk.zip,build/publications/*-mac-monocle.jar', fingerprint: true
             }
         }
 
@@ -320,7 +393,7 @@ pipeline {
             }
         }
 
-        stage('Archive static zip') {
+        stage('Archive static artifacts') {
             when {
                 expression {
                     return params.BUILD_STATIC
@@ -380,7 +453,7 @@ pipeline {
             }
         }
 
-        stage('Archive static monocle zip') {
+        stage('Archive static monocle artifacts') {
             when {
                 expression {
                     return params.BUILD_STATIC && params.BUILD_MONOCLE
