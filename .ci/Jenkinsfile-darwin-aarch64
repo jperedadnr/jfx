@@ -374,6 +374,16 @@ pipeline {
             }
             steps {
                 sh "sh ./gradlew --no-daemon --info --refresh-dependencies -PTARGET_ARCH=arm64 -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true clean sdk"
+            }
+        }
+
+        stage('Copy webkit static libs') {
+            when {
+                expression {
+                    return params.BUILD_STATIC && params.COMPILE_WEBKIT
+                }
+            }
+            steps {
                 sh "cp -r modules/javafx.web/build/mac/Release/lib/* build/sdk/lib"
             }
         }
@@ -434,6 +444,16 @@ pipeline {
             }
             steps {
                 sh "sh ./gradlew --no-daemon --info --refresh-dependencies -PINCLUDE_MONOCLE=true -PTARGET_ARCH=arm64 -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true sdk"
+            }
+        }
+
+        stage('Copy webkit static monocle libs') {
+            when {
+                expression {
+                    return params.BUILD_STATIC && params.BUILD_MONOCLE && params.COMPILE_WEBKIT
+                }
+            }
+            steps {
                 sh "cp -r modules/javafx.web/build/mac/Release/lib/* build/sdk/lib"
             }
         }
