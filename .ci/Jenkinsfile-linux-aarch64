@@ -136,6 +136,23 @@ pipeline {
             }
         }
 
+        /*
+         * Determine actual version in case GLUON_DRM_VERSION version is set to "latest".
+         */
+        stage('Determine DRM version') {
+            when {
+                environment name: 'GLUON_DRM_VERSION', value: 'latest'
+            }
+            steps {
+                script {
+                    env.GLUON_DRM_VERSION = """${sh(
+                        returnStdout: true,
+                        script: 'ssh root@download2.gluonhq.com \'ls -ltr /var/www/html/restricted/openjfx/drm/latest | sed -e "s/.* -> lib-\\(.*\\)$/\\1/g"\' | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
         stage('Gradle dynamic build') {
             when {
                 expression {
@@ -161,6 +178,7 @@ pipeline {
             }
             steps {
                 sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/lib-${GLUON_DRM_VERSION}/aarch64/libgluon_drm.so build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/lib/libgluon_drm-${GLUON_DRM_VERSION}.so"
+                sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/gluon.md build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/legal/javafx.graphics/gluon.md"
                 sh "cd build/artifacts && zip -ur bundles/javafx-sdk-${env.MAJOR_VERSION}.zip javafx-sdk-${env.MAJOR_VERSION}"
             }
         }
@@ -248,6 +266,7 @@ pipeline {
             }
             steps {
                 sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/lib-${GLUON_DRM_VERSION}/aarch64/libgluon_drm.so build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/lib/libgluon_drm-${GLUON_DRM_VERSION}.so"
+                sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/gluon.md build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/legal/javafx.graphics/gluon.md"
                 sh "cd build/artifacts && zip -ur bundles/javafx-sdk-${env.MAJOR_VERSION}.zip javafx-sdk-${env.MAJOR_VERSION}"
             }
         }
@@ -354,6 +373,7 @@ pipeline {
             }
             steps {
                 sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/lib-${GLUON_DRM_VERSION}/aarch64/libgluon_drm.a build/sdk/lib/libgluon_drm.a"
+                sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/gluon.md build/sdk/legal/javafx.graphics/gluon.md"
             }
         }
 
@@ -442,6 +462,7 @@ pipeline {
             }
             steps {
                 sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/lib-${GLUON_DRM_VERSION}/aarch64/libgluon_drm.a build/sdk/lib/libgluon_drm.a"
+                sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/gluon.md build/sdk/legal/javafx.graphics/gluon.md"
             }
         }
 
