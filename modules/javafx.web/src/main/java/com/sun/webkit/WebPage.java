@@ -27,6 +27,7 @@ package com.sun.webkit;
 
 import javafx.application.ConditionalFeature;
 import javafx.application.Platform;
+import javafx.scene.paint.Color;
 import com.sun.glass.utils.NativeLibLoader;
 import com.sun.javafx.logging.PlatformLogger;
 import com.sun.javafx.logging.PlatformLogger.Level;
@@ -93,6 +94,7 @@ public final class WebPage {
     private int width, height;
 
     private int fontSmoothingType;
+    private Color backgroundColor = Color.WHITE;
 
     private final WCFrameView hostWindow;
 
@@ -373,6 +375,14 @@ public final class WebPage {
     }
 
     private void scroll(int x, int y, int w, int h, int dx, int dy) {
+        if (isBackgroundTransparent()) {
+            if (paintLog.isLoggable(Level.FINEST)) {
+                paintLog.finest("rect=[" + x + ", " + y + " " + w + "x" + h +"]");
+            }
+            addDirtyRect(new WCRectangle(x, y, (float) w, (float) h));
+            return;
+        }
+
         if (paintLog.isLoggable(Level.FINEST)) {
             paintLog.finest("rect=[" + x + ", " + y + " " + w + "x" + h +
                             "] delta=[" + dx + ", " + dy + "]");
@@ -588,6 +598,7 @@ public final class WebPage {
     }
 
     public void setBackgroundColor(long frameID, int backgroundColor) {
+        this.backgroundColor = Color.valueOf("#" + Integer.toHexString(backgroundColor));
         lockPage();
         try {
             log.fine("setBackgroundColor: " + backgroundColor);
@@ -598,14 +609,16 @@ public final class WebPage {
             if (!frames.contains(frameID)) {
                 return;
             }
+            twkSetTransparent(frameID, isBackgroundTransparent());
             twkSetBackgroundColor(frameID, backgroundColor);
-
+            repaintAll();
         } finally {
             unlockPage();
         }
     }
 
     public void setBackgroundColor(int backgroundColor) {
+        this.backgroundColor = Color.valueOf("#" + Integer.toHexString(backgroundColor));
         lockPage();
         try {
             log.fine("setBackgroundColor: " + backgroundColor +
@@ -616,9 +629,10 @@ public final class WebPage {
             }
 
             for (long frameID: frames) {
+                twkSetTransparent(frameID, isBackgroundTransparent());
                 twkSetBackgroundColor(frameID, backgroundColor);
             }
-
+            repaintAll();
         } finally {
             unlockPage();
         }
@@ -726,6 +740,7 @@ public final class WebPage {
     private void paint2GC(WCGraphicsContext gc) {
         paintLog.finest("Entering");
         gc.setFontSmoothingType(this.fontSmoothingType);
+        gc.setOpaque(!isBackgroundTransparent());
 
         List<RenderFrame> framesToRender;
         synchronized (frameQueue) {
@@ -811,15 +826,18 @@ public final class WebPage {
                 log.fine("Mouse event for a disposed web page.");
                 return false;
             }
-
-            return !isDragConfirmed() //When Webkit informes FX about drag start, it waits
-                                      //for system DnD loop and not intereasted in
-                                      //intermediate mouse events that can change text selection.
+            boolean result = !isDragConfirmed() //When Webkit informes FX about drag start, it waits
+                                                // for system DnD loop and not intereasted in
+                                                //intermediate mouse events that can change text selection.
                 && twkProcessMouseEvent(getPage(), me.getID(),
                                         me.getButton(), me.getClickCount(),
                                         me.getX(), me.getY(), me.getScreenX(), me.getScreenY(),
                                         me.isShiftDown(), me.isControlDown(), me.isAltDown(), me.isMetaDown(), me.isPopupTrigger(),
                                         me.getWhen() / 1000.0);
+            if (isBackgroundTransparent()) {
+                repaintAll();
+            }
+            return result;
         } finally {
             unlockPage();
         }
@@ -2525,6 +2543,7 @@ public final class WebPage {
     private void fireLoadEvent(long frameID, int state, String url,
             String contentType, double progress, int errorCode)
     {
+        setBackgroundColor(backgroundColor.hashCode());
         for (LoadListenerClient l : loadListenerClients) {
             l.dispatchLoadEvent(frameID, state, url, contentType, progress, errorCode);
         }
@@ -2541,6 +2560,10 @@ public final class WebPage {
     private void repaintAll() {
         dirtyRects.clear();
         addDirtyRect(new WCRectangle(0, 0, width, height));
+    }
+
+    private boolean isBackgroundTransparent() {
+        return backgroundColor != null && backgroundColor.getOpacity() == 0f;
     }
 
     // Package scope method for testing
