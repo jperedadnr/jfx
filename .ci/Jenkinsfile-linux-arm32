@@ -176,6 +176,7 @@ pipeline {
             }
             steps {
                 sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/lib-${GLUON_DRM_VERSION}/arm32/libgluon_drm.so build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/lib/libgluon_drm-${GLUON_DRM_VERSION}.so"
+                sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/lib-${GLUON_DRM_VERSION}/arm32/libgluon_drm_debug.so build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/lib/libgluon_drm_debug-${GLUON_DRM_VERSION}.so"
                 sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/gluon.md build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/legal/javafx.graphics/gluon.md"
                 sh "cd build/artifacts && zip -ur bundles/javafx-sdk-${env.MAJOR_VERSION}.zip javafx-sdk-${env.MAJOR_VERSION}"
             }
