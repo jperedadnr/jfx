@@ -375,7 +375,7 @@ public final class WebPage {
     }
 
     private void scroll(int x, int y, int w, int h, int dx, int dy) {
-        if (isBackgroundTransparent()) {
+        if (!isBackgroundOpaque()) {
             if (paintLog.isLoggable(Level.FINEST)) {
                 paintLog.finest("rect=[" + x + ", " + y + " " + w + "x" + h +"]");
             }
@@ -598,10 +598,11 @@ public final class WebPage {
     }
 
     public void setBackgroundColor(long frameID, int backgroundColor) {
-        this.backgroundColor = Color.valueOf("#" + Integer.toHexString(backgroundColor));
+        this.backgroundColor = getColorFromHash(backgroundColor);
         lockPage();
         try {
-            log.fine("setBackgroundColor: " + backgroundColor);
+            log.fine("setBackgroundColor: hash: " + backgroundColor +
+                    "(color: " + this.backgroundColor + ") ");
             if (isDisposed) {
                 log.fine("setBackgroundColor() request for a disposed web page.");
                 return;
@@ -609,7 +610,7 @@ public final class WebPage {
             if (!frames.contains(frameID)) {
                 return;
             }
-            twkSetTransparent(frameID, isBackgroundTransparent());
+            twkSetTransparent(frameID, isBackgroundFullyTransparent());
             twkSetBackgroundColor(frameID, backgroundColor);
             repaintAll();
         } finally {
@@ -618,10 +619,11 @@ public final class WebPage {
     }
 
     public void setBackgroundColor(int backgroundColor) {
-        this.backgroundColor = Color.valueOf("#" + Integer.toHexString(backgroundColor));
+        this.backgroundColor = getColorFromHash(backgroundColor);
         lockPage();
         try {
-            log.fine("setBackgroundColor: " + backgroundColor +
+            log.fine("setBackgroundColor hash: " + backgroundColor +
+                    "(color: " + this.backgroundColor + ") " +
                    " for all frames");
             if (isDisposed) {
                 log.fine("setBackgroundColor() request for a disposed web page.");
@@ -629,7 +631,7 @@ public final class WebPage {
             }
 
             for (long frameID: frames) {
-                twkSetTransparent(frameID, isBackgroundTransparent());
+                twkSetTransparent(frameID, isBackgroundFullyTransparent());
                 twkSetBackgroundColor(frameID, backgroundColor);
             }
             repaintAll();
@@ -740,7 +742,7 @@ public final class WebPage {
     private void paint2GC(WCGraphicsContext gc) {
         paintLog.finest("Entering");
         gc.setFontSmoothingType(this.fontSmoothingType);
-        gc.setOpaque(!isBackgroundTransparent());
+        gc.setOpaque(isBackgroundOpaque());
 
         List<RenderFrame> framesToRender;
         synchronized (frameQueue) {
@@ -834,7 +836,7 @@ public final class WebPage {
                                         me.getX(), me.getY(), me.getScreenX(), me.getScreenY(),
                                         me.isShiftDown(), me.isControlDown(), me.isAltDown(), me.isMetaDown(), me.isPopupTrigger(),
                                         me.getWhen() / 1000.0);
-            if (isBackgroundTransparent()) {
+            if (!isBackgroundOpaque()) {
                 repaintAll();
             }
             return result;
@@ -2562,8 +2564,18 @@ public final class WebPage {
         addDirtyRect(new WCRectangle(0, 0, width, height));
     }
 
-    private boolean isBackgroundTransparent() {
+    private boolean isBackgroundFullyTransparent() {
         return backgroundColor != null && backgroundColor.getOpacity() == 0f;
+    }
+
+    private boolean isBackgroundOpaque() {
+        return backgroundColor == null || backgroundColor.isOpaque();
+    }
+
+    private static Color getColorFromHash(int hash) {
+        String hexString = Integer.toHexString(hash);
+        int length = hexString.length();
+        return Color.valueOf("#" + "0".repeat(8 - length) + hexString);
     }
 
     // Package scope method for testing
