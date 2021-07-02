@@ -610,7 +610,7 @@ public final class WebPage {
             if (!frames.contains(frameID)) {
                 return;
             }
-            twkSetTransparent(frameID, isBackgroundFullyTransparent());
+            twkSetTransparent(frameID, isBackgroundTransparent());
             twkSetBackgroundColor(frameID, backgroundColor);
             repaintAll();
         } finally {
@@ -631,7 +631,7 @@ public final class WebPage {
             }
 
             for (long frameID: frames) {
-                twkSetTransparent(frameID, isBackgroundFullyTransparent());
+                twkSetTransparent(frameID, isBackgroundTransparent());
                 twkSetBackgroundColor(frameID, backgroundColor);
             }
             repaintAll();
@@ -853,11 +853,15 @@ public final class WebPage {
                 log.fine("MouseWheel event for a disposed web page.");
                 return false;
             }
-            return twkProcessMouseWheelEvent(getPage(),
-                                             me.getX(), me.getY(), me.getScreenX(), me.getScreenY(),
-                                             me.getDeltaX(), me.getDeltaY(),
-                                             me.isShiftDown(), me.isControlDown(), me.isAltDown(), me.isMetaDown(),
-                                             me.getWhen() / 1000.0);
+            boolean result = twkProcessMouseWheelEvent(getPage(),
+                    me.getX(), me.getY(), me.getScreenX(), me.getScreenY(),
+                    me.getDeltaX(), me.getDeltaY(),
+                    me.isShiftDown(), me.isControlDown(), me.isAltDown(), me.isMetaDown(),
+                    me.getWhen() / 1000.0);
+            if (!isBackgroundOpaque()) {
+                repaintAll();
+            }
+            return result;
         } finally {
             unlockPage();
         }
@@ -2564,7 +2568,7 @@ public final class WebPage {
         addDirtyRect(new WCRectangle(0, 0, width, height));
     }
 
-    private boolean isBackgroundFullyTransparent() {
+    private boolean isBackgroundTransparent() {
         return backgroundColor != null && backgroundColor.getOpacity() == 0f;
     }
 
