@@ -15,7 +15,7 @@ class Globals {
     // a map of targets that have static monocle SDK zip artifacts
     static Map<String, String> staticMonocleSDKTargets = ["linux-aarch64": "linux-aarch64", "linux-x86_64": "linux-x86_64", "mac-aarch64": "darwin-aarch64", "mac-x86_64": "darwin-x86_64", "windows-x86_64": "windows-x86_64"]
     // a map of targets that have jar artifacts for maven publication
-    static Map<String, String> publicationTargets = ["linux-aarch64": "linux-aarch64", "linux-x86_64": "linux", "mac-aarch64": "mac-aarch64", "mac-x86_64": "mac", "windows-x86_32": "win-x86", "windows-x86_64": "win"]
+    static Map<String, String> publicationTargets = ["linux-aarch64": "linux-aarch64", "linux-arm32": "linux-arm32", "linux-x86_64": "linux", "mac-aarch64": "mac-aarch64", "mac-x86_64": "mac", "windows-x86_32": "win-x86", "windows-x86_64": "win"]
     static Map<String, Object> buildResults = [:]
     static Map<String, Integer> buildNumbers = [:]
 }
@@ -435,12 +435,17 @@ pipeline {
                         env.PUBLICATION_TARGETS = ""
                         for (target in Globals.buildNumbers.keySet()) {
                             if (Globals.publicationTargets.containsKey(target)) {
-                                if (env.PUBLICATION_TARGETS != "") {
-                                    env.PUBLICATION_TARGETS += ","
+                                if (target != 'linux-arm32') {
+                                    if (env.PUBLICATION_TARGETS != "") {
+                                        env.PUBLICATION_TARGETS += ","
+                                    }
+                                    env.PUBLICATION_TARGETS += Globals.publicationTargets["${target}"]
                                 }
-                                env.PUBLICATION_TARGETS += Globals.publicationTargets["${target}"]
-                                if (params.BUILD_MONOCLE) {
-                                    env.PUBLICATION_TARGETS += "," + Globals.publicationTargets["${target}"] + "-monocle"
+                                if (params.BUILD_MONOCLE || target == 'linux-arm32') {
+                                    if (env.PUBLICATION_TARGETS != "") {
+                                        env.PUBLICATION_TARGETS += ","
+                                    }
+                                    env.PUBLICATION_TARGETS += Globals.publicationTargets["${target}"] + "-monocle"
                                 }
 
                                 def buildNumber = Globals.buildNumbers["${target}"]
