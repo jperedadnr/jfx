@@ -10,16 +10,16 @@ SRCBASE_DIR = ../../../plugins
 DIRLIST = av
 
 ifeq ($(STATIC), true)
-SUFFIX = a
+    EXTENSION = a
 else
-SUFFIX = so
+    EXTENSION = so
 endif
 
 ifneq ($(strip $(VERSION)),)
-TARGET = $(BUILD_DIR)/lib$(BASE_NAME)$(SUFFIX)-$(VERSION).$(SUFFIX)
+TARGET = $(BUILD_DIR)/lib$(BASE_NAME)$(SUFFIX)-$(VERSION).$(EXTENSION)
 OBJBASE_DIR = $(BUILD_DIR)/obj/plugins/$(BASE_NAME)$(SUFFIX)-$(VERSION)
 else
-TARGET = $(BUILD_DIR)/lib$(BASE_NAME).$(SUFFIX)
+TARGET = $(BUILD_DIR)/lib$(BASE_NAME).$(EXTENSION)
 OBJBASE_DIR = $(BUILD_DIR)/obj/plugins/avplugin
 endif
 
