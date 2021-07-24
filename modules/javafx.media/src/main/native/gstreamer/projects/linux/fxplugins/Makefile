@@ -41,7 +41,9 @@ ifeq ($(STATIC), true)
 endif
 
 ifneq ($(ARCH), aarch64)
-    CFLAGS += -msse2
+    ifneq ($(ARCH), arm32)
+        CFLAGS += -msse2
+    endif
 endif
 
 ifeq ($(BUILD_TYPE), Release)

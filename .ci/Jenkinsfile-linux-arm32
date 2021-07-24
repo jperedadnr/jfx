@@ -19,6 +19,9 @@ pipeline {
 
     environment {
         TOOLCHAIN_DIR = '/opt/arm32'
+        PKG_CONFIG_SYSROOT_DIR = $TOOLCHAIN_DIR
+        PKG_CONFIG_LIBDIR = ${PKG_CONFIG_SYSROOT_DIR}/usr/lib/pkgconfig:${PKG_CONFIG_SYSROOT_DIR}/usr/share/pkgconfig:${PKG_CONFIG_SYSROOT_DIR}/usr/lib/arm-linux-gnueabihf/pkgconfig
+        PKG_CONFIG_ALLOW_SYSTEM_CFLAGS = 1
     }
 
     options {
@@ -159,7 +162,7 @@ pipeline {
             }
             steps {
                 sh "mkdir -p artifacts/dynamic"
-                sh "sh gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PCOMPILE_TARGETS=arm32 -PCROSS_TOOLS_DIR=${env.TOOLCHAIN_DIR} clean all publishToMavenLocal"
+                sh "sh gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PCOMPILE_TARGETS=arm32 -PTARGET_ARCH=arm32 -PCROSS_TOOLS_DIR=${env.TOOLCHAIN_DIR} clean all publishToMavenLocal"
             }
         }
 

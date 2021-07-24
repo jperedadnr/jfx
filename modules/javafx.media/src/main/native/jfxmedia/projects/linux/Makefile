@@ -48,7 +48,9 @@ ifdef HOST_COMPILE
                   -Werror=trampolines \
 	          -DGSTREAMER_LITE
         ifneq ($(ARCH), aarch64)
-            CFLAGS += -msse2
+            ifneq ($(ARCH), arm32)
+                CFLAGS += -msse2
+            endif
         endif
 
 

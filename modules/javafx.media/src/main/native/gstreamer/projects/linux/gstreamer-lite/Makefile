@@ -82,7 +82,7 @@ INCLUDES = -I$(BASE_DIR)/plugins                          \
            -I$(SRCBASE_DIR)/gst-plugins-bad/gst-libs
 
 PACKAGES_INCLUDES := $(shell pkg-config --cflags alsa glib-2.0)
-PACKAGES_LIBS := $(shell pkg-config --libs alsa glib-2.0 gobject-2.0 gmodule-2.0 gthread-2.0)
+PACKAGES_LIBS := $(shell pkg-config --libs-only-L --libs-only-l alsa glib-2.0 gobject-2.0 gmodule-2.0 gthread-2.0)
 
 LDFLAGS = -L$(BUILD_DIR) -lm $(PACKAGES_LIBS) \
           -z relro \

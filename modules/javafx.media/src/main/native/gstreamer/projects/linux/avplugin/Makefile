@@ -38,7 +38,9 @@ CFLAGS = -fPIC                   \
          -ffunction-sections -fdata-sections
 
 ifneq ($(ARCH), aarch64)
-    CFLAGS += -msse2
+    ifneq ($(ARCH), arm32)
+        CFLAGS += -msse2
+    endif
 endif
 
 ifeq ($(BUILD_TYPE), Release)

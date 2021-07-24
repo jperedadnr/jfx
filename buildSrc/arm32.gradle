@@ -3,16 +3,15 @@ ext.ARM32 = [:]
 // Define the location of the sdk and toolchain
 def crossLibsPackage="armv6hf-02"
 def sdk=file("${rootProject.CROSS_TOOLS_DIR}/$crossLibsPackage")
-def compilerHome=file("${rootProject.CROSS_TOOLS_DIR}/gcc-linaro-arm-linux-gnueabihf-raspbian-2012.09-20120921_linux")
+def compilerHome
 def compilerPrefix
 def jniPlatform
 if (IS_LINUX) {
     fetchExternalTools('ARM32',
-            ["${crossLibsPackage}.tgz",
-             "gcc-linaro-arm-linux-gnueabihf-raspbian-2012.09-20120921_linux.tgz" ],
+            ["${crossLibsPackage}.tgz"],
             rootProject.CROSS_TOOLS_DIR, rootProject.IS_IMPORT_CROSS_TOOLS)
 
-    compilerHome=file("${rootProject.CROSS_TOOLS_DIR}/gcc-linaro-arm-linux-gnueabihf-raspbian-2012.09-20120921_linux")
+    compilerHome=file("/usr")
     compilerPrefix="arm-linux-gnueabihf-"
     jniPlatform="linux"
 } else {
@@ -36,7 +35,7 @@ ARM32.library = { name -> return "lib${name}.so" as String }
 ARM32.compileSwing = true
 ARM32.compileSWT = false
 ARM32.compileWebnodeNative = false
-ARM32.compileMediaNative = false
+ARM32.compileMediaNative = true
 
 ARM32.includeMonocle = true
 ARM32.includeNull3d = true
@@ -57,6 +56,7 @@ def commonFlags = [
 // Specify the compilation parameters and link parameters
 def ccFlags = [
         commonFlags, "-I$JDK_HOME/include", "-I$JDK_HOME/include/$jniPlatform", "-c",
+        "-I$sdk/usr/include", "-I$sdk/usr/include/arm-linux-gnueabihf",
         IS_DEBUG_NATIVE ? ["-ggdb", "-DVERBOSE"] : ["-O2", "-DNDEBUG"]].flatten()
 //ccFlags.addAll(["-Wnon-virtual-dtor", "-Woverloaded-virtual", "-std=c++0x"])
 def linkFlags = ["-shared", commonFlags].flatten()
@@ -66,7 +66,6 @@ def extraCFlags = [
         ccFlags,
         "-marm", "-mfloat-abi=hard", "-mfpu=vfp",
         "-I$sdk/usr/include/libdrm",
-        "-I$sdk/usr/include",
         "-I${project("graphics").projectDir}/src/main/native-prism-es2",
         "-I$sdk/opt/vc/include",
         "-I$sdk/opt/vc/include/interface/vcos/pthreads",
@@ -110,12 +109,12 @@ def es2X11LFlags = [extraLFlags, "-lX11", "-lXext", "-lXdmcp", "-lXau"].flatten(
 def monocleEGLLFlags = [monocleLFlags, "-lEGL", "-ldrm"].flatten()
 
 def mediaCFlags = [extraCFlags,
-    "-I$sdk/usr/include/gstreamer-0.10",
-    "-I$sdk/usr/include/glib-2.0",
-    "-I$sdk/usr/lib/arm-linux-gnueabihf/glib-2.0/include",
-    "-DENABLE_NATIVE_SOURCE=1", "-DENABLE_GST_FFMPEG=1"].flatten()
-def mediaLFlags = [extraLFlags, "-lgstreamer-0.10", "-lgstapp-0.10",
-    "-lgstbase-0.10", "-lglib-2.0", "-lgobject-2.0", "-lgmodule-2.0", "-lgthread-2.0"].flatten()
+                   "-I$sdk/usr/include/gstreamer-1.0",
+                   "-I$sdk/usr/include/glib-2.0",
+                   "-I$sdk/usr/lib/arm-linux-gnueabihf/glib-2.0/include"].flatten()
+// "-DENABLE_NATIVE_SOURCE=1", "-DENABLE_GST_FFMPEG=1"].flatten()
+def mediaLFlags = [extraLFlags, "-lgstreamer-lite", "-lgstapp-1.0",
+                   "-lgstbase-1.0", "-lglib-2.0", "-lgobject-2.0", "-lgmodule-2.0", "-lgthread-2.0"].flatten()
 
 def webCFlags = [extraCFlags].flatten()
 def webLFlags = [extraLFlags].flatten()
@@ -123,9 +122,9 @@ def webLFlags = [extraLFlags].flatten()
 def gtkCFlags = [extraCFlags].flatten()
 def gtkLFlags = [extraLFlags].flatten()
 
-def gtkCFlags_pkgconfig = "-pthread -I${sdk}/usr/include/gtk-2.0 -I${sdk}/usr/lib/arm-linux-gnueabihf/gtk-2.0/include -I${sdk}/usr/include/atk-1.0 -I${sdk}/usr/include/cairo -I${sdk}/usr/include/gdk-pixbuf-2.0 -I${sdk}/usr/include/pango-1.0 -I${sdk}/usr/include/gio-unix-2.0/ -I${sdk}/usr/include -I${sdk}/usr/include/glib-2.0 -I${sdk}/usr/lib/arm-linux-gnueabihf/glib-2.0/include -I${sdk}/usr/include/pixman-1 -I${sdk}/usr/include/freetype2 -I${sdk}/usr/include/libpng12"
+def gtkCFlags_pkgconfig = "-I${sdk}/usr/include/gtk-2.0 -I${sdk}/usr/lib/arm-linux-gnueabihf/gtk-2.0/include -I${sdk}/usr/include/atk-1.0 -I${sdk}/usr/include/cairo -I${sdk}/usr/include/gdk-pixbuf-2.0 -I${sdk}/usr/include/pango-1.0 -I${sdk}/usr/include/gio-unix-2.0/ -I${sdk}/usr/include -I${sdk}/usr/include/glib-2.0 -I${sdk}/usr/lib/arm-linux-gnueabihf/glib-2.0/include -I${sdk}/usr/include/pixman-1 -I${sdk}/usr/include/freetype2 -I${sdk}/usr/include/libpng12"
 
-def gtkLFlags_pkgconfig = "-pthread -L${sdk}/usr/lib/arm-linux-gnueabihf -lgtk-x11-2.0 -lgdk-x11-2.0 -latk-1.0 -lgio-2.0 -lpangoft2-1.0 -lpangocairo-1.0 -lgdk_pixbuf-2.0 -lcairo -lpango-1.0 -lfreetype -lfontconfig -lgobject-2.0 -lgthread-2.0 -lrt -lglib-2.0 -lXtst"
+def gtkLFlags_pkgconfig = "-L${sdk}/usr/lib/arm-linux-gnueabihf -lgtk-x11-2.0 -lgdk-x11-2.0 -latk-1.0 -lgio-2.0 -lpangoft2-1.0 -lpangocairo-1.0 -lgdk_pixbuf-2.0 -lcairo -lpango-1.0 -lfreetype -lfontconfig -lgobject-2.0 -lgthread-2.0 -lrt -lglib-2.0 -lXtst"
 
 gtkCFlags.addAll(gtkCFlags_pkgconfig.split(" "))
 gtkLFlags.addAll(gtkLFlags_pkgconfig.split(" "))
@@ -165,7 +164,7 @@ gtk.com.sun.javafx.gestures.scroll=true"""
 def pangoCCFlags = [extraCFlags, "-D_ENABLE_PANGO"];
 def pangoLinkFlags = [extraLFlags];
 
-def pangoCFlags_pkgconfig = "-pthread -I${sdk}/usr/include/pango-1.0 -I${sdk}/usr/include/freetype2 -I${sdk}/usr/include -I${sdk}/usr/include/glib-2.0 -I${sdk}/usr/lib/arm-linux-gnueabihf/glib-2.0/include"
+def pangoCFlags_pkgconfig = "-I${sdk}/usr/include/pango-1.0 -I${sdk}/usr/include/freetype2 -I${sdk}/usr/include -I${sdk}/usr/include/glib-2.0 -I${sdk}/usr/lib/arm-linux-gnueabihf/glib-2.0/include"
 
 def pangoLFlags_pkgconfig = "-L${sdk}/usr/lib/arm-linux-gnueabihf -lpangoft2-1.0 -lpango-1.0 -lfreetype -lfontconfig -lgobject-2.0 -lglib-2.0"
 
@@ -332,7 +331,7 @@ ARM32.webkit.strip    = file("$compilerHome/bin/${compilerPrefix}strip").getAbso
 ARM32.webkit.ccFlags  = extraCFlags.join(' ')
 ARM32.webkit.linkFlags = extraLFlags.join(' ')
 
-ARM32.disableMedia = true
+ARM32.disableMedia = false
 ARM32.media = [:]
 ARM32.media.compiler = compiler
 ARM32.media.linker = linker
