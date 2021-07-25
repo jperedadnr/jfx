@@ -43,9 +43,13 @@ import java.util.Locale;
 
 public class NativeLibLoader {
 
+    private static final boolean isWeb = System.getProperty("java.vendor", "none").equalsIgnoreCase("bck2brwsr");
+
     private static final HashSet<String> loaded = new HashSet<String>();
 
     public static synchronized void loadLibrary(String libname) {
+        System.out.println("[PROMISE] [NativeLibLoader] need to find " + libname+" and isWeb is " + isWeb);
+        if (isWeb) return;
         if (!loaded.contains(libname)) {
             @SuppressWarnings("removal")
             StackWalker walker = AccessController.doPrivileged((PrivilegedAction<StackWalker>) () ->
@@ -57,6 +61,8 @@ public class NativeLibLoader {
     }
 
     public static synchronized void loadLibrary(String libname, List<String> dependencies) {
+        System.out.println("[PROMISE] [NativeLibLoader] need to find (with deps) " + libname+" and isWeb is " + isWeb);
+        if (isWeb) return;
         if (!loaded.contains(libname)) {
             @SuppressWarnings("removal")
             StackWalker walker = AccessController.doPrivileged((PrivilegedAction<StackWalker>) () ->

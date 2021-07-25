@@ -86,7 +86,9 @@ class ControlUtils {
             private int from = -1;
 
             {
-                int midIndex = -Collections.binarySearch(removed, retainedRow, rowComparator) - 1;
+int midIndex = removedSize ;
+
+                // int midIndex = -Collections.binarySearch(removed, retainedRow, rowComparator) - 1;
                 firstRemovedRange = removed.subList(0, midIndex);
                 secondRemovedRange = removed.subList(midIndex, removedSize);
             }

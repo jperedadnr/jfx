@@ -265,10 +265,11 @@ public class PrismFontLoader extends FontLoader {
             return installedFontFactory;
         }
         try {
+Class[] empty = new Class[0];
             Class plc = Class.forName("com.sun.prism.GraphicsPipeline");
-            Method gpm = plc.getMethod("getPipeline", (Class[])null);
+            Method gpm = plc.getMethod("getPipeline", empty);
             Object plo = gpm.invoke(null);
-            Method gfm = plc.getMethod("getFontFactory", (Class[])null);
+            Method gfm = plc.getMethod("getFontFactory", empty);
             Object ffo = gfm.invoke(plo);
             installedFontFactory = (FontFactory)ffo;
         } catch (Exception e) {

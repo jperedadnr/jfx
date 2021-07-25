@@ -41,6 +41,7 @@ import com.sun.javafx.tk.TKStageListener;
 import com.sun.javafx.tk.Toolkit;
 
 abstract class GlassStage implements TKStage {
+static final boolean isWeb = System.getProperty("java.vendor", "none").equalsIgnoreCase("bck2brwsr");
 
     // A list of all GlassStage objects regardless of visibility.
     private static final List<GlassStage> windows = new ArrayList<>();
@@ -109,11 +110,15 @@ abstract class GlassStage implements TKStage {
     static AccessControlContext doIntersectionPrivilege(PrivilegedAction<AccessControlContext> action,
                                                        AccessControlContext stack,
                                                        AccessControlContext context) {
-        return AccessController.doPrivileged((PrivilegedAction<AccessControlContext>) () -> {
-            return AccessController.doPrivilegedWithCombiner((PrivilegedAction<AccessControlContext>) () -> {
-                return AccessController.getContext();
-            }, stack);
-        },  context);
+        if (isWeb) {
+            return AccessController.getContext();
+        } else {
+            return AccessController.doPrivileged((PrivilegedAction<AccessControlContext>) () -> {
+                return AccessController.doPrivilegedWithCombiner((PrivilegedAction<AccessControlContext>) () -> {
+                    return AccessController.getContext();
+                }, stack);
+            },  context);
+        }
     }
 
     @SuppressWarnings("removal")
@@ -124,8 +129,10 @@ abstract class GlassStage implements TKStage {
         AccessControlContext acc = AccessController.getContext();
         // JDK doesn't provide public APIs to get ACC intersection,
         // so using this ugly workaround
-        accessCtrlCtx = doIntersectionPrivilege(
-                () -> AccessController.getContext(), acc, ctx);
+        if (!isWeb) {
+            accessCtrlCtx = doIntersectionPrivilege(
+                    () -> AccessController.getContext(), acc, ctx);
+        }
     }
 
     @Override public void requestFocus() {

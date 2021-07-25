@@ -168,6 +168,7 @@ public class LauncherImpl {
     public static void launchApplication(final Class<? extends Application> appClass,
             final Class<? extends Preloader> preloaderClass,
             final String[] args) {
+System.out.println("[PROMISE] [LauncherImpl] launchApplication called");
 
         if (com.sun.glass.ui.Application.isEventThread()) {
             throw new IllegalStateException("Application launch must not be called on the JavaFX Application Thread");
@@ -191,23 +192,28 @@ public class LauncherImpl {
 
         // Create a new Launcher thread and then wait for that thread to finish
         final CountDownLatch launchLatch = new CountDownLatch(1);
-        Thread launcherThread = new Thread(() -> {
-            try {
-                launchApplication1(appClass, preloaderClass, args);
-            } catch (RuntimeException rte) {
-                launchException = rte;
-            } catch (Exception ex) {
-                launchException =
-                    new RuntimeException("Application launch exception", ex);
-            } catch (Error err) {
-                launchException =
-                    new RuntimeException("Application launch error", err);
-            } finally {
-                launchLatch.countDown();
-            }
-        });
-        launcherThread.setName("JavaFX-Launcher");
-        launcherThread.start();
+        try {
+System.out.println("[PROMISE] [LauncherImpl] ready to invoke launchApplication1");
+            launchApplication1(appClass, preloaderClass, args);
+System.out.println("[PROMISE] [LauncherImpl] invoked launchApplication1");
+        } catch (Throwable rte) {
+System.out.println("[PROMISE] rte: " + rte.getMessage());
+rte.printStackTrace();
+            // launchException = rte;
+/*
+        } catch (Exception ex) {
+            launchException =
+                new RuntimeException("Application launch exception", ex);
+        } catch (Error err) {
+            launchException =
+                new RuntimeException("Application launch error", err);
+*/
+        } finally {
+            launchLatch.countDown();
+        }
+        // launcherThread = new Thread(launch);
+        // launcherThread.setName("JavaFX-Launcher");
+        // launcherThread.start();
 
         // Wait for FX launcher thread to finish before returning to user
         try {
@@ -659,7 +665,8 @@ public class LauncherImpl {
         PlatformImpl.startup(() -> startupLatch.countDown());
 
         // Wait for FX platform to start
-        startupLatch.await();
+        // startupLatch.await();
+        System.out.println("[PROMISE] LauncherImpl, toolkit started");
     }
 
     private static volatile boolean error = false;
@@ -676,7 +683,9 @@ public class LauncherImpl {
             final Class<? extends Preloader> preloaderClass,
             final String[] args) throws Exception {
 
+System.out.println("[PROMISE] [LauncherImpl] startToolkit()");
         startToolkit();
+System.out.println("[PROMISE] [LauncherImpl] startToolkit() done");
 
         if (savedMainCcl != null) {
             /*
@@ -797,19 +806,22 @@ public class LauncherImpl {
                             StateChangeNotification.Type.BEFORE_LOAD, null);
                 }
 
-                PlatformImpl.runAndWait(() -> {
-                    try {
+                // PlatformImpl.runAndWait(() -> {
+                    // try {
+System.out.println("[PROMISE] LauncherImpl, create app constructor");
                         Constructor<? extends Application> c = appClass.getConstructor();
                         app.set(c.newInstance());
                         // Set startup parameters
                         ParametersImpl.registerParameters(app.get(), new ParametersImpl(args));
                         PlatformImpl.setApplicationName(appClass);
+/*
                     } catch (Throwable t) {
                         System.err.println("Exception in Application constructor");
                         constructorError = t;
                         error = true;
                     }
                 });
+*/
             }
             final Application theApp = app.get();
 
@@ -837,6 +849,7 @@ public class LauncherImpl {
                             StateChangeNotification.Type.BEFORE_START, theApp);
                 }
                 // Call the application start method on FX thread
+System.out.println("[PROMISE] LauncherImpl, call application start method on FX Thread");
                 PlatformImpl.runAndWait(() -> {
                     try {
                         startCalled.set(true);
@@ -844,15 +857,19 @@ public class LauncherImpl {
                         // Create primary stage and call application start method
                         final Stage primaryStage = new Stage();
                         StageHelper.setPrimary(primaryStage, true);
+System.out.println("[PROMISE] LauncherImpl, call application start method");
                         theApp.start(primaryStage);
+System.out.println("[PROMISE] LauncherImpl, called application start method");
                     } catch (Throwable t) {
                         System.err.println("Exception in Application start method");
+                        System.err.println("ExceptionMessage = " + t.getMessage());
                         startError = t;
                         error = true;
                     }
                 });
             }
 
+/*
             if (!error) {
                 shutdownLatch.await();
 //                System.err.println("JavaFX Launcher: time to call stop");
@@ -871,6 +888,7 @@ public class LauncherImpl {
                     }
                 });
             }
+*/
 
             if (error) {
                 if (pConstructorError != null) {
@@ -908,9 +926,10 @@ public class LauncherImpl {
                 }
             }
         } finally {
-            PlatformImpl.removeListener(listener);
-            PlatformImpl.tkExit();
+            // PlatformImpl.removeListener(listener);
+            // PlatformImpl.tkExit();
         }
+        System.out.println("[PROMISE] LauncherImpl.launchApplication1 succeeded");
     }
 
     private static void notifyStateChange(final Preloader preloader,

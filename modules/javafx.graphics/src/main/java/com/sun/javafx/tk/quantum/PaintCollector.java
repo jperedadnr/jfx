@@ -79,11 +79,13 @@ final class PaintCollector implements CompletionListener {
     /**
      * Sorts the dirty scenes such that asynchronous scenes come first
      */
+/*
     private static final Comparator<GlassScene> DIRTY_SCENE_SORTER = (o1, o2) -> {
         int i1 = o1.isSynchronous() ? 1 : 0;
         int i2 = o2.isSynchronous() ? 1 : 0;
         return i1 - i2;
     };
+*/
 
     /**
      * Contains a list of all of the dirty scenes. This list is populated
@@ -365,7 +367,7 @@ final class PaintCollector implements CompletionListener {
         // Sort the dirty scenes based on whether they are
         // synchronous or not. If they are not synchronous,
         // then we want to process them first.
-        Collections.sort(dirtyScenes, DIRTY_SCENE_SORTER);
+        // Collections.sort(dirtyScenes, DIRTY_SCENE_SORTER);
 
         // Reset the fields
         setDirty(false);

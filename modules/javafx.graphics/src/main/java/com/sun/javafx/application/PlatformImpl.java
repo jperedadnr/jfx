@@ -25,7 +25,7 @@
 
 package com.sun.javafx.application;
 
-import static com.sun.javafx.FXPermissions.CREATE_TRANSPARENT_WINDOW_PERMISSION;
+// import static com.sun.javafx.FXPermissions.CREATE_TRANSPARENT_WINDOW_PERMISSION;
 import com.sun.javafx.PlatformUtil;
 import com.sun.javafx.css.StyleManager;
 import com.sun.javafx.tk.TKListener;
@@ -61,6 +61,8 @@ import javafx.scene.Scene;
 import javafx.util.FXPermission;
 
 public class PlatformImpl {
+
+    private static final boolean isWeb = System.getProperty("java.vendor", "none").equalsIgnoreCase("bck2brwsr");
 
     private static AtomicBoolean initialized = new AtomicBoolean(false);
     private static AtomicBoolean platformExit = new AtomicBoolean(false);
@@ -107,8 +109,8 @@ public class PlatformImpl {
                     -> Boolean.getBoolean("com.sun.javafx.application.debug"));
 
     // Internal permission used by FXCanvas (SWT interop)
-    private static final FXPermission FXCANVAS_PERMISSION =
-            new FXPermission("accessFXCanvasInternals");
+    // private static final FXPermission FXCANVAS_PERMISSION =
+            // new FXPermission("accessFXCanvasInternals");
 
     /**
      * Set a flag indicating whether this application should show up in the
@@ -192,6 +194,7 @@ public class PlatformImpl {
             return;
         }
 
+/*
         final Module module = PlatformImpl.class.getModule();
         final ModuleDescriptor moduleDesc = module.getDescriptor();
         if (!module.isNamed()
@@ -208,6 +211,7 @@ public class PlatformImpl {
             }
             Logging.getJavaFXLogger().warning(warningStr);
         }
+*/
 
         @SuppressWarnings("removal")
         var dummy = AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
@@ -349,6 +353,7 @@ public class PlatformImpl {
 
     // FXCanvas-specific initialization
     private static void initFXCanvas() {
+/*
         // Verify that we have the appropriate permission
         @SuppressWarnings("removal")
         final SecurityManager sm = System.getSecurityManager();
@@ -361,6 +366,7 @@ public class PlatformImpl {
                 return;
             }
         }
+*/
 
         // Find the calling class, ignoring any stack frames from FX application classes
         Predicate<StackWalker.StackFrame> classFilter = f ->
@@ -433,12 +439,14 @@ public class PlatformImpl {
     }
 
     private static void runLater(final Runnable r, boolean exiting) {
+System.out.println("[PI] runLater asked, runnable " + r);
+
         if (!initialized.get()) {
             throw new IllegalStateException("Toolkit not initialized");
         }
 
         pendingRunnables.incrementAndGet();
-        waitForStart();
+        // waitForStart();
 
         synchronized (runLaterLock) {
             if (!exiting && toolkitExit.get()) {
@@ -491,10 +499,14 @@ public class PlatformImpl {
                 throw new IllegalStateException("Toolkit has exited");
             }
 
-            try {
-                doneLatch.await();
-            } catch (InterruptedException ex) {
-                ex.printStackTrace();
+            if (isWeb) {
+                System.err.println("[JVDBG] PI, I should wait on doneLatch but ignore");
+            } else {
+                try {
+                    doneLatch.await();
+                } catch (InterruptedException ex) {
+                    ex.printStackTrace();
+                }
             }
         }
     }
@@ -654,6 +666,7 @@ public class PlatformImpl {
 
     public static boolean isSupported(ConditionalFeature feature) {
         final boolean supported = isSupportedImpl(feature);
+/*
         if (supported && (feature == ConditionalFeature.TRANSPARENT_WINDOW)) {
             // some features require the application to have the corresponding
             // permissions, if the application doesn't have them, the platform
@@ -671,6 +684,7 @@ public class PlatformImpl {
 
             return true;
         }
+*/
 
         return supported;
    }

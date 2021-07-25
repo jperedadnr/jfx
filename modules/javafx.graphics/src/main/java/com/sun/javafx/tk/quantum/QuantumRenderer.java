@@ -27,7 +27,10 @@ package com.sun.javafx.tk.quantum;
 
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -54,11 +57,12 @@ import java.util.HashMap;
 /*
  * Quantum Renderer
  */
-final class QuantumRenderer extends ThreadPoolExecutor  {
+final class QuantumRenderer extends AbstractExecutorService  {
+// final class QuantumRenderer extends ThreadPoolExecutor  {
     @SuppressWarnings("removal")
+    private static final boolean isWeb = System.getProperty("glass.platform", "none").equalsIgnoreCase("web");
     private static boolean usePurgatory = // TODO - deprecate
         AccessController.doPrivileged((PrivilegedAction<Boolean>) () -> Boolean.getBoolean("decora.purgatory"));
-
 
     private static final AtomicReference<QuantumRenderer> instanceReference =
                                     new AtomicReference<>(null);
@@ -68,8 +72,9 @@ final class QuantumRenderer extends ThreadPoolExecutor  {
     private CountDownLatch  initLatch = new CountDownLatch(1);
 
     private QuantumRenderer() {
-        super(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
-        setThreadFactory(new QuantumThreadFactory());
+        // super(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
+        // setThreadFactory(new QuantumThreadFactory());
+        _renderer = new QuantumThreadFactory().newThread(null);
     }
 
     protected Throwable initThrowable() {
@@ -107,7 +112,10 @@ final class QuantumRenderer extends ThreadPoolExecutor  {
                     Application.setDeviceDetails(device);
                 }
             } catch (Throwable th) {
-                QuantumRenderer.this.setInitThrowable(th);
+                System.err.println("Major issue starting PipelineRunnable. Fatal.");
+                th.printStackTrace();
+                throw new InternalError();
+                // QuantumRenderer.this.setInitThrowable(th);
             } finally {
                 initLatch.countDown();
             }
@@ -136,6 +144,7 @@ final class QuantumRenderer extends ThreadPoolExecutor  {
         @SuppressWarnings("removal")
         @Override public Thread newThread(Runnable r) {
             final PipelineRunnable pipeline = new PipelineRunnable(r);
+            pipeline.init();
             _renderer =
                 AccessController.doPrivileged((PrivilegedAction<Thread>) () -> {
                     Thread th = new Thread(pipeline);
@@ -166,12 +175,15 @@ final class QuantumRenderer extends ThreadPoolExecutor  {
 
         final RenderJob job = new RenderJob(factoryCreator, createDone);
 
-        submit(job);
-
-        try {
-            createLatch.await();
-        } catch (Throwable th) {
-            th.printStackTrace(System.err);
+        if (isWeb) {
+            com.sun.glass.ui.web.WebApplication.invokeOtherJob(job);
+        } else {
+            submit(job);
+            try {
+                createLatch.await();
+            } catch (Throwable th) {
+                th.printStackTrace(System.err);
+            }
         }
     }
 
@@ -223,8 +235,9 @@ final class QuantumRenderer extends ThreadPoolExecutor  {
 
     /* java.util.concurrent.ThreadPoolExecutor */
 
-    @Override public void afterExecute(Runnable r, Throwable t) {
-        super.afterExecute(r, t);
+    // @Override 
+    public void afterExecute(Runnable r, Throwable t) {
+        // super.afterExecute(r, t);
 
         /*
          * clean up what we can after every render job
@@ -236,6 +249,34 @@ final class QuantumRenderer extends ThreadPoolExecutor  {
             Renderer renderer = Renderer.getRenderer(PrFilterContext.getInstance(screen));
             renderer.releasePurgatory();
         }
+    }
+    @Override
+    public void shutdown() {
+    }
+
+    @Override
+    public List<Runnable> shutdownNow() {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public boolean isShutdown() {
+        return false;
+    }
+
+    @Override
+    public boolean isTerminated() {
+        return false;
+    }
+
+    @Override
+    public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+        throw new InterruptedException();
+    }
+
+    @Override
+    public void execute(Runnable r) {
+        r.run();
     }
 
     void checkRendererIdle() {
@@ -263,10 +304,13 @@ final class QuantumRenderer extends ThreadPoolExecutor  {
                 QuantumRenderer newTk = null;
                 try {
                     newTk = new QuantumRenderer();
-                    newTk.prestartCoreThread();
+                    if (!isWeb) {
+                        // newTk.prestartCoreThread();
 
-                    newTk.initLatch.await();
+                        // newTk.initLatch.await();
+                    }
                 } catch (Throwable t) {
+                    System.err.println("[QuantumRenderer] bummer, error detected.");
                     if (newTk != null) {
                         newTk.setInitThrowable(t);
                     }

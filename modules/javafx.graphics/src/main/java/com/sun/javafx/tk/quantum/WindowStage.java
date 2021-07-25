@@ -98,7 +98,8 @@ class WindowStage extends GlassStage {
     private static final Locale LOCALE = Locale.getDefault();
 
     private static final ResourceBundle RESOURCES =
-        ResourceBundle.getBundle(WindowStage.class.getPackage().getName() +
+        // ResourceBundle.getBundle(WindowStage.class.getPackage().getName() +
+        ResourceBundle.getBundle("com.sun.javafx.tk.quantum"+
                                  ".QuantumMessagesBundle", LOCALE);
 
 

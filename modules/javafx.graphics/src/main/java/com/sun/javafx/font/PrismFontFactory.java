@@ -167,7 +167,7 @@ public abstract class PrismFontFactory implements FontFactory {
         if (isWindows) return DW_FACTORY;
         if (isMacOSX || isIOS) return CT_FACTORY;
         if (isLinux || isAndroid) return FT_FACTORY;
-        return null;
+        return FT_FACTORY;
     }
 
     public static float getFontSizeLimit() {
@@ -205,8 +205,9 @@ public abstract class PrismFontFactory implements FontFactory {
 
     private static synchronized PrismFontFactory getFontFactory(String factoryClass) {
         try {
+Class[] empty = new Class[0];
             Class<?> clazz = Class.forName(factoryClass);
-            Method mid = clazz.getMethod("getFactory", (Class[])null);
+            Method mid = clazz.getMethod("getFactory", empty);
             return (PrismFontFactory)mid.invoke(null);
         } catch (Throwable t) {
             if (debugFonts) {

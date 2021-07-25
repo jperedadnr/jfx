@@ -219,9 +219,11 @@ public abstract class GraphicsPipeline {
                 if (PrismSettings.verbose) {
                     System.out.println("(X) Got class = " + klass);
                 }
-                Method m = klass.getMethod("getInstance", (Class[])null);
+Class[] empty = new Class[0];
+Object[] emptyo = new Object[0];
+                Method m = klass.getMethod("getInstance", empty);
                 GraphicsPipeline newPipeline = (GraphicsPipeline)
-                    m.invoke(null, (Object[])null);
+                    m.invoke(null, emptyo);
                 if (newPipeline != null && newPipeline.init()) {
                     if (PrismSettings.verbose) {
                         System.out.println("Initialized prism pipeline: " +

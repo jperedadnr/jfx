@@ -154,7 +154,8 @@ public final class StyleMap {
     }
 
     private static final Comparator<CascadingStyle> cascadingStyleComparator =
-            (o1, o2) -> {
+           new Comparator<CascadingStyle>() {
+               @Override public int compare(CascadingStyle o1, CascadingStyle o2) {
 
                 //
                 // primary sort is on property. If the property names are the same,
@@ -172,7 +173,7 @@ public final class StyleMap {
 
                 return o1.compareTo(o2);
 
-            };
+            };};
 
     private final int id; // unique per container
     private List<Selector> selectors;

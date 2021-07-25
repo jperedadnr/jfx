@@ -263,11 +263,13 @@ public final class QuantumToolkit extends Toolkit {
                 dispose();
             }
         };
+/*
         @SuppressWarnings("removal")
         var dummy = AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
             Runtime.getRuntime().addShutdownHook(shutdownHook);
             return null;
         });
+*/
         return true;
     }
 
@@ -301,11 +303,13 @@ public final class QuantumToolkit extends Toolkit {
             throw new RuntimeException(t);
         }
 
+/*
         try {
             launchLatch.await();
         } catch (InterruptedException ie) {
             ie.printStackTrace();
         }
+*/
     }
 
     // restart the toolkit if previously terminated
@@ -818,7 +822,9 @@ public final class QuantumToolkit extends Toolkit {
     // shutdown. Calling Platform.runLater *is* thread-safe even when the
     // toolkit is shutting down.
     @Override public void defer(Runnable runnable) {
-        if (!toolkitRunning.get()) return;
+        if (!toolkitRunning.get()) { // return;
+System.out.println("[PROMISE] QT toolkit not yet running, but we will invokeLater for " + runnable);
+        }
 
         Application.invokeLater(runnable);
     }

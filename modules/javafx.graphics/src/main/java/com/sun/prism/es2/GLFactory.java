@@ -76,7 +76,8 @@ abstract class GLFactory {
         } else if (PlatformUtil.isAndroid()) {
             factoryClassName = "com.sun.prism.es2.MonocleGLFactory";
         } else {
-            factoryClassName = null;
+            factoryClassName = "com.sun.prism.es2.WebGLFactory";
+            // factoryClassName = null;
             System.err.println("GLFactory.static - No Platform Factory for: " + System.getProperty("os.name"));
         }
         if (PrismSettings.verbose) {

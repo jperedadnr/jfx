@@ -27,6 +27,7 @@ package com.sun.prism.impl;
 
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Properties;
 import java.util.StringTokenizer;
@@ -222,7 +223,13 @@ public final class PrismSettings {
             }
         }
 
-        tryOrder = List.of(tryOrderArr);
+        tryOrder = new LinkedList<>();
+        for (String oo : tryOrderArr) {
+            tryOrder.add(oo);
+        }
+
+        // tryOrder = List.of(tryOrderArr);
+
 
         RasterizerType rSpec = null;
         String rOrder = systemProperties.getProperty("prism.rasterizerorder");
