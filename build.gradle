@@ -2882,11 +2882,7 @@ project(":media") {
                         environment(WINDOWS_NATIVE_COMPILE_ENVIRONMENT)
                         args( "RESOURCE=${nativeOutputDir}/${buildType}/${WIN.media.jfxmediaRcFile}")
                     } else {
-                        if (t.name.startsWith("arm")) {
-                            args("EXTRA_CFLAGS=${mediaProperties.extra_cflags}", "EXTRA_LDFLAGS=${mediaProperties.extra_ldflags}")
-                        } else {
-                            args("HOST_COMPILE=1")
-                        }
+                        args("HOST_COMPILE=1")
                     }
                 }
             }
