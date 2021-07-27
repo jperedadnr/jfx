@@ -15,13 +15,16 @@
  */
 
 pipeline {
-    agent any
+    agent {
+        label 'aws && linux && x64'
+    }
+
 
     environment {
-        SYSROOT_DIR = '/opt/arm32'
-        PKG_CONFIG_SYSROOT_DIR = ${SYSROOT_DIR}
-        PKG_CONFIG_PATH = ${PKG_CONFIG_SYSROOT_DIR}/usr/lib/pkgconfig:${PKG_CONFIG_SYSROOT_DIR}/usr/share/pkgconfig:${PKG_CONFIG_SYSROOT_DIR}/usr/lib/arm-linux-gnueabihf/pkgconfig
-        PKG_CONFIG_LIBDIR = ${PKG_CONFIG_PATH}
+        SYSROOT_DIR = '/opt/arm32/armv6hf'
+        PKG_CONFIG_SYSROOT_DIR = "$SYSROOT_DIR"
+        PKG_CONFIG_PATH = "${PKG_CONFIG_SYSROOT_DIR}/usr/lib/pkgconfig:${PKG_CONFIG_SYSROOT_DIR}/usr/share/pkgconfig:${PKG_CONFIG_SYSROOT_DIR}/usr/lib/arm-linux-gnueabihf/pkgconfig"
+        PKG_CONFIG_LIBDIR = "$PKG_CONFIG_PATH"
     }
 
     options {
