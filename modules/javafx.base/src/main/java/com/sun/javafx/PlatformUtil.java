@@ -51,6 +51,7 @@ public class PlatformUtil {
     // a property used to denote a non-default impl for this host
     private static String javafxPlatform;
 
+
     static {
         @SuppressWarnings("removal")
         String str1 = AccessController.doPrivileged((PrivilegedAction<String>) () -> System.getProperty("javafx.platform"));
@@ -78,6 +79,7 @@ public class PlatformUtil {
             doEGLCompositing = false;
     }
 
+    private static final boolean WEB = System.getProperty("java.vendor", "none").equalsIgnoreCase("bck2brwsr");
     private static final boolean ANDROID = "android".equals(javafxPlatform) || "Dalvik".equals(System.getProperty("java.vm.name"));
     private static final boolean WINDOWS = os.startsWith("Windows");
     private static final boolean WINDOWS_VISTA_OR_LATER = WINDOWS && versionNumberGreaterThanOrEqualTo(6.0f);
@@ -297,6 +299,10 @@ public class PlatformUtil {
             }
             return null;
         });
+    }
+
+    public static boolean isWeb() {
+       return WEB;
     }
 
     public static boolean isAndroid() {

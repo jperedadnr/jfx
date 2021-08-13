@@ -26,6 +26,7 @@
 package com.sun.prism.es2;
 
 import com.sun.javafx.PlatformUtil;
+import com.sun.javafx.image.impl.*;
 import com.sun.prism.Image;
 import com.sun.prism.Texture;
 import com.sun.prism.MediaFrame;
@@ -97,11 +98,13 @@ class ES2Texture<T extends ES2TextureData> extends BaseTexture<ES2TextureResourc
 
     static ES2Texture create(ES2Context context, PixelFormat format,
             WrapMode wrapMode, int w, int h, boolean useMipmap) {
+/*
         if (!context.getResourceFactory().isFormatSupported(format)) {
             throw new UnsupportedOperationException(
                     "Pixel format " + format
                     + " not supported on this device");
         }
+*/
 
         if (format == PixelFormat.MULTI_YCbCr_420) {
             throw new IllegalArgumentException("Format requires multitexturing: " + format);
@@ -325,6 +328,9 @@ class ES2Texture<T extends ES2TextureData> extends BaseTexture<ES2TextureResourc
         int pixelFormat;
         int pixelType;
         boolean isGL2 = ES2Pipeline.glFactory.isGL2();
+        if (PlatformUtil.isWeb()) {
+            isGL2 = false;
+        }
 
         switch (format) {
             case BYTE_BGRA_PRE:
@@ -334,7 +340,7 @@ class ES2Texture<T extends ES2TextureData> extends BaseTexture<ES2TextureResourc
                 // Note: GL_BGRA not supported in OpenGL ES; developers should
                 // call ResourceFactory.isFormatSupported() to check availability.
                 pixelFormat = GLContext.GL_BGRA;
-                if (!isGL2) {
+                if (!isGL2 ||  PlatformUtil.isWeb()) {
                     // BGRA supported on iOS
                     if (!PlatformUtil.isIOS()) {
                         // for OpenGLES, BGRA can be supported by extension - if
@@ -344,6 +350,21 @@ class ES2Texture<T extends ES2TextureData> extends BaseTexture<ES2TextureResourc
                             internalFormat = pixelFormat = GLContext.GL_BGRA;
                         } else {
                             pixelFormat = GLContext.GL_RGBA;
+System.err.println("SWAP BYTES");
+ByteBuffer bb = (ByteBuffer)pixels;
+if (pixels != null) {
+for (int i = 0; i < texw * texh; i++) {
+byte byte_b = bb.get(i*4);
+byte byte_r = bb.get(i*4+1);
+byte byte_g = bb.get(i*4+2);
+byte byte_a = bb.get(i*4 + 3);
+bb.put(i*4,byte_g);
+bb.put(i*4+2,byte_b);
+}
+// printRelevantPixels(pixels);
+System.err.println("done SWAP BYTES");
+}
+
                         }
                     }
                     pixelType = GLContext.GL_UNSIGNED_BYTE;
