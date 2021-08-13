@@ -1,7 +1,7 @@
 package com.sun.prism.es2;
 
 
-class WebGLContext extends GLContext {
+public class WebGLContext extends GLContext {
 
     private static native long nInitialize(long nativeDInfo, long nativePFInfo,
             long nativeshareCtxHandle, boolean vSyncRequest);

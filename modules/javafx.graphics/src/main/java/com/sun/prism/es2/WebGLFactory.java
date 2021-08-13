@@ -8,9 +8,9 @@ public class WebGLFactory extends GLFactory {
 boolean isGLGPUQualify() {
 return true;
 }
-    static boolean nIsGLExtensionSupported(long nativeContextObject, String glExtStr) {
-        return true;
-    }
+    static native boolean nIsGLExtensionSupported(long nativeContextObject, String glExtStr);
+
+
     static String nGetGLVendor(long nativeCtxInfo) {
 return "GluonWebGL";
     }
@@ -29,15 +29,19 @@ System.err.println("[WEBGLFACTORY] getAdapterOrdinal");
 return 0;
     }
 
-    private static int nGetAdapterCount() {
+    static native int nGetAdapterCount() ;
+/*
 System.err.println("[WEBGLFACTORY] getAdapterCount");
 return 1;
     }
+*/
 
-    private static boolean nGetIsGL2(long nativeCtxInfo) {
+    private native static boolean nGetIsGL2(long nativeCtxInfo);
+/*
 System.err.println("[WEBGLFACTORY] getisGL2 will return true for now");
 return true;
     }
+*/
 
     // Entries must be in lowercase and null string is a wild card
     private GLGPUInfo preQualificationFilter[] = null;

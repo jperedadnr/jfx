@@ -68,7 +68,13 @@ public class ES2Pipeline extends GraphicsPipeline {
         });
 
         // Initialize the prism-es2 pipe and a handler of it
-        glFactory = GLFactory.getFactory();
+        boolean isWeb = System.getProperty("java.vendor", "none").equalsIgnoreCase("bck2brwsr");
+        if (isWeb) {
+            glFactory = new WebGLFactory(); // bck2brwsr has issues with substitutes on reflection
+        } else {
+            glFactory = GLFactory.getFactory();
+        }
+
 
         creator = Thread.currentThread();
 

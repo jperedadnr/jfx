@@ -31,7 +31,7 @@ import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.HashMap;
 
-abstract class GLFactory {
+public abstract class GLFactory {
 
     private static native boolean
             nIsGLExtensionSupported(long nativeContextObject, String glExtStr);

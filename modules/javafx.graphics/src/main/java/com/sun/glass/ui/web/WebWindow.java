@@ -7,9 +7,9 @@ import com.sun.glass.ui.View;
 import com.sun.glass.ui.Window;
 
 /**
- * iOS platform Window implementation class.
+ * Web platform Window implementation class.
  */
-final class WebWindow extends Window {
+public final class WebWindow extends Window {
     protected WebWindow(Window owner, Screen screen, int styleMask) {
         super(owner, screen, styleMask);
     }

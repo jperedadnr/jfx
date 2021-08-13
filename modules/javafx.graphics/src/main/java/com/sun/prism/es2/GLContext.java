@@ -35,7 +35,7 @@ import com.sun.prism.Texture.WrapMode;
 import com.sun.prism.impl.PrismSettings;
 import com.sun.prism.paint.Color;
 
-abstract class GLContext {
+public abstract class GLContext {
 
     // Use by glBlendFunc
     final static int GL_ZERO                      = 0;
