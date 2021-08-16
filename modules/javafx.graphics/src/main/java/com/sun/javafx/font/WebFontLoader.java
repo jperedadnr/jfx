@@ -1,6 +1,8 @@
 package com.sun.javafx.font;
 
 import com.sun.javafx.tk.FontLoader;
+import com.sun.javafx.tk.FontMetrics;
+import java.io.InputStream;
 import java.util.LinkedList;
 import java.util.List;
 import javafx.scene.text.Font;
@@ -25,7 +27,7 @@ public class WebFontLoader extends FontLoader {
         return fontNames;
     }
 
-    public abstract List<String> getFontNames(String family) {
+    public List<String> getFontNames(String family) {
         return fontNames;
     }
 
@@ -43,7 +45,7 @@ public class WebFontLoader extends FontLoader {
     public FontMetrics getFontMetrics(Font font) {
         throw new UnsupportedOperationException("[FONTLOADER]");
     }
-    public int getCharWidth(char ch, Font font) {
+    public float getCharWidth(char ch, Font font) {
         throw new UnsupportedOperationException("[FONTLOADER]");
     }
     public float getSystemFontSize() {

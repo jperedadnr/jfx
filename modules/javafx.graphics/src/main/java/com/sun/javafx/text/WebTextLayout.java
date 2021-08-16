@@ -2,6 +2,7 @@ package com.sun.javafx.text;
 
 import javafx.scene.shape.PathElement;
 import com.sun.javafx.geom.BaseBounds;
+import com.sun.javafx.geom.RectBounds;
 import com.sun.javafx.geom.Shape;
 import com.sun.javafx.scene.text.*;
 
@@ -48,11 +49,11 @@ public class WebTextLayout implements TextLayout {
     }
 
     public TextLine[] getLines() {
-        throw new UnsupportedOperationException("[TEXTLAYOUT]");
+        throw new UnsupportedOperationException("[TEXTLAYOUT] getLines");
     }
 
     public GlyphList[] getRuns() {
-        throw new UnsupportedOperationException("[TEXTLAYOUT]");
+        throw new UnsupportedOperationException("[TEXTLAYOUT] getRuns");
     }
 
     public Shape getShape(int type, TextSpan filter) {
@@ -60,7 +61,8 @@ public class WebTextLayout implements TextLayout {
     }
 
     public boolean setTabSize(int spaces) {
-        throw new UnsupportedOperationException("[TEXTLAYOUT]");
+        System.err.println("[TEXTLAYOUT], setTabSize ignored");
+        return false;
     }
 
     public Hit getHitInfo(float x, float y) {
@@ -74,5 +76,6 @@ public class WebTextLayout implements TextLayout {
 
     public PathElement[] getRange(int start, int end, int type,
                                   float x, float y) {
+        throw new UnsupportedOperationException("[TEXTLAYOUT]");
     }
 }

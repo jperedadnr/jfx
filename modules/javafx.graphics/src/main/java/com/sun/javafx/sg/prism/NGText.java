@@ -40,12 +40,47 @@ import com.sun.javafx.scene.text.GlyphList;
 import com.sun.javafx.text.TextRun;
 import com.sun.prism.Graphics;
 import com.sun.prism.paint.Color;
+import com.sun.javafx.sg.web.Fridge;
+import com.sun.javafx.PlatformUtil;
 
 public class NGText extends NGShape {
 
     static final BaseTransform IDENT = BaseTransform.IDENTITY_TRANSFORM;
+    static final boolean isWeb = PlatformUtil.isWeb();
+
+    static int cnt = 0;
+    int myIndex = -1;
+
+    private synchronized int getMyIndex() {
+        if (myIndex < 0 ) {
+            cnt++;
+            myIndex = cnt;
+        }
+        return myIndex;
+    }
 
     public NGText() {
+        if (isWeb) {
+            Fridge.createTextElement("text-"+getMyIndex());
+        }
+    }
+
+    private String text;
+    public void setText(final String text) {
+        if (text != null) {
+            this.text = text;
+            Fridge.setInnerText("text-"+getMyIndex(), text);
+            geometryChanged();
+System.err.println("[NGTEXT] setText to " + text);
+        }
+    }
+
+    @Override
+    protected void geometryChanged() {
+        super.geometryChanged();
+        BaseBounds bds = getContentBounds(new RectBounds(), IDENT);
+System.err.println("BASEBOUNDS changed to " + bds);
+        Fridge.setGeometry("text-"+getMyIndex(), bds.getMinX(), bds.getMinY());
     }
 
     private GlyphList[] runs;

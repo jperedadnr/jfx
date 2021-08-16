@@ -1154,7 +1154,7 @@ System.out.println("[PROMISE] QT toolkit not yet running, but we will invokeLate
 
     @Override public FontLoader getFontLoader() {
         if (PlatformUtil.isWeb()) {
-            return com.sun.javafx.font.WebFontLoader.getInstance();
+            return new com.sun.javafx.font.WebFontLoader();
         } else {
             return com.sun.javafx.font.PrismFontLoader.getInstance();
         }

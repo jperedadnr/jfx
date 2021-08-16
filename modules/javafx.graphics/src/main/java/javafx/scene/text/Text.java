@@ -28,6 +28,7 @@ package javafx.scene.text;
 import javafx.css.converter.BooleanConverter;
 import javafx.css.converter.EnumConverter;
 import javafx.css.converter.SizeConverter;
+import com.sun.javafx.PlatformUtil;
 import com.sun.javafx.geom.BaseBounds;
 import com.sun.javafx.geom.Path2D;
 import com.sun.javafx.geom.RectBounds;
@@ -168,6 +169,7 @@ public class Text extends Shape {
 
     private TextLayout layout;
     private static final PathElement[] EMPTY_PATH_ELEMENT_ARRAY = new PathElement[0];
+    private boolean isWeb = PlatformUtil.isWeb();
 
     {
         // To initialize the class helper at the begining each constructor of this class
@@ -1515,7 +1517,11 @@ public class Text extends Shape {
             peer.setFont(getFontInternal());
         }
         if (NodeHelper.isDirty(this, DirtyBits.NODE_CONTENTS)) {
-            peer.setGlyphs(getRuns());
+            if (isWeb) {
+                peer.setText(getText());
+            } else {
+                peer.setGlyphs(getRuns());
+            }
         }
         if (NodeHelper.isDirty(this, DirtyBits.NODE_GEOMETRY)) {
             if (isSpan()) {
