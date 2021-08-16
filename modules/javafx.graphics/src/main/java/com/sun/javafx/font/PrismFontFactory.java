@@ -241,6 +241,7 @@ Class[] empty = new Class[0];
                                              String filename, int index,
                                              boolean register, boolean embedded,
                                              boolean copy, boolean tracked) {
+System.out.println("[PFM] createFontResource name = " + name+", fn = " + filename+", embedded = " + embedded);
         String key = (filename+index).toLowerCase();
         PrismFontFile fr = fileNameToFontResourceMap.get(key);
         if (fr != null) {
@@ -264,6 +265,7 @@ Class[] empty = new Class[0];
     }
 
     private PrismFontFile createFontResource(String name, String filename) {
+System.out.println("[PFM] createFontResources for " + name+", filename = " + filename);
         PrismFontFile[] pffArr =
             createFontResources(name, filename,
                                 true, false, false, false, false);
@@ -840,6 +842,9 @@ Class[] empty = new Class[0];
     }
 
     FontResource getDefaultFontResource(boolean wantComp) {
+System.out.println("[PrismFontManager] getDefaultFontResource, jredeffont = " + jreDefaultFont);
+System.out.println("[PrismFontManager] getDefaultFontResource, jredeffont = " + jreFontDir);
+System.out.println("[PrismFontManager] getDefaultFontResource, jredeffont = " + jreDefaultFontFile);
         FontResource fontResource = lookupResource(jreDefaultFontLC, wantComp);
         if (fontResource == null) {
             fontResource = createFontResource(jreDefaultFont,

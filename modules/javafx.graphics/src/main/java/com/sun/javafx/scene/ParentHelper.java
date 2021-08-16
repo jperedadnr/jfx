@@ -60,7 +60,7 @@ public class ParentHelper extends NodeHelper {
     }
 
     public static void superProcessCSS(Node node) {
-        ((ParentHelper) getHelper(node)).superProcessCSSImpl(node);
+        ((ParentHelper) getHelper(node)).mysuperProcessCSSImpl(node);
     }
 
     public static List<String> getAllParentStylesheets(Parent parent) {
@@ -89,7 +89,7 @@ public class ParentHelper extends NodeHelper {
         return parentAccessor.doComputeContains(node, localX, localY);
     }
 
-    void superProcessCSSImpl(Node node) {
+    private void mysuperProcessCSSImpl(Node node) {
         super.processCSSImpl(node);
     }
 

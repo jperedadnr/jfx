@@ -1153,11 +1153,19 @@ System.out.println("[PROMISE] QT toolkit not yet running, but we will invokeLate
     }
 
     @Override public FontLoader getFontLoader() {
-        return com.sun.javafx.font.PrismFontLoader.getInstance();
+        if (PlatformUtil.isWeb()) {
+            return com.sun.javafx.font.WebFontLoader.getInstance();
+        } else {
+            return com.sun.javafx.font.PrismFontLoader.getInstance();
+        }
     }
 
     @Override public TextLayoutFactory getTextLayoutFactory() {
-        return com.sun.javafx.text.PrismTextLayoutFactory.getFactory();
+        if (PlatformUtil.isWeb()) {
+            return com.sun.javafx.text.WebTextLayoutFactory.getFactory();
+        } else {
+            return com.sun.javafx.text.PrismTextLayoutFactory.getFactory();
+        }
     }
 
     @Override public Object createSVGPathObject(SVGPath svgpath) {
