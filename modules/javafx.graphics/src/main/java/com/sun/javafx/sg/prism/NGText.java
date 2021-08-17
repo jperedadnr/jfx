@@ -50,6 +50,7 @@ public class NGText extends NGShape {
 
     static int cnt = 0;
     int myIndex = -1;
+    BaseTransform latesttx;
 
     private synchronized int getMyIndex() {
         if (myIndex < 0 ) {
@@ -79,8 +80,16 @@ System.err.println("[NGTEXT] setText to " + text);
     protected void geometryChanged() {
         super.geometryChanged();
         BaseBounds bds = getContentBounds(new RectBounds(), IDENT);
+        double tx = bds.getMinX();
+        double ty = bds.getMinY();
 System.err.println("BASEBOUNDS changed to " + bds);
-        Fridge.setGeometry("text-"+getMyIndex(), bds.getMinX(), bds.getMinY());
+        if (latesttx != null) {
+            tx = latesttx.getMxt();
+            ty = latesttx.getMyt();
+        }
+        if (isWeb) {
+            Fridge.setGeometry("text-"+getMyIndex(), (float)tx, (float)ty);
+        }
     }
 
     private GlyphList[] runs;
@@ -264,7 +273,12 @@ System.err.println("BASEBOUNDS changed to " + bds);
     private static int TEXT        = 1 << 3;
     private static int DECORATION  = 1 << 4;
     @Override protected void renderContent2D(Graphics g, boolean printing) {
+System.err.println("[NGTEXT] renderContent2D called");
         if (mode == Mode.EMPTY) return;
+        if (isWeb) {
+            latesttx = g.getTransformNoClone();
+            geometryChanged();
+        }
         if (runs == null || runs.length == 0) return;
 
         BaseTransform tx = g.getTransformNoClone();
