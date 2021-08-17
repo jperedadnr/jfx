@@ -19,7 +19,7 @@ pipeline {
     }
 
     environment {
-        IOS_VERSION = '13.2'
+        IOS_VERSION = '14.4'
     }
 
     options {
