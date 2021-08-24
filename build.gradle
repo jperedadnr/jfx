@@ -2209,6 +2209,7 @@ project(":graphics") {
         options.compilerArgs.addAll([
             '-h', "$buildDir/gensrc/headers/",  // Note: this creates the native headers
             '-implicit:none',
+            '--module-version', "$RELEASE_VERSION_SHORT",
             '--module-source-path', defaultModuleSourcePath
             ] )
     }
@@ -3612,6 +3613,7 @@ project(":web") {
             source = project.sourceSets.main.java.srcDirs
             options.compilerArgs.addAll([
                 '-implicit:none',
+                '--module-version', "$RELEASE_VERSION_SHORT",
                 '--module-source-path', defaultModuleSourcePath
                 ])
         }
@@ -3915,6 +3917,7 @@ allprojects {
         project.compileJava {
             options.compilerArgs.addAll([
                 '-implicit:none',
+                '--module-version', "$RELEASE_VERSION_SHORT",
                 '--module-source-path', project.moduleSourcePath
                 ])
         }
@@ -3937,6 +3940,7 @@ allprojects {
         project.compileShimsJava {
             options.compilerArgs.addAll([
                 '-implicit:none',
+                '--module-version', "$RELEASE_VERSION_SHORT",
                 '--module-source-path', project.moduleSourcePathShim
                 ])
         }
@@ -5300,6 +5304,7 @@ compileTargets { t ->
                         args("create")
                         args("--class-path")
                         args(srcClassesDir)
+                        args("--module-version", "$RELEASE_VERSION_SHORT")
                         // Not all modules have a "lib" dir
                         if (file(srcLibDir).isDirectory()) {
                             args("--libs")
