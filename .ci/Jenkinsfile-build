@@ -425,11 +425,11 @@ pipeline {
                 sh "cp gradlew mavenpublication/${env.MAJOR_VERSION}/gradlew"
                 sh "cp gradlew.bat mavenpublication/${env.MAJOR_VERSION}/gradlew.bat"
                 sh "cp build.properties mavenpublication/${env.MAJOR_VERSION}/build.properties"
+                sh "cp tools/maven/build.gradle mavenpublication/${env.MAJOR_VERSION}/build.gradle"
+                sh "cp tools/maven/javafx.pom mavenpublication/${env.MAJOR_VERSION}/javafx.pom"
                 dir ("mavenpublication/${env.MAJOR_VERSION}") {
                     sh "chmod +x gradlew"
                     sh "touch settings.gradle"
-                    sh "s3cmd --force get s3://download.gluonhq.com/jenkins/openjfx/build.gradle"
-                    sh "s3cmd --force get s3://download.gluonhq.com/jenkins/openjfx/javafx.pom"
 
                     script {
                         env.PUBLICATION_TARGETS = ""
