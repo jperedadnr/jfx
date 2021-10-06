@@ -49,7 +49,10 @@
   }
 ,
   {
-    "name" : "com.sun.glass.ui.win.WinView"
+    "name" : "com.sun.glass.ui.win.WinView",
+    "methods" : [
+      {"name":"notifyResize","parameterTypes":["int","int"] }
+    ]
   }
 ,
   {
