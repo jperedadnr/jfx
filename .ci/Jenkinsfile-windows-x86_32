@@ -180,7 +180,7 @@ pipeline {
         stage('Rename dynamic maven publication artifacts') {
             when {
                 expression {
-                    return params.BUILD_MONOCLE
+                    return params.BUILD_DYNAMIC
                 }
             }
             steps {
