@@ -4,6 +4,8 @@
 
 class Globals {
     static Map<String, String> targets = [:]
+    // a map of what JDK parameter a target requires during build: can be JDK or JDK32
+    static Map<String, String> jdkTargets = ["android-aarch64": "JDK", "ios-arm64": "JDK", "linux-aarch64": "JDK", "linux-arm32": "JDK", "linux-x86_64": "JDK", "mac-aarch64": "JDK", "mac-x86_64": "JDK", "windows-x86_32": "JDK32", "windows-x86_64": "JDK"]
     // a map of targets that have dynamic SDK zip artifacts
     static Map<String, String> dynamicSDKTargets = ["linux-aarch64": "linux-aarch64", "linux-arm32": "linux-arm32", "linux-x86_64": "linux-x64", "mac-aarch64": "osx-aarch64", "mac-x86_64": "osx-x64", "windows-x86_32": "windows-x86", "windows-x86_64": "windows-x64"]
     // a map of targets that have dynamic monocle SDK zip artifacts
@@ -192,7 +194,7 @@ pipeline {
     }
 
     tools {
-        jdk 'openjdk-15'
+        jdk params.JDK
     }
 
     stages {
@@ -307,8 +309,10 @@ pipeline {
                     for (target in Globals.targets.keySet()) {
                         if (Globals.targets[target] == "build") {
                             def jobName = "OpenJFX-build-${target}"
+                            def jdkParam = params[Globals.jdkTargets[target]]
                             targetBuildStages["${target}"] = {
                                 build(job: "${jobName}", parameters: [
+                                    string(name: 'JDK', value: "${jdkParam}"),
                                     string(name: 'TAG', value: params.TAG),
                                     string(name: 'REPO', value: params.REPO),
                                     booleanParam(name: 'MILESTONE_FCS', value: params.MILESTONE_FCS),

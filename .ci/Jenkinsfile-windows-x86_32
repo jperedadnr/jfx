@@ -5,6 +5,7 @@
  * Versions: dynamic, dynamic monocle
  *
  * Mandatory Job Parameters:
+ *   - JDK:   defines the jdk tool for this pipeline
  *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
  *   - TAG:   defines the tag to checkout: refs/tags/${TAG}
  *
@@ -34,7 +35,7 @@ pipeline {
     }
 
     tools {
-        jdk 'openjdk-15 32bit'
+        jdk params.JDK
     }
 
     stages {
