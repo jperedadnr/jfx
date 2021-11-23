@@ -407,7 +407,10 @@ defineProperty("INCLUDE_MONOCLE", "false")
 ext.IS_INCLUDE_MONOCLE = Boolean.parseBoolean(INCLUDE_MONOCLE)
 
 // By default, target architecture = host architecture, but we allow different ones.
-defineProperty("TARGET_ARCH", OS_ARCH)
+// On Apple Silicon, default architecture must be "arm64", because clang does not accept
+// aarch64 as -arch parameter.
+defineProperty("TARGET_ARCH", (IS_MAC && IS_AARCH64) ? "arm64" : OS_ARCH)
+
 ext.TARGET_ARCH_EXT = IS_64 ? IS_AARCH64 ? "aarch64" : "x64" : "x32";
 if (TARGET_ARCH == "arm32") {
     ext.TARGET_ARCH_EXT = "arm32";
