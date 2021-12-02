@@ -22,7 +22,8 @@
       {"name":"enterNestedEventLoop","parameterTypes":[] },
       {"name":"leaveNestedEventLoop","parameterTypes":["java.lang.Object"] },
       {"name":"GetApplication","parameterTypes":[] },
-      {"name":"getName","parameterTypes":[] }
+      {"name":"getName","parameterTypes":[] },
+      {"name":"setName","parameterTypes":["java.lang.String"] }
     ]
   }
 ,
