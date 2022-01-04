@@ -465,6 +465,7 @@ ext.IS_WORKER_DEBUG = Boolean.parseBoolean(WORKER_DEBUG);
 defineProperty("CONF", "Debug")
 ext.IS_DEBUG_JAVA = CONF == "Debug" || CONF == "DebugNative"
 ext.IS_DEBUG_NATIVE = CONF == "DebugNative"
+ext.IS_RELEASE = !ext.IS_DEBUG_JAVA
 
 // Specifies whether to enable the Maven publishing tasks
 defineProperty("MAVEN_PUBLISH", "false")
@@ -2947,7 +2948,7 @@ project(":media") {
                 // Pre-defined command line arguments
                 def cfgCMDArgs = ["sh", "configure"]
                 def commonCfgArgs = ["--enable-shared", "--disable-debug", "--disable-static", "--disable-yasm", "--disable-doc", "--disable-programs", "--disable-everything"]
-                def codecsCfgArgs = ["--enable-decoder=aac,mp3,mp3float,h264", "--enable-parser=aac,h264", "--enable-demuxer=aac,h264,mpegts,mpegtsraw"]
+                def codecsCfgArgs = ["--enable-decoder=aac,mp3,mp3float,h264,hevc", "--enable-parser=aac,h264,hevc", "--enable-demuxer=aac,h264,hevc,mpegts,mpegtsraw"]
 
                 def copyLibAVStubs = {String fromDir, String toDir ->
                     FileCollection config = files("config.h")
@@ -4990,6 +4991,9 @@ compileTargets { t ->
 
         def library = targetProperties.library
 
+        def doStrip = targetProperties.containsKey('strip') && IS_RELEASE
+        def strip = doStrip ? targetProperties.strip : null
+        def stripArgs = doStrip ? targetProperties.stripArgs : null
         def useLipo = targetProperties.containsKey('useLipo') ? targetProperties.useLipo : false
         def modLibDest = targetProperties.modLibDest
         def moduleNativeDirName = "${platformPrefix}module-$modLibDest"
@@ -5038,7 +5042,8 @@ compileTargets { t ->
             group = "Basic"
             description = "copies javafx.graphics native libraries"
 
-            into "${graphicsProject.buildDir}/${moduleNativeDirName}"
+            def destDirName = "${graphicsProject.buildDir}/${moduleNativeDirName}"
+            into destDirName
 
             from("${graphicsProject.buildDir}/libs/jsl-decora/${t.name}/${library(targetProperties.decora.lib)}")
             def libs = ['font', 'prism', 'prismSW', 'glass', 'iio']
@@ -5068,13 +5073,32 @@ compileTargets { t ->
                 def lib = 'fontNativeFreetype'
                 from ("${graphicsProject.buildDir}/libs/$lib/${t.name}/${library(targetProperties[lib].lib)}")
             }
+
+            if (doStrip) {
+                doLast {
+                    def inputFiles = fileTree(dir: destDirName)
+                    inputFiles.include("*.dll")
+                    inputFiles.include("*.dylib")
+                    inputFiles.include("*.so")
+                    // FIXME: if we ever need to strip on Windows platforms, we must
+                    // exclude the Microsoft DLLs (VS2017DLLNames and WinSDKDLLNames)
+
+                    inputFiles.each { file ->
+                        exec {
+                            def cmd = [ strip, stripArgs, file ].flatten()
+                            commandLine(cmd)
+                        }
+                    }
+                }
+            }
         }
 
         def buildModuleMediaTask = task("buildModuleMedia$t.capital", type: Copy, dependsOn: [mediaProject.assemble, prepOpenJfxStubs]) {
             group = "Basic"
             description = "copies javafx.media native libraries"
 
-            into "${mediaProject.buildDir}/${moduleNativeDirName}"
+            def destDirName = "${mediaProject.buildDir}/${moduleNativeDirName}"
+            into destDirName
 
             def mediaBuildType = project(":media").ext.buildType
             if (IS_COMPILE_MEDIA) {
@@ -5105,13 +5129,30 @@ compileTargets { t ->
                     from ("$MEDIA_STUB/${library("glib-lite")}")
                 }
             }
+
+            if (doStrip && IS_COMPILE_MEDIA) {
+                doLast {
+                    def inputFiles = fileTree(dir: destDirName)
+                    inputFiles.include("*.dll")
+                    inputFiles.include("*.dylib")
+                    inputFiles.include("*.so")
+
+                    inputFiles.each { file ->
+                        exec {
+                            def cmd = [ strip, stripArgs, file ].flatten()
+                            commandLine(cmd)
+                        }
+                    }
+                }
+            }
         }
 
         def buildModuleWeb = task("buildModuleWeb$t.capital", type: Copy, dependsOn: [webProject.assemble, prepOpenJfxStubs]) {
             group = "Basic"
             description = "copies javafx.web native libraries"
 
-            into "${webProject.buildDir}/${moduleNativeDirName}"
+            def destDirName = "${webProject.buildDir}/${moduleNativeDirName}"
+            into destDirName
 
             if (IS_COMPILE_WEBKIT) {
                 from ("${webProject.buildDir}/libs/${t.name}/${library('jfxwebkit')}")
@@ -5124,6 +5165,22 @@ compileTargets { t ->
             if (t.name == "ios" || t.name == "android") {
                 def lib = 'webview'
                 from ("${webProject.buildDir}/libs/$lib/${t.name}/${library(targetProperties[lib].lib)}")
+            }
+
+            if (doStrip && IS_COMPILE_WEBKIT) {
+                doLast {
+                    def inputFiles = fileTree(dir: destDirName)
+                    inputFiles.include("*.dll")
+                    inputFiles.include("*.dylib")
+                    inputFiles.include("*.so")
+
+                    inputFiles.each { file ->
+                        exec {
+                            def cmd = [ strip, stripArgs, file ].flatten()
+                            commandLine(cmd)
+                        }
+                    }
+                }
             }
         }
 
