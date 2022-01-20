@@ -12,7 +12,11 @@ DIRLIST = progressbuffer       \
           progressbuffer/posix \
           javasource
 
-TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+ifeq ($(STATIC), true) 
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).a
+else
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+endif
 
 CFLAGS = -fPIC                   \
          -Wformat                \
@@ -32,8 +36,14 @@ CFLAGS = -fPIC                   \
          -DGSTREAMER_LITE \
          -ffunction-sections -fdata-sections
 
+ifeq ($(STATIC), true)
+    CFLAGS += -DSTATIC_BUILD
+endif
+
 ifneq ($(ARCH), aarch64)
-    CFLAGS += -msse2
+    ifneq ($(ARCH), arm32)
+        CFLAGS += -msse2
+    endif
 endif
 
 ifeq ($(BUILD_TYPE), Release)
@@ -85,5 +95,11 @@ $(OBJ_DIRS):
 $(TARGET_DIRS):
 	mkdir -p $(TARGET_DIRS)
 
+ifeq ($(STATIC), true) 
+    LINKARGS = r $@ $(OBJECTS)
+else 
+    LINKARGS = -shared $(OBJECTS) $(LDFLAGS) -o $@
+endif
+
 $(TARGET): $(OBJECTS)
-	$(LINKER) -shared $(OBJECTS) $(LDFLAGS) -o $@
+	$(LINKER) $(LINKARGS)

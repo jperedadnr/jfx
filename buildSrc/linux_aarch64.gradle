@@ -1,0 +1,323 @@
+/*
+ * Copyright (c) 2013, 2019, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ */
+
+ext.LINUX_AARCH64 = [:]
+
+// Declare whether this particular target file applies to the current system
+LINUX_AARCH64.canBuild = true;
+if (!LINUX_AARCH64.canBuild) return;
+
+// def SYS="/home/johan/open-jfx/github/nocrosslibs/aarch64"
+// def SYS="$TOOLCHAINDIR/sysroot"
+def SYS="$TOOLCHAINDIR"
+
+// All desktop related packages should be built
+LINUX_AARCH64.compileSwing = true;
+LINUX_AARCH64.compileSWT = true;
+LINUX_AARCH64.includeMonocle = true
+LINUX_AARCH64.includeEGL = true
+LINUX_AARCH64.javafxPlatformDefault="monocle"
+
+
+// Libraries end up in the lib/$OS_ARCH directory for Linux
+LINUX_AARCH64.libDest = "lib"
+
+// Lambda for naming the generated libs
+LINUX_AARCH64.library = { name -> return (IS_STATIC_BUILD ? "lib${name}.a" : "lib${name}.so") as String }
+
+// A set of common parameters to use for both compiling and linking
+def commonFlags = ["--sysroot", "$SYS", 
+        "-fno-strict-aliasing", "-fPIC", "-fno-omit-frame-pointer", // optimization flags
+        "-fstack-protector", "-DLINUX",
+        "-Wextra", "-Wall", "-Wformat-security", "-Wno-unused", "-Wno-parentheses", "-Werror=implicit-function-declaration", "-Werror=trampolines"] // warning flags
+
+if (!IS_64) {
+    commonFlags += "-m32"
+}
+
+if (IS_STATIC_BUILD) {
+    commonFlags += "-DSTATIC_BUILD"
+}
+
+
+// Specify the compilation parameters and link parameters
+def ccFlags = [
+        commonFlags, "-I$JDK_HOME/include", "-I$JDK_HOME/include/linux", "-c",
+        "-I$SYS/usr/include",
+        "-I$SYS/usr/include/libdrm",
+        "-I$SYS/usr/include/freetype2", 
+        "-I$SYS/usr/include/pango-1.0", 
+        "-I$SYS/usr/include/glib-2.0", 
+        "-I$SYS/usr/lib/aarch64-linux-gnu/glib-2.0/include/",
+        "-ffunction-sections", "-fdata-sections",
+        IS_DEBUG_NATIVE ? ["-ggdb", "-DVERBOSE"] : ["-O2", "-DNDEBUG"]].flatten()
+def ccFlagsGTK3 = ccFlags
+def ccFlagsGTK2 = ccFlags
+//ccFlags.addAll(["-Wnon-virtual-dtor", "-Woverloaded-virtual", "-std=c++0x"])
+def dynamicLinkFlags = ["-static-libgcc", "-static-libstdc++", "-shared", commonFlags,
+                 "-z", "relro", "-fuse-ld=gold", "--sysroot", "$SYS",
+                 "-Wl,--gc-sections"].flatten()
+
+def staticLinkFlags = [].flatten()
+
+def linkFlags = IS_STATIC_BUILD ? staticLinkFlags : dynamicLinkFlags;
+
+if (IS_DEBUG_NATIVE) {
+    linkFlags += "-g"
+}
+
+// build toolchainDir (not the crosscompile toolchain!)
+def toolchainDir
+if (hasProperty('toolchainDir')) {
+    toolchainDir = ext.toolchainDir + "/"
+} else {
+    toolchainDir = ""
+}
+
+
+def gtk2CCFlags = [  ];
+def gtk3CCFlags = [ "-Wno-deprecated-declarations" ];
+def gtk2LinkFlags = [ ];
+def gtk3LinkFlags = [ ];
+
+// Create $buildDir/linux_tools.properties file and load props from it
+setupTools("linux_gtk2",
+    { propFile ->
+        ByteArrayOutputStream results1 = new ByteArrayOutputStream();
+        exec {
+            commandLine("${toolchainDir}pkg-config", "--cflags", "gtk+-2.0", "gthread-2.0", "xtst")
+            setStandardOutput(results1);
+        }
+        propFile << "cflagsGTK2=" << results1.toString().trim() << "\n";
+
+        ByteArrayOutputStream results3 = new ByteArrayOutputStream();
+        exec {
+            commandLine("${toolchainDir}pkg-config", "--libs", "gtk+-2.0", "gthread-2.0", "xtst")
+            setStandardOutput(results3);
+        }
+        propFile << "libsGTK2=" << results3.toString().trim()  << "\n";
+    },
+    { properties ->
+        def cflagsGTK2 = properties.getProperty("cflagsGTK2")
+        def libsGTK2 = properties.getProperty("libsGTK2")
+        if (cflagsGTK2 && libsGTK2) {
+            gtk2CCFlags.addAll(cflagsGTK2.split(" "))
+            gtk2LinkFlags.addAll(libsGTK2.split(" "))
+        } else {
+            throw new IllegalStateException("GTK2 development packages not found. If GTK2 packages are installed, please remove the build directory and try again.")
+        }
+    }
+)
+
+setupTools("linux_gtk3",
+    { propFile ->
+        ByteArrayOutputStream results2 = new ByteArrayOutputStream();
+        exec {
+            commandLine("${toolchainDir}pkg-config", "--cflags", "gtk+-3.0", "gthread-2.0", "xtst")
+            setStandardOutput(results2);
+        }
+        propFile << "cflagsGTK3=" << results2.toString().trim() << "\n";
+
+        ByteArrayOutputStream results4 = new ByteArrayOutputStream();
+        exec {
+            commandLine("${toolchainDir}pkg-config", "--libs", "gtk+-3.0", "gthread-2.0", "xtst")
+            setStandardOutput(results4);
+        }
+        propFile << "libsGTK3=" << results4.toString().trim()  << "\n";
+
+    },
+    { properties ->
+        def cflagsGTK3 = properties.getProperty("cflagsGTK3")
+        def libsGTK3 = properties.getProperty("libsGTK3")
+        if (cflagsGTK3 && libsGTK3) {
+            gtk3CCFlags.addAll(cflagsGTK3.split(" "))
+            gtk3LinkFlags.addAll(libsGTK3.split(" "))
+        } else {
+            throw new IllegalStateException("GTK3 development packages not found. If GTK3 packages are installed, please remove the build directory and try again.")
+        }
+    }
+)
+
+def pangoCCFlags = ["-D_ENABLE_PANGO"];
+def pangoLinkFlags = ["-lpangoft2-1.0","-lpango-1.0", "-lgobject-2.0", "-lglib-2.0", "-lfontconfig", "-lfreetype"];
+
+def freetypeCCFlags = [ext.IS_COMPILE_PANGO ? "-D_ENABLE_PANGO" :
+                       ext.IS_COMPILE_HARFBUZZ ? "-D_ENABLE_HARFBUZZ" : ""]
+def freetypeLinkFlags = ["-lfreetype"]
+
+// def compiler = IS_COMPILE_PARFAIT ? "parfait-gcc" : "${toolchainDir}/aarch64-linux-gnu-gcc";
+def compiler = IS_COMPILE_PARFAIT ? "parfait-gcc" : "aarch64-linux-gnu-gcc";
+def linker = IS_STATIC_BUILD ? "aarch64-linux-gnu-ar" : IS_COMPILE_PARFAIT ? "parfait-g++" : "aarch64-linux-gnu-g++";
+
+LINUX_AARCH64.glass = [:]
+LINUX_AARCH64.glass.variants = ["monocle", "glass", "glassgtk2","glassgtk3"]
+
+FileTree ft_gtk_launcher = fileTree("${project(":graphics").projectDir}/src/main/native-glass/gtk/") {
+    include("**/launcher.c")
+}
+
+FileTree ft_gtk = fileTree("${project(":graphics").projectDir}/src/main/native-glass/gtk/") {
+    exclude("**/launcher.c")
+}
+
+LINUX_AARCH64.glass.glass = [:]
+LINUX_AARCH64.glass.glass.nativeSource = ft_gtk_launcher.getFiles()
+LINUX_AARCH64.glass.glass.compiler = compiler
+LINUX_AARCH64.glass.glass.ccFlags = [ccFlags, "-Werror"].flatten()
+LINUX_AARCH64.glass.glass.linker = linker
+LINUX_AARCH64.glass.glass.linkFlags = IS_STATIC_BUILD? linkFlags : [linkFlags, "-lX11", "-ldl"].flatten()
+LINUX_AARCH64.glass.glass.lib = "glass"
+
+LINUX_AARCH64.glass.glassgtk2 = [:]
+LINUX_AARCH64.glass.glassgtk2.nativeSource =  ft_gtk.getFiles()
+LINUX_AARCH64.glass.glassgtk2.compiler = compiler
+LINUX_AARCH64.glass.glassgtk2.ccFlags = IS_STATIC_BUILD ?
+        ["-fno-threadsafe-statics", ccFlags, gtk2CCFlags].flatten() :
+        [ccFlags, gtk2CCFlags, "-Werror"].flatten()
+LINUX_AARCH64.glass.glassgtk2.linker = linker
+LINUX_AARCH64.glass.glassgtk2.linkFlags = IS_STATIC_BUILD ? linkFlags : [linkFlags, gtk2LinkFlags].flatten()
+LINUX_AARCH64.glass.glassgtk2.lib = "glassgtk2"
+
+LINUX_AARCH64.glass.glassgtk3 = [:]
+LINUX_AARCH64.glass.glassgtk3.nativeSource =  ft_gtk.getFiles()
+LINUX_AARCH64.glass.glassgtk3.compiler = compiler
+LINUX_AARCH64.glass.glassgtk3.ccFlags = IS_STATIC_BUILD ?
+        ["-fno-threadsafe-statics", ccFlags, gtk3CCFlags].flatten() :
+        [ccFlags, gtk3CCFlags, "-Werror"].flatten()
+LINUX_AARCH64.glass.glassgtk3.linker = linker
+LINUX_AARCH64.glass.glassgtk3.linkFlags = IS_STATIC_BUILD ? linkFlags : [linkFlags, gtk3LinkFlags].flatten()
+LINUX_AARCH64.glass.glassgtk3.lib = "glassgtk3"
+
+
+LINUX_AARCH64.glass.monocle = [:]
+LINUX_AARCH64.glass.monocle.nativeSource =  [
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle"),
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle/egl"),
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle/linux"),
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle/util") ]
+
+LINUX_AARCH64.glass.monocle.compiler = compiler
+LINUX_AARCH64.glass.monocle.ccFlags = IS_STATIC_BUILD ?
+        ["-fno-threadsafe-statics", ccFlags, gtk2CCFlags].flatten() :
+        [ccFlags, gtk2CCFlags, "-Werror"].flatten()
+LINUX_AARCH64.glass.monocle.linker = linker
+LINUX_AARCH64.glass.monocle.linkFlags = IS_STATIC_BUILD ? linkFlags : [linkFlags, gtk2LinkFlags].flatten()
+LINUX_AARCH64.glass.monocle.lib = "glass_monocle"
+
+LINUX_AARCH64.decora = [:]
+LINUX_AARCH64.decora.compiler = compiler
+LINUX_AARCH64.decora.ccFlags = [ccFlags, "-ffast-math"].flatten()
+LINUX_AARCH64.decora.linker = linker
+LINUX_AARCH64.decora.linkFlags = [linkFlags].flatten()
+LINUX_AARCH64.decora.lib = "decora_sse"
+
+LINUX_AARCH64.prism = [:]
+LINUX_AARCH64.prism.nativeSource = file("${project(":graphics").projectDir}/src/main/native-prism")
+LINUX_AARCH64.prism.compiler = compiler
+LINUX_AARCH64.prism.ccFlags = [ccFlags, "-DINLINE=inline"].flatten()
+LINUX_AARCH64.prism.linker = linker
+LINUX_AARCH64.prism.linkFlags = [linkFlags].flatten()
+LINUX_AARCH64.prism.lib = "prism_common"
+
+LINUX_AARCH64.prismSW = [:]
+LINUX_AARCH64.prismSW.nativeSource = file("${project(":graphics").projectDir}/src/main/native-prism-sw")
+LINUX_AARCH64.prismSW.compiler = compiler
+LINUX_AARCH64.prismSW.ccFlags = [ccFlags, "-DINLINE=inline"].flatten()
+LINUX_AARCH64.prismSW.linker = linker
+LINUX_AARCH64.prismSW.linkFlags = [linkFlags].flatten()
+LINUX_AARCH64.prismSW.lib = "prism_sw"
+
+LINUX_AARCH64.iio = [:]
+LINUX_AARCH64.iio.nativeSource = [
+    file("${project("graphics").projectDir}/src/main/native-iio"),
+    file("${project("graphics").projectDir}/src/main/native-iio/libjpeg")]
+LINUX_AARCH64.iio.compiler = compiler
+LINUX_AARCH64.iio.ccFlags = [ccFlags].flatten()
+LINUX_AARCH64.iio.linker = linker
+LINUX_AARCH64.iio.linkFlags = [linkFlags].flatten()
+LINUX_AARCH64.iio.lib = "javafx_iio"
+
+LINUX_AARCH64.prismES2 = [:]
+LINUX_AARCH64.prismES2.variants = ["monocle"]
+LINUX_AARCH64.prismES2.nativeSource = [
+    file("${project("graphics").projectDir}/src/main/native-prism-es2"),
+    file("${project("graphics").projectDir}/src/main/native-prism-es2/GL"),
+    file("${project("graphics").projectDir}/src/main/native-prism-es2/x11")
+]
+LINUX_AARCH64.prismES2.compiler = compiler
+LINUX_AARCH64.prismES2.ccFlags = ["-DLINUX_AARCH64", ccFlags].flatten()
+LINUX_AARCH64.prismES2.linker = linker
+// LINUX_AARCH64.prismES2.linkFlags =IS_STATIC_BUILD ? linkFlags : [linkFlags, "-lX11", "-lXxf86vm", "-lGL"].flatten()
+LINUX_AARCH64.prismES2.linkFlags =IS_STATIC_BUILD ? linkFlags : [linkFlags].flatten()
+LINUX_AARCH64.prismES2.lib = "prism_es2"
+
+LINUX_AARCH64.prismES2.monocle= [:]
+LINUX_AARCH64.prismES2.monocle.nativeSource = [
+    file("${project("graphics").projectDir}/src/main/native-prism-es2"),
+    file("${project("graphics").projectDir}/src/main/native-prism-es2/GL"),
+    file("${project("graphics").projectDir}/src/main/native-prism-es2/monocle")
+]
+LINUX_AARCH64.prismES2.monocle.compiler = compiler
+LINUX_AARCH64.prismES2.monocle.ccFlags = [ccFlags, "-DIS_EGLFB"].flatten()
+LINUX_AARCH64.prismES2.monocle.linker = linker
+// LINUX_AARCH64.prismES2.monocle.linkFlags = IS_STATIC_BUILD ? [linkFlags].flatten() : [linkFlags, "-ldl", "-llog", "-lGLESv2", "-lEGL"].flatten()
+LINUX_AARCH64.prismES2.monocle.linkFlags = IS_STATIC_BUILD ? [linkFlags].flatten() : [linkFlags, "-lEGL", "-lGLESv2"].flatten()
+LINUX_AARCH64.prismES2.monocle.lib = "prism_es2_monocle"
+
+def closedDir = file("$projectDir/../rt-closed")
+LINUX_AARCH64.font = [:]
+LINUX_AARCH64.font.compiler = compiler
+LINUX_AARCH64.font.nativeSource = [file("${project("graphics").projectDir}/src/main/native-font")]
+LINUX_AARCH64.font.ccFlags = ["-DJFXFONT_PLUS", ccFlags].flatten()
+LINUX_AARCH64.font.linker = linker
+LINUX_AARCH64.font.linkFlags = [linkFlags].flatten()
+LINUX_AARCH64.font.lib = "javafx_font"
+
+LINUX_AARCH64.fontFreetype = [:]
+LINUX_AARCH64.fontFreetype.nativeSource = ["src/main/native-font/freetype.c"]
+LINUX_AARCH64.fontFreetype.compiler = compiler
+LINUX_AARCH64.fontFreetype.ccFlags = ["-DJFXFONT_PLUS", ccFlags, freetypeCCFlags].flatten()
+LINUX_AARCH64.fontFreetype.linker = linker
+LINUX_AARCH64.fontFreetype.linkFlags = IS_STATIC_BUILD ? linkFlags : [linkFlags, freetypeLinkFlags].flatten()
+LINUX_AARCH64.fontFreetype.lib = "javafx_font_freetype"
+
+LINUX_AARCH64.fontPango = [:]
+LINUX_AARCH64.fontPango.nativeSource = ["src/main/native-font/pango.c"]
+LINUX_AARCH64.fontPango.compiler = compiler
+LINUX_AARCH64.fontPango.ccFlags = ["-DJFXFONT_PLUS", ccFlags, pangoCCFlags].flatten()
+LINUX_AARCH64.fontPango.linker = linker
+LINUX_AARCH64.fontPango.linkFlags =IS_STATIC_BUILD ? linkFlags : [linkFlags, pangoLinkFlags].flatten()
+LINUX_AARCH64.fontPango.lib = "javafx_font_pango"
+
+LINUX_AARCH64.media = [:]
+LINUX_AARCH64.media.compiler = compiler
+LINUX_AARCH64.media.linker = linker
+LINUX_AARCH64.media.ar = "ar"
+
+LINUX_AARCH64.webkit = [:]
+LINUX_AARCH64.webkit.compiler = compiler
+LINUX_AARCH64.webkit.linker = linker
+LINUX_AARCH64.webkit.ccFlags = commonFlags.flatten()
+LINUX_AARCH64.webkit.linkFlags = linkFlags.flatten()

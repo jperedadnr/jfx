@@ -190,7 +190,7 @@ IOS.prism.variants = ["arm", "arm64", "x86", "x86_64"];
 IOS.prism.arm = [:]
 IOS.prism.arm.nativeSource = file("${project("graphics").projectDir}/src/main/native-prism")
 IOS.prism.arm.compiler = compiler
-IOS.prism.arm.ccFlags = [ccFlags, "-arch", archArm, "-isysroot", sdkPath(iPhoneOS), "-DINLINE=inline"].flatten()
+IOS.prism.arm.ccFlags = [ccFlags, "-arch", archArm, "-isysroot", sdkPath(iPhoneOS), "-DINLINE=inline", IS_STATIC_BUILD ? "-DSTATIC_BUILD" : ""].flatten()
 IOS.prism.arm.linker = linker
 IOS.prism.arm.linkFlags = ["-arch_only", archArm, "-syslibroot", sdkPath(iPhoneOS), linkFlags].flatten()
 IOS.prism.arm.lib = "prism_common_${archArm}"
@@ -198,7 +198,7 @@ IOS.prism.arm.lib = "prism_common_${archArm}"
 IOS.prism.arm64 = [:]
 IOS.prism.arm64.nativeSource = file("${project("graphics").projectDir}/src/main/native-prism")
 IOS.prism.arm64.compiler = compiler
-IOS.prism.arm64.ccFlags = [ccFlags, "-arch", archArm64, "-isysroot", sdkPath(iPhoneOS), "-DINLINE=inline"].flatten()
+IOS.prism.arm64.ccFlags = [ccFlags, "-arch", archArm64, "-isysroot", sdkPath(iPhoneOS), "-DINLINE=inline", IS_STATIC_BUILD ? "-DSTATIC_BUILD" : ""].flatten()
 IOS.prism.arm64.linker = linker
 IOS.prism.arm64.linkFlags = ["-arch_only", archArm64, "-syslibroot", sdkPath(iPhoneOS), linkFlags].flatten()
 IOS.prism.arm64.lib = "prism_common_${archArm64}"
@@ -206,7 +206,7 @@ IOS.prism.arm64.lib = "prism_common_${archArm64}"
 IOS.prism.x86 = [:]
 IOS.prism.x86.nativeSource = file("${project("graphics").projectDir}/src/main/native-prism")
 IOS.prism.x86.compiler = compiler
-IOS.prism.x86.ccFlags = [ccFlags, "-arch", archX86, "-isysroot", sdkPath(iPhoneSim), "-DINLINE=inline"].flatten()
+IOS.prism.x86.ccFlags = [ccFlags, "-arch", archX86, "-isysroot", sdkPath(iPhoneSim), "-DINLINE=inline", IS_STATIC_BUILD ? "-DSTATIC_BUILD" : ""].flatten()
 IOS.prism.x86.linker = linker
 IOS.prism.x86.linkFlags = ["-arch_only", archX86, "-syslibroot", sdkPath(iPhoneSim), linkFlags].flatten()
 IOS.prism.x86.lib = "prism_common_${archX86}"
@@ -214,7 +214,7 @@ IOS.prism.x86.lib = "prism_common_${archX86}"
 IOS.prism.x86_64 = [:]
 IOS.prism.x86_64.nativeSource = file("${project("graphics").projectDir}/src/main/native-prism")
 IOS.prism.x86_64.compiler = compiler
-IOS.prism.x86_64.ccFlags = [ccFlags, "-arch", archX86_64, "-isysroot", sdkPath(iPhoneSim), "-DINLINE=inline"].flatten()
+IOS.prism.x86_64.ccFlags = [ccFlags, "-arch", archX86_64, "-isysroot", sdkPath(iPhoneSim), "-DINLINE=inline", IS_STATIC_BUILD ? "-DSTATIC_BUILD" : ""].flatten()
 IOS.prism.x86_64.linker = linker
 IOS.prism.x86_64.linkFlags = ["-arch_only", archX86_64, "-syslibroot", sdkPath(iPhoneSim), linkFlags].flatten()
 IOS.prism.x86_64.lib = "prism_common_${archX86_64}"
@@ -380,7 +380,7 @@ IOS.font.x86_64.lib = "javafx_font_${archX86_64}"
 IOS.webview = [:]
 IOS.webview.lib = "webview"
 IOS.webview.javahInclude = ["javafx/scene/web/*"]
-IOS.webview.variants = ["arm", "arm64", "x86", "x86_64"];
+IOS.webview.variants = ["arm64"]
 
 IOS.webview.arm = [:]
 IOS.webview.arm.nativeSource = file("${project("web").projectDir}/src/ios/native")
@@ -456,3 +456,19 @@ IOS.media.x86_64.linker = linker
 IOS.media.x86_64.linkFlags = ["-arch_only", archX86_64, "-syslibroot", sdkPath(iPhoneSim), linkFlags].flatten()
 IOS.media.x86_64.lib = "jfxmedia_${archX86_64}"
 
+project(":web") {
+    apply plugin: 'java'
+
+    sourceSets.main.java.srcDirs = [ 'src/ios/java' ]
+    sourceSets.main.resources.srcDirs += ['src/ios/resources']
+    project.ext.moduleSourcePath = cygpath(rootProject.projectDir.path + '/modules/*/src/ios/java')
+    project.ext.bundledWebkit = true
+}
+
+project(":controls") {
+    apply plugin: 'java'
+
+    sourceSets.main.java.srcDirs += ['src/ios/java']
+    sourceSets.main.resources.srcDirs += ['src/ios/resources']
+    project.ext.moduleSourcePath = cygpath(rootProject.projectDir.path + '/modules/*/src/ios/java')
+}

@@ -1,43 +1,15 @@
 #!/bin/bash
-
-#
-# Copyright (c) 2013, 2021, Oracle and/or its affiliates. All rights reserved.
-# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
-#
-# This code is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License version 2 only, as
-# published by the Free Software Foundation.  Oracle designates this
-# particular file as subject to the "Classpath" exception as provided
-# by Oracle in the LICENSE file that accompanied this code.
-#
-# This code is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-# version 2 for more details (a copy is included in the LICENSE file that
-# accompanied this code).
-#
-# You should have received a copy of the GNU General Public License version
-# 2 along with this work; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
-#
-# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
-# or visit www.oracle.com if you need additional information or have any
-# questions.
-#
-
-# this script is designed to collect headers and libraries for an ARM HF ABI 
-# crossbuild of JavaFX. The result is probably bigger than it needs to be.
-# The operation will cache download data in $DEST_VERSION.data so that 
-# rerunning the script can be done faster. When the desired result is complete,
-# it can be removed as it should not be used in the build process.
-
-# How to:
-# Each debian repo will have a Contents and a Packages file (usually as a .gz)
-# the Contents can be used to map a needed file to a package
-# the Package is used to check dependancies
+# Cross-compiling from Linux x86_64 to Linux AARCH64
+# The script below adds the sysroot
+# You also have to install the compiler and binutils:
+# sudo apt-get install binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu
+# when building JavaFX, set the TOOLCHAINDIR to the sysroot:
+#export PKG_CONFIG_SYSROOT_DIR=/path/to/crosslibs/aarch64
+#export PKG_CONFIG_LIBDIR=/path/to/crosslibs/aarch64/usr/lib/aarch64-linux-gnu/pkgconfig:/path/to/crosslibs/aarch64/usr/share/pkgconfig
+#sh gradlew --no-daemon --info -PUSE_DRM -PCOMPILE_TARGETS=linux_aarch64 -PTOOLCHAINDIR=/path/to/crosslibs/aarch64 sdk
 
 CROSSLIBS=$PWD/crosslibs
-DEST_VERSION=armv6hf-02
+DEST_VERSION=aarch64
 
 confirm() {
     echo -n "Is this correct? [Y/n]: "
@@ -253,11 +225,10 @@ installLibs() {
 
     getPackages  \
         $DESTINATION \
-        http://ftp.debian.org/debian/ buster main armhf \
+        http://ftp.us.debian.org/debian/ stretch main arm64 \
             libatk1.0-dev \
             libatk1.0-0 \
             libc6 \
-            libc6-dev \
             libc-bin \
             libgcc1 \
             libglib2.0-0 \
@@ -282,12 +253,11 @@ installLibs() {
             zlib1g-dev \
             libcairo2-dev \
             libcairo2 \
-            libpangocairo-1.0-0 \
             libfontconfig1 \
             libexpat1 \
             libfreetype6 \
             libpixman-1-0 \
-            libpng12-0 \
+            libpng-dev \
             libx11-6 \
             libxcb1 \
             libxau6 \
@@ -303,7 +273,6 @@ installLibs() {
             libfreetype6-dev \
             libx11-dev \
             libxau-dev \
-            x11proto-dev \
             x11proto-core-dev \
             libxdmcp-dev \
             x11proto-input-dev \
@@ -337,17 +306,23 @@ installLibs() {
             libjbig0 \
             libgdk-pixbuf2.0-common \
             libglib2.0-0-refdbg \
-            libgstreamer1.0-dev \
-            libgstreamer1.0-0 \
+            libgstreamer0.10-dev \
+            libgstreamer0.10-0 \
             libxml2 \
             liblzma5 \
             libxml2-dev \
-            libgstreamer-plugins-base1.0-dev \
-            libgstreamer-plugins-base1.0-0 \
+            libgstreamer-plugins-base0.10-dev \
+            libgstreamer-plugins-base0.10-0 \
             liborc-0.4-0 \
             libgtk2.0-dev \
             libgtk2.0-0 \
             libgtk2.0-common \
+            libgtk-3-dev \
+            libgtk-3-0 \
+            libgtk-3-common \
+            libwayland-dev \
+            wayland-protocols \
+            wayland-egl \
             libcomerr2 \
             libcups2 \
             libavahi-client3 \
@@ -364,7 +339,7 @@ installLibs() {
             libkeyutils1 \
             libkrb5support0 \
             libkrb5-3 \
-            libpango-1.0-0 \
+            libpango1.0-0 \
             libthai0 \
             libthai-data \
             libdatrie1 \
@@ -378,7 +353,6 @@ installLibs() {
             libxinerama1 \
             libxrandr2 \
             libpango1.0-dev \
-            libpangoft2-1.0-0 \
             libxft-dev \
             libxext-dev \
             x11proto-xext-dev \
@@ -412,27 +386,38 @@ installLibs() {
             libdirectfb-1.2-9 \
             libxslt1-dev \
             libxslt1.1 \
-            libegl1-mesa-dev \
-            libgles2 \
-            libgbm1 \
-            libgbm-dev \
-            libglvnd-dev \
-            libasound2 \
-            libasound2-dev \
-            libavcodec-dev \
-            libavcodec58 \
-            libavformat-dev \
-            libavformat58 \
-            libavutil-dev \
-            libavutil56 \
-            libswresample-dev \
             libudev-dev \
-            libudev0
+            libudev0 \
+            libgraphite2-dev \
+            libharfbuzz-dev \
+            libharfbuzz0b \
+            libxkbcommon-dev \
+            libepoxy-dev \
+            libatk1.0-dev \
+            libatk-bridge2.0 \
+            libatk-bridge2.0-dev \
+            libatspi2.0-dev \
+            libdbus-1-dev \
+            libpangocairo-1.0-0 \
+            libpangoft2-1.0-0 \
+            libpango-1.0-0 \
+            libgles2-mesa-dev \
+            libgles2-mesa \
+            libegl1-mesa-dev \
+            libegl1-mesa \
+            libgl1 \
+            libgl1-mesa-dev \
+            libgl1-mesa-glx \
+            libdrm2 \
+            libdrm-dev \
+            libgbm-dev \
+            libgbm1 \
+            libxkbcommon-dev
 
     # get some rapberry Pi specials
     getPackages  \
         $DESTINATION \
-        http://legacy.raspbian.org/raspbian wheezy firmware armhf \
+        http://archive.raspbian.org/raspbian wheezy firmware armhf \
         libraspberrypi-dev
 }
 
@@ -440,14 +425,15 @@ installCrossCompiler() {
     echo
     echo Fetching and unpacking compiler in $CROSSLIBS
     echo
-    /bin/sh -c "sudo apt-get install gcc-arm-linux-gnueabihf"
-}
-
-installCrossLinker() {
+    echo NOTE: if you use a proxy server then this download will probably fail. In that
+    echo case you need to set a value for the environment variable https_proxy and run
+    echo this script again.
     echo
-    echo Fetching and unpacking linker in $CROSSLIBS
+    COMPILER_URL=https://launchpad.net/linaro-toolchain-unsupported/trunk/2012.09/+download/gcc-linaro-arm-linux-gnueabihf-raspbian-2012.09-20120921_linux.tar.bz2
+    CMD="wget $COMPILER_URL -O - | tar jx -C $CROSSLIBS"
+    echo $CMD
     echo
-    /bin/sh -c "sudo apt-get install g++-arm-linux-gnueabihf"
+    /bin/sh -c "$CMD"
 }
 
 SCRIPTDIR=`dirname $0`
@@ -467,13 +453,10 @@ checkReinstall $PILIBS
     installLibs
 #fi
 
-CROSSCOMPILER=/usr/bin/arm-linux-gnueabihf-gcc
-if [[ ! -e $CROSSCOMPILER ]]; then
+CROSSCOMPILER=$CROSSLIBS/gcc-linaro-arm-linux-gnueabihf-raspbian-2012.09-20120921_linux
+checkReinstall $CROSSCOMPILER
+if [[ ! -d $CROSSCOMPILER ]]; then
     installCrossCompiler
-fi
-CROSSLINKER=/usr/bin/arm-linux-gnueabihf-g++
-if [[ ! -e $CROSSLINKER ]]; then
-    installCrossLinker
 fi
 
 echo

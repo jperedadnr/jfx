@@ -1,0 +1,248 @@
+/*
+ * Jenkins Pipeline script for building OpenJFX. Final SDKs are stored as job artifacts.
+ *
+ * Target: linux-arm32
+ * Versions: dynamic monocle
+ *
+ * Mandatory Job Parameters:
+ *   - JDK:   defines the jdk tool for this pipeline
+ *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
+ *   - TAG:   defines the tag to checkout: refs/tags/${TAG}
+ *
+ * Optional Job Parameters:
+ *   - MILESTONE_FCS:     if set to false: build an early access release; if set to true: build a milestone release
+ *   - BUILD_DYNAMIC:     builds the dynamic SDK for use with a regular JVM
+ *   - GLUON_DRM_VERSION: the version of the Gluon DRM library to include in the final SDK
+ */
+
+pipeline {
+    agent {
+        label 'aws && linux && x64'
+    }
+
+
+    environment {
+        SYSROOT_DIR = '/opt/arm32/armv6hf'
+        PKG_CONFIG_SYSROOT_DIR = "$SYSROOT_DIR"
+        PKG_CONFIG_PATH = "${PKG_CONFIG_SYSROOT_DIR}/usr/lib/pkgconfig:${PKG_CONFIG_SYSROOT_DIR}/usr/share/pkgconfig:${PKG_CONFIG_SYSROOT_DIR}/usr/lib/arm-linux-gnueabihf/pkgconfig"
+        PKG_CONFIG_LIBDIR = "$PKG_CONFIG_PATH"
+    }
+
+    options {
+        copyArtifactPermission('OpenJFX-build')
+    }
+
+    tools {
+        jdk params.JDK
+    }
+
+    stages {
+        stage('Verify required REPO parameter') {
+            when {
+                expression {
+                    return params.REPO == ''
+                }
+            }
+            steps {
+                error("REPO parameter is required.")
+            }
+        }
+
+        stage('Verify required TAG parameter') {
+            when {
+                expression {
+                    return params.TAG == ''
+                }
+            }
+            steps {
+                error("TAG parameter is required.")
+            }
+        }
+
+        stage('Clone repository') {
+            steps {
+                checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: "git@github.com:${env.REPO}.git", credentialsId: 'github-account-tiainen']], branches: [[name: "refs/tags/${env.TAG}"]]], poll: false
+            }    
+        }
+
+        stage('Clean repository') {
+            steps {
+                sh "git clean -d -x -f"
+            }
+        }
+
+        /*
+         * Load generic environment variables.
+         * MAJOR_VERSION: determined from the "jfx.release.*.version" properties in build.properties (i.e. 17, 17.0.1)
+         * REPO_ACCOUNT: the GitHub account name of the repository that is being cloned
+         */
+        stage('Load generic env vars') {
+            steps {
+                script {
+                    env.MAJOR_VERSION = """${sh(
+                        returnStdout: true,
+                        script: '''#!/bin/bash -xe
+                            JFX_MAJOR=$(cat build.properties | grep "^jfx\\.release\\.major\\.version" | cut -d= -f2 | tr -d "\\n")
+                            JFX_MINOR=$(cat build.properties | grep "^jfx\\.release\\.minor\\.version" | cut -d= -f2 | tr -d "\\n")
+                            JFX_SECURITY=$(cat build.properties | grep "^jfx\\.release\\.security\\.version" | cut -d= -f2 | tr -d "\\n")
+                            JFX_PATCH=$(cat build.properties | grep "^jfx\\.release\\.patch\\.version" | cut -d= -f2 | tr -d "\\n")
+                            if [[ ${JFX_PATCH} -gt 0 ]]; then
+                                echo -n "${JFX_MAJOR}.${JFX_MINOR}.${JFX_SECURITY}.${JFX_PATCH}"
+                            elif [[ ${JFX_MINOR} -gt 0 || ${JFX_SECURITY} -gt 0 ]]; then
+                                echo -n "${JFX_MAJOR}.${JFX_MINOR}.${JFX_SECURITY}"
+                            else
+                                echo -n "${JFX_MAJOR}"
+                            fi
+                        '''
+                    )}"""
+                    env.REPO_ACCOUNT = """${sh(
+                        returnStdout: true,
+                        script: 'echo ${REPO} | cut -d/ -f1 | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        /*
+         * Load environment variables specific to fork builds.
+         * PROMOTED_BUILD_NUMBER: set to the TAG parameter
+         */
+        stage('Load env vars (fork)') {
+            when {
+                not {
+                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                }
+            }
+            steps {
+                script {
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
+                        returnStdout: true,
+                        script: 'echo ${TAG} | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        /*
+         * Load environment variables specific to official builds.
+         * PROMOTED_BUILD_NUMBER: set to the promoted build number of the promoted tag (i.e. number 3 from the tag 17+3-gluon)
+         */
+        stage('Load env vars (official)') {
+            when {
+                environment name: 'REPO', value: 'gluonhq/gluonjfx'
+            }
+            steps {
+                script {
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
+                        returnStdout: true,
+                        script: 'echo ${TAG} | cut -d- -f1 | cut -d+ -f2 | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        /*
+         * Determine actual version in case GLUON_DRM_VERSION version is set to "latest".
+         */
+        stage('Determine DRM version') {
+            when {
+                environment name: 'GLUON_DRM_VERSION', value: 'latest'
+            }
+            steps {
+                script {
+                    env.GLUON_DRM_VERSION = """${sh(
+                        returnStdout: true,
+                        script: 'ssh root@download2.gluonhq.com \'ls -ltr /var/www/html/restricted/openjfx/drm/latest | sed -e "s/.* -> lib-\\(.*\\)$/\\1/g"\' | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        stage('Gradle build') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
+            steps {
+                sh "mkdir -p artifacts/dynamic"
+                sh "sh gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PCOMPILE_TARGETS=arm32 -PTARGET_ARCH=arm32 -PCROSS_TOOLS_DIR=${env.SYSROOT_DIR} -PBUILD_LIBAV_STUBS=false clean all publishToMavenLocal"
+            }
+        }
+
+        stage('Add DRM lib (dynamic)') {
+            when {
+                allOf {
+                    expression {
+                        return params.BUILD_DYNAMIC
+                    }
+                    not {
+                        environment name: 'GLUON_DRM_VERSION', value: ''
+                    }
+                }
+            }
+            steps {
+                sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/lib-${GLUON_DRM_VERSION}/arm32/libgluon_drm.so build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/lib/libgluon_drm-${GLUON_DRM_VERSION}.so"
+                sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/lib-${GLUON_DRM_VERSION}/arm32/libgluon_drm_debug.so build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/lib/libgluon_drm_debug-${GLUON_DRM_VERSION}.so"
+                sh "scp root@download2.gluonhq.com:/var/www/html/restricted/openjfx/drm/gluon.md build/artifacts/javafx-sdk-${env.MAJOR_VERSION}/legal/javafx.graphics/gluon.md"
+                sh "cd build/artifacts && zip -ur bundles/javafx-sdk-${env.MAJOR_VERSION}.zip javafx-sdk-${env.MAJOR_VERSION}"
+            }
+        }
+
+        stage('Rename dynamic maven publication artifacts') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
+            steps {
+                sh 'mkdir -p build/publications'
+                sh 'for i in `find build/arm32-publications/*-arm32.jar`; do b=$(basename $i); cp $i "build/publications/${b%%-arm32.jar}-linux-arm32-monocle.jar"; done'
+            }
+        }
+
+        stage('Rename dynamic artifact zips (fork)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.REPO != 'gluonhq/gluonjfx'
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}+${env.TAG}_linux-arm32_bin-sdk.zip"
+            }
+        }
+
+        stage('Rename dynamic artifact zips (official / ea)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_linux-arm32_bin-sdk.zip"
+            }
+        }
+
+        stage('Rename dynamic artifact zips (official / fcs)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS
+                }
+            }
+            steps {
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}_linux-arm32_bin-sdk.zip"
+            }
+        }
+
+        stage('Archive dynamic artifacts') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC
+                }
+            }
+            steps {
+                archiveArtifacts artifacts: 'artifacts/dynamic/openjfx-*-sdk.zip,build/publications/*-linux-arm32-monocle.jar', fingerprint: true
+            }
+        }
+    }
+}

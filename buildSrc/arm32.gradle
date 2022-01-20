@@ -1,0 +1,331 @@
+ext.ARM32 = [:]
+
+// Define the location of the sdk and toolchain
+def SYSROOT = rootProject.CROSS_TOOLS_DIR
+def sdk=file(SYSROOT);
+def compilerHome
+def compilerPrefix
+def jniPlatform
+if (IS_LINUX) {
+    compilerHome=file("/usr")
+    compilerPrefix="arm-linux-gnueabihf-"
+    jniPlatform="linux"
+} else {
+    fail("armv6hf Cannot build on this platform")
+}
+
+def compiler = file("$compilerHome/bin/${compilerPrefix}gcc").getAbsolutePath()
+def linker = file("$compilerHome/bin/${compilerPrefix}g++").getAbsolutePath()
+
+// Declare whether this particular target file applies to the current system
+ARM32.canBuild = (IS_LINUX || IS_MAC) && compilerHome.exists() && sdk.exists()
+if (!ARM32.canBuild) {
+    if (!compilerHome.exists()) println "ERROR: Missing compiler $compilerHome"
+    if (!sdk.exists()) println "ERROR: Missing sdk $sdk"
+    fail("armv6hf missing required tools")
+}
+
+// Lambda for naming the generated libs
+ARM32.library = { name -> return "lib${name}.so" as String }
+
+ARM32.compileSwing = true
+ARM32.compileSWT = false
+ARM32.compileWebnodeNative = false
+ARM32.compileMediaNative = true
+
+ARM32.includeMonocle = true
+ARM32.includeNull3d = true
+ARM32.includeEGL = true
+ARM32.includeSwing = false
+ARM32.includeSWT = false
+ARM32.includeGTK = true
+
+ARM32.javafxPlatformDefault="monocle"
+
+// Libraries end up in the sdk/lib/arm directory for arm builds
+ARM32.arch = "arm"
+ARM32.libDest = "lib"
+
+def commonFlags = [
+        "-fno-strict-aliasing", "-fPIC", "-fno-omit-frame-pointer", // optimization flags
+        "-Wextra", "-Wall", "-Wno-unused", "-Wno-parentheses", "-Werror=implicit-function-declaration"] // warning flags
+// Specify the compilation parameters and link parameters
+def ccFlags = [
+        commonFlags, "-I$JDK_HOME/include", "-I$JDK_HOME/include/$jniPlatform", "-c",
+        IS_DEBUG_NATIVE ? ["-ggdb", "-DVERBOSE"] : ["-O2", "-DNDEBUG"]].flatten()
+
+def linkFlags = ["-shared", commonFlags].flatten()
+
+// Specify the compilation parameters and link parameters
+def extraCFlags = [
+        ccFlags,
+        "-marm", "-mfloat-abi=hard", "-mfpu=vfp",
+        "-I${project("graphics").projectDir}/src/main/native-prism-es2",
+        "-DOMAP3"].flatten();
+
+def extraLFlags = [
+        linkFlags,
+        "-L$sdk/lib/arm-linux-gnueabihf",
+        "-L$sdk/usr/lib",
+        "-L$sdk/usr/lib/arm-linux-gnueabihf"].flatten()
+
+def monocleCFlags = [
+        extraCFlags,
+        "-Werror",
+        "-I", file("${project("graphics").projectDir}/src/main/native-glass/monocle/")].flatten();
+def monocleLFlags = [extraLFlags, "-ldl", "-lm", "-lgbm"].flatten()
+
+def fontCFlags = [extraCFlags].flatten()
+def fontLFlags = [extraLFlags, "-ldl"].flatten()
+
+def iioCFlags = [extraCFlags,
+         "-Wno-main" // suppress warnings about using main as a variable, 3rd party code
+         ].flatten()
+def iioLFlags = [extraLFlags].flatten()
+
+def es2EglfbCFlags = [extraCFlags, "-DIS_EGLFB", "-DLINUX"].flatten()
+def es2EglfbLFlags = [extraLFlags, "-lGLESv2"].flatten()
+def es2MonocleCFlags = [extraCFlags, "-DIS_EGLFB", "-DLINUX"].flatten()
+def es2MonocleLFlags = [extraLFlags].flatten()
+
+def es2X11CFlags = [extraCFlags, "-DUSE_XSHM", "-DDEBUG", "-DIS_EGLX11", "-DLINUX"].flatten()
+def es2X11LFlags = [extraLFlags, "-lX11", "-lXext", "-lXdmcp", "-lXau"].flatten()
+
+def monocleEGLLFlags = [monocleLFlags, "-lEGL", "-ldrm"].flatten()
+
+def mediaCFlags = [extraCFlags].flatten()
+def mediaLFlags = [extraLFlags, "-lgstreamer-lite", "-lgstapp-1.0",
+                   "-lgstbase-1.0", "-lglib-2.0", "-lgobject-2.0", "-lgmodule-2.0", "-lgthread-2.0"].flatten()
+
+def webCFlags = [extraCFlags].flatten()
+def webLFlags = [extraLFlags].flatten()
+
+def gtkCFlags = [extraCFlags].flatten()
+def gtkLFlags = [extraLFlags].flatten()
+
+def gtkCFlags_pkgconfig = "-I${SYSROOT}/usr/include/gtk-3.0/ -I${SYSROOT}/usr/include/glib-2.0 -I${SYSROOT}/usr/include/atk-1.0 -I${SYSROOT}/usr/include/cairo -I${SYSROOT}/usr/include/gdk-pixbuf-2.0 -I${SYSROOT}/usr/include/pango-1.0/ -I${SYSROOT}/usr/lib/arm-linux-gnueabihf/glib-2.0/include"
+def gtkLFlags_pkgconfig = "-L${SYSROOT}/usr/lib/arm-linux-gnueabihf"
+
+gtkCFlags.addAll(gtkCFlags_pkgconfig.split(" "))
+gtkLFlags.addAll(gtkLFlags_pkgconfig.split(" "))
+
+def monoclePlatformAdditions = """
+monocle.glass.platform=Monocle
+monocle.platform=EGL
+monocle.egl.lib=gluon_drm
+monocle.prism.order=es2,sw
+monocle.prism.eglfb=true
+monocle.prism.lcdtext=false
+monocle.prism.maxvram=128m
+monocle.prism.targetvram=112m
+monocle.use.egl=true
+monocle.use.gles2=true
+monocle.embedded=monocle
+monocle.com.sun.javafx.isEmbedded=true
+monocle.doNativeComposite=true
+monocle.com.sun.javafx.scene.control.skin.FXVK.cache=true
+monocle.prism.glDepthSize=0
+monocle.com.sun.javafx.gestures.zoom=true
+monocle.com.sun.javafx.gestures.rotate=true
+monocle.com.sun.javafx.gestures.scroll=true"""
+
+def gtkPlatformAdditions = """
+gtk.com.sun.javafx.scene.control.skin.ListViewSkin.pannable=true
+gtk.com.sun.javafx.scene.control.skin.TreeViewSkin.pannable=true
+gtk.com.sun.javafx.scene.control.skin.TableViewSkin.pannable=true
+gtk.glass.platform=gtk
+gtk.prism.order=sw
+gtk.com.sun.javafx.isEmbedded=true
+gtk.com.sun.javafx.scene.control.skin.FXVK.cache=true
+gtk.com.sun.javafx.gestures.zoom=true
+gtk.com.sun.javafx.gestures.rotate=true
+gtk.com.sun.javafx.gestures.scroll=true"""
+
+def pangoCCFlags = [extraCFlags, "-D_ENABLE_PANGO"];
+def pangoLinkFlags = [extraLFlags, "-lpangoft2-1.0", "-lpango-1.0", "-lgobject-2.0", "-lglib-2.0", "-lfontconfig", "-lfreetype"];
+
+def pangoCFlags_pkgconfig = "-I${sdk}/usr/include/pango-1.0 -I${sdk}/usr/include/freetype2 -I${sdk}/usr/include -I${sdk}/usr/include/glib-2.0 -I${sdk}/usr/lib/arm-linux-gnueabihf/glib-2.0/include"
+
+def pangoLFlags_pkgconfig = "-L${sdk}/usr/lib/arm-linux-gnueabihf -lpangoft2-1.0 -lpango-1.0 -lfreetype -lfontconfig -lgobject-2.0 -lglib-2.0"
+
+pangoCCFlags.addAll(pangoCFlags_pkgconfig.split(" "))
+pangoLinkFlags.addAll(pangoLFlags_pkgconfig.split(" "))
+
+def freetypeCCFlags = [ext.IS_COMPILE_PANGO ? "-D_ENABLE_PANGO" :
+                       ext.IS_COMPILE_HARFBUZZ ? "-D_ENABLE_HARFBUZZ" : ""]
+def freetypeLinkFlags = []
+
+def freetypeCFlags_pkgconfig = "-I${sdk}/usr/include/freetype2 -I${sdk}/usr/include"
+def freetypeLFlags_pkgconfig = "-L${sdk}/usr/lib/arm-linux-gnueabihf -lfreetype"
+
+freetypeCCFlags.addAll(freetypeCFlags_pkgconfig.split(" "))
+freetypeLinkFlags.addAll(freetypeLFlags_pkgconfig.split(" "))
+
+ARM32.javafxPlatformProperties = "javafx.platform=${ARM32.javafxPlatformDefault}"
+
+ARM32.glass = [:]
+ARM32.glass.javahInclude = [
+    "com/sun/glass/events/**",
+    "com/sun/glass/ui/*"]
+ARM32.glass.variants = [ ]
+if (ARM32.includeMonocle) {
+    ARM32.glass.variants.addAll("monocle", "monocle_x11");
+    ARM32.glass.javahInclude.addAll(
+        "com/sun/glass/ui/monocle/*",
+        "com/sun/glass/ui/monocle/linux/*",
+        "com/sun/glass/ui/monocle/util/*",
+        "com/sun/glass/ui/monocle/x11/*");
+    ARM32.javafxPlatformProperties = ARM32.javafxPlatformProperties + monoclePlatformAdditions
+}
+if (ARM32.includeGTK) {
+    ARM32.glass.variants.addAll("gtk");
+    ARM32.glass.javahInclude.addAll("com/sun/glass/ui/gtk/*");
+    ARM32.javafxPlatformProperties = ARM32.javafxPlatformProperties + gtkPlatformAdditions
+}
+
+ARM32.glass.lib = "glass"
+
+ARM32.glass.monocle = [:]
+ARM32.glass.monocle.nativeSource = [
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle"),
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle/egl"),
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle/linux"),
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle/util") ]
+ARM32.glass.monocle.compiler = compiler
+ARM32.glass.monocle.ccFlags = monocleCFlags
+ARM32.glass.monocle.linker = linker
+ARM32.glass.monocle.linkFlags = monocleLFlags
+ARM32.glass.monocle.lib = "glass_monocle"
+
+ARM32.glass.monocle_x11 = [:]
+ARM32.glass.monocle_x11.nativeSource = [
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle/util"),
+        file("${project("graphics").projectDir}/src/main/native-glass/monocle/x11") ]
+ARM32.glass.monocle_x11.compiler = compiler
+ARM32.glass.monocle_x11.ccFlags = monocleCFlags
+ARM32.glass.monocle_x11.linker = linker
+ARM32.glass.monocle_x11.linkFlags = [ monocleLFlags, "-lX11" ].flatten()
+ARM32.glass.monocle_x11.lib = "glass_monocle_x11"
+
+FileTree ft_gtk = fileTree("${project(":graphics").projectDir}/src/main/native-glass/gtk/") {
+    exclude("**/launcher.c")
+}
+File gen_headers = new File("${project(":graphics").buildDir}/gensrc/headers/javafx.graphics")
+
+ARM32.glass.gtk = [:]
+ARM32.glass.gtk.nativeSource = ft_gtk.getFiles()
+ARM32.glass.gtk.compiler = compiler
+ARM32.glass.gtk.ccFlags = ["-ffast-math", gtkCFlags, "-DLINUX", "-I${gen_headers}"].flatten()
+ARM32.glass.gtk.linker = linker
+ARM32.glass.gtk.linkFlags = [gtkLFlags, "-lstdc++"].flatten()
+ARM32.glass.gtk.lib = "glass"
+
+ARM32.decora = [:]
+ARM32.decora.compiler = compiler
+ARM32.decora.ccFlags = extraCFlags
+ARM32.decora.linker = linker
+ARM32.decora.linkFlags = extraLFlags
+ARM32.decora.lib = "decora_sse"
+
+ARM32.prism = [:]
+ARM32.prism.javahInclude = ["com/sun/prism/impl/**/*", "com/sun/prism/PresentableState*"]
+ARM32.prism.nativeSource = file("${project("graphics").projectDir}/src/main/native-prism")
+ARM32.prism.compiler = compiler
+ARM32.prism.ccFlags = [extraCFlags].flatten()
+ARM32.prism.linker = linker
+ARM32.prism.linkFlags = [extraLFlags].flatten()
+ARM32.prism.lib = "prism_common"
+
+ARM32.prismSW = [:]
+ARM32.prismSW.javahInclude = ["com/sun/pisces/**/*"]
+ARM32.prismSW.nativeSource = file("${project("graphics").projectDir}/src/main/native-prism-sw")
+ARM32.prismSW.compiler = compiler
+ARM32.prismSW.ccFlags = [extraCFlags].flatten()
+ARM32.prismSW.linker = linker
+ARM32.prismSW.linkFlags = [extraLFlags].flatten()
+ARM32.prismSW.lib = "prism_sw"
+
+ARM32.iio = [:]
+ARM32.iio.javahInclude = ["com/sun/javafx/iio/**/*"]
+ARM32.iio.nativeSource = [
+    file("${project("graphics").projectDir}/src/main/native-iio"),
+    file("${project("graphics").projectDir}/src/main/native-iio/libjpeg")]
+ARM32.iio.compiler = compiler
+ARM32.iio.ccFlags = iioCFlags
+ARM32.iio.linker = linker
+ARM32.iio.linkFlags = iioLFlags
+ARM32.iio.lib = "javafx_iio"
+
+ARM32.prismES2 = [:]
+ARM32.prismES2.variants = ["monocle"]
+ARM32.prismES2.javahInclude = ["com/sun/prism/es2/**/*"]
+
+ARM32.prismES2.monocle= [:]
+ARM32.prismES2.monocle.nativeSource = [
+    file("${project("graphics").projectDir}/src/main/native-prism-es2"),
+    file("${project("graphics").projectDir}/src/main/native-prism-es2/GL"),
+    file("${project("graphics").projectDir}/src/main/native-prism-es2/monocle")
+]
+ARM32.prismES2.monocle.compiler = compiler
+ARM32.prismES2.monocle.ccFlags = [ es2EglfbCFlags, "-I", "-I${gen_headers}" ].flatten()
+ARM32.prismES2.monocle.linker = linker
+ARM32.prismES2.monocle.linkFlags =[  es2EglfbLFlags, "-ldl" ].flatten()
+ARM32.prismES2.monocle.lib = "prism_es2_monocle"
+
+ARM32.font = [:]
+ARM32.font.javahInclude = [
+    "com/sun/javafx/font/**/*",
+    "com/sun/javafx/text/**/*"]
+ARM32.font.nativeSource = [file("${project("graphics").projectDir}/src/main/native-font")]
+ARM32.font.compiler = compiler
+ARM32.font.ccFlags = fontCFlags
+ARM32.font.linker = linker
+ARM32.font.linkFlags = fontLFlags
+ARM32.font.lib = "javafx_font"
+
+ARM32.fontFreetype = [:]
+ARM32.fontFreetype.javahInclude = ["com/sun/javafx/font/freetype/OSFreetype.class*"]
+ARM32.fontFreetype.nativeSource = ["src/main/native-font/freetype.c"]
+ARM32.fontFreetype.compiler = compiler
+ARM32.fontFreetype.ccFlags = ["-DJFXFONT_PLUS", ccFlags, fontCFlags, freetypeCCFlags].flatten()
+ARM32.fontFreetype.linker = linker
+ARM32.fontFreetype.linkFlags = [linkFlags, fontLFlags, freetypeLinkFlags, "-ldl"].flatten()
+ARM32.fontFreetype.lib = "javafx_font_freetype"
+
+ARM32.fontPango = [:]
+ARM32.fontPango.javahInclude = ["com/sun/javafx/font/freetype/OSPango.class"]
+ARM32.fontPango.nativeSource = ["src/main/native-font/pango.c"]
+ARM32.fontPango.compiler = compiler
+ARM32.fontPango.ccFlags = ["-DJFXFONT_PLUS", ccFlags, pangoCCFlags].flatten()
+ARM32.fontPango.linker = linker
+ARM32.fontPango.linkFlags = [linkFlags, pangoLinkFlags].flatten()
+ARM32.fontPango.lib = "javafx_font_pango"
+
+ARM32.webkit = [:]
+ARM32.webkit.binDir   = "$compilerHome/bin"
+ARM32.webkit.compiler = compiler
+ARM32.webkit.linker   = linker
+ARM32.webkit.ar       = file("$compilerHome/bin/${compilerPrefix}ar").getAbsolutePath()
+ARM32.webkit.objcopy  = file("$compilerHome/bin/${compilerPrefix}objcopy").getAbsolutePath()
+ARM32.webkit.strip    = file("$compilerHome/bin/${compilerPrefix}strip").getAbsolutePath()
+ARM32.webkit.ccFlags  = extraCFlags.join(' ')
+ARM32.webkit.linkFlags = extraLFlags.join(' ')
+
+ARM32.disableMedia = false
+ARM32.media = [:]
+ARM32.media.compiler = compiler
+ARM32.media.linker = linker
+ARM32.media.extra_cflags = mediaCFlags.join(' ')
+ARM32.media.extra_ldflags = mediaLFlags.join(' ')
+
+ARM32.deploy = [:]
+ARM32.deploy.publicLibraryFilter = [
+  "fxavcodecplugin-52.so",
+  "fxavcodecplugin-53.so",
+  "fxplugins.so",
+  "libjfxwebkit.so",
+  "libgstplugins-lite.so",
+  "libgstreamer-lite.so",
+  "libprism_es2_eglx11.so",
+]
+ARM32.deploy.compressBigJar=true
