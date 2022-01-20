@@ -3465,7 +3465,7 @@ project(":web") {
         into "${gensrcDir}"
     }
 
-    if (IS_COMPILE_WEBKIT || project.hasProperty('bundledWebkit')) {
+    if (!project.hasProperty('bundledWebkit')) {
         compileJava.dependsOn(copyWrappers);
     }
 
