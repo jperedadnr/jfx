@@ -2925,8 +2925,8 @@ project(":media") {
                     exec {
                         commandLine ("make", "${makeJobsFlag}", "-C", "${nativeSrcDir}/gstreamer/projects/${projectDir}/gstreamer-lite")
                         args("OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}", "BASE_NAME=gstreamer-lite",
-                             IS_64 ? IS_AARCH64 ? "ARCH=aarch64" : "ARCH=x64" : "ARCH=x32", "CC=${mediaProperties.compiler}",
-                             "AR=${mediaProperties.ar}", "LINKER=${mediaProperties.linker}")
+                             "ARCH=${TARGET_ARCH_EXT}", "CC=${mediaProperties.compiler}",
+                             "AR=${mediaProperties.ar}", "LINKER=${mediaProperties.linker}", "STATIC=${IS_STATIC_BUILD}")
 
                         if (t.name == "win") {
                             environment(WINDOWS_NATIVE_COMPILE_ENVIRONMENT)
