@@ -92,7 +92,7 @@ ifdef HOST_COMPILE
 	           -I$(PLUGINS_DIR) \
 		  $(PACKAGES_INCLUDES)
 
-	LDFLAGS = -Wl,-rpath,\$$ORIGIN -L$(BUILD_DIR) -lgstreamer-lite $(PACKAGES_LIBS) \
+	LDFLAGS = $(LINKFLAGS) -Wl,-rpath,\$$ORIGIN -L$(BUILD_DIR) -lgstreamer-lite $(PACKAGES_LIBS) \
             -z relro \
             -static-libgcc -static-libstdc++ -Wl,--gc-sections
 else

@@ -314,6 +314,7 @@ LINUX_AARCH64.fontPango.lib = "javafx_font_pango"
 LINUX_AARCH64.media = [:]
 LINUX_AARCH64.media.compiler = compiler
 LINUX_AARCH64.media.linker = linker
+LINUX_AARCH64.media.linkFlags = "--sysroot ${SYS}"
 LINUX_AARCH64.media.ar = "ar"
 
 LINUX_AARCH64.webkit = [:]

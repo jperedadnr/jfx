@@ -415,6 +415,9 @@ ext.TARGET_ARCH_EXT = IS_64 ? IS_AARCH64 ? "aarch64" : "x64" : "x32";
 if (TARGET_ARCH == "arm32") {
     ext.TARGET_ARCH_EXT = "arm32";
 }
+if (TARGET_ARCH == "aarch64") {
+    ext.TARGET_ARCH_EXT = "aarch64";
+}
 
 // BUILD_TOOLS_DOWNLOAD_SCRIPT specifies a path of a gradle script which downloads
 // required build tools.
@@ -2886,7 +2889,7 @@ project(":media") {
     compileTargets { t->
         def targetProperties = project.rootProject.ext[t.upper]
         def nativeOutputDir = file("${buildDir}/native/${t.name}")
-        def projectDir = t.name.startsWith("arm") ? "linux" : t.name
+        def projectDir = (t.name.startsWith("arm") || t.name.startsWith("linux_aarch64") )? "linux" : t.name
         def mediaProperties = targetProperties.media
         // Makefile for OSX needs to know if we're building for parfait
         def compileParfait = IS_COMPILE_PARFAIT ? "true" : "false"
@@ -2903,7 +2906,8 @@ project(":media") {
                     args("JAVA_HOME=${JDK_HOME}", "GENERATED_HEADERS_DIR=${generatedHeadersDir}",
                          "OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}", "BASE_NAME=jfxmedia",
                          "COMPILE_PARFAIT=${compileParfait}", "ARCH=${TARGET_ARCH_EXT}",
-                         "CC=${mediaProperties.compiler}", "LINKER=${mediaProperties.linker}", "STATIC=${IS_STATIC_BUILD}")
+                         "CC=${mediaProperties.compiler}", "LINKER=${mediaProperties.linker}", "LINKFLAGS=${mediaProperties.linkFlags}",
+                         "STATIC=${IS_STATIC_BUILD}")
 
                     if (t.name == "win") {
                         environment(WINDOWS_NATIVE_COMPILE_ENVIRONMENT)
@@ -2926,7 +2930,7 @@ project(":media") {
                         commandLine ("make", "${makeJobsFlag}", "-C", "${nativeSrcDir}/gstreamer/projects/${projectDir}/gstreamer-lite")
                         args("OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}", "BASE_NAME=gstreamer-lite",
                              "ARCH=${TARGET_ARCH_EXT}", "CC=${mediaProperties.compiler}",
-                             "AR=${mediaProperties.ar}", "LINKER=${mediaProperties.linker}", "STATIC=${IS_STATIC_BUILD}")
+                             "AR=${mediaProperties.ar}", "LINKER=${mediaProperties.linker}", "LINKFLAGS=${mediaProperties.linkFlags}", "STATIC=${IS_STATIC_BUILD}")
 
                         if (t.name == "win") {
                             environment(WINDOWS_NATIVE_COMPILE_ENVIRONMENT)
@@ -2943,7 +2947,7 @@ project(":media") {
                     exec {
                         commandLine ("make", "${makeJobsFlag}", "-C", "${nativeSrcDir}/gstreamer/projects/${projectDir}/fxplugins")
                         args("OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}", "BASE_NAME=fxplugins", "ARCH=${TARGET_ARCH_EXT}",
-                             "CC=${mediaProperties.compiler}", "AR=${mediaProperties.ar}", "LINKER=${mediaProperties.linker}",
+                             "CC=${mediaProperties.compiler}", "AR=${mediaProperties.ar}", "LINKER=${mediaProperties.linker}", "LINKFLAGS=${mediaProperties.linkFlags}",
                              "STATIC=${IS_STATIC_BUILD}")
 
                         if (t.name == "win") {

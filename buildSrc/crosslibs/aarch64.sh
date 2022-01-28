@@ -228,6 +228,8 @@ installLibs() {
         http://ftp.us.debian.org/debian/ stretch main arm64 \
             libatk1.0-dev \
             libatk1.0-0 \
+            libasound2-dev \
+            libasound2 \
             libc6 \
             libc-bin \
             libgcc1 \
