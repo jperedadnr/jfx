@@ -23,7 +23,6 @@
       {"name":"closeConnection","parameterTypes":[]},
       {"name":"property","parameterTypes":["int", "int"]},
       {"name":"needBuffer","parameterTypes":[]},
-      {"name":"getStreamSize","parameterTypes":[]},
       {"name":"readBlock","parameterTypes":["long", "int"]},
       {"name":"readNextBlock","parameterTypes":[]}
     ],
