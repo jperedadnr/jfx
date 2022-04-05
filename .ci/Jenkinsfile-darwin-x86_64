@@ -5,7 +5,6 @@
  * Versions: dynamic, static, dynamic monocle, static monocle
  *
  * Mandatory Job Parameters:
- *   - JDK:                       defines the jdk tool for this pipeline
  *   - REPO:                      defines the repository to clone: git@github.com:${REPO}.git
  *   - TAG:                       defines the tag to checkout: refs/tags/${TAG}
  *   - KEYCHAIN:                  the keychain to use for signing the macOS dylibs
@@ -31,10 +30,6 @@ pipeline {
 
     options {
         copyArtifactPermission('OpenJFX-build')
-    }
-
-    tools {
-        jdk params.JDK
     }
 
     stages {
@@ -96,13 +91,29 @@ pipeline {
 
         /*
          * Load generic environment variables.
-         * MAJOR_VERSION: determined from the "jfx.release.*.version" properties in build.properties (i.e. 17, 17.0.1)
+         * JDK_FULL_VERSION: determined from the "jfx.build.jdk.version" property in build.properties (i.e. 17, 18.0.1)
+         * JDK_MAJOR_VERSION: determined from the full version (i.e. 17, 18)
+         * JFX_MAJOR_VERSION: determined from the "jfx.release.*.version" properties in build.properties (i.e. 17, 17.0.1)
          * REPO_ACCOUNT: the GitHub account name of the repository that is being cloned
          */
         stage('Load generic env vars') {
             steps {
                 script {
-                    env.MAJOR_VERSION = """${sh(
+                    env.JDK_FULL_VERSION = """${sh(
+                        returnStdout: true,
+                        script: '''#!/bin/bash -xe
+                            JDK_FULL_VERSION=$(cat build.properties | grep "^jfx\\.build\\.jdk\\.version=" | cut -d= -f2 | tr -d "\\n")
+                            echo -n "${JDK_FULL_VERSION}"
+                        '''
+                    )}"""
+                    env.JDK_MAJOR_VERSION = """${sh(
+                        returnStdout: true,
+                        script: '''#!/bin/bash -xe
+                            JDK_MAJOR_VERSION=$(cat build.properties | grep "^jfx\\.build\\.jdk\\.version=" | cut -d= -f2 | cut -d. -f1 | tr -d "\\n")
+                            echo -n "${JDK_MAJOR_VERSION}"
+                        '''
+                    )}"""
+                    env.JFX_MAJOR_VERSION = """${sh(
                         returnStdout: true,
                         script: '''#!/bin/bash -xe
                             JFX_MAJOR=$(cat build.properties | grep "^jfx\\.release\\.major\\.version" | cut -d= -f2 | tr -d "\\n")
@@ -164,6 +175,24 @@ pipeline {
             }
         }
 
+        /*
+         * Download the JDK.
+         */
+        stage('Download JDK') {
+            steps {
+                sh "wget -O jdk-${env.JDK_FULL_VERSION}.tar.gz https://download.oracle.com/java/${env.JDK_MAJOR_VERSION}/archive/jdk-${env.JDK_FULL_VERSION}_macos-x64_bin.tar.gz"
+                sh "tar zxvf jdk-${env.JDK_FULL_VERSION}.tar.gz --directory tools"
+                script {
+                    env.JAVA_HOME = """${sh(
+                        returnStdout: true,
+                        script: '''#!/bin/bash -xe
+                            echo -n "$(pwd)/$(ls -d tools/jdk-* | head -n1)/Contents/Home"
+                        '''
+                    )}"""
+                }
+            }
+        }
+
         stage('Gradle dynamic build') {
             when {
                 expression {
@@ -205,8 +234,8 @@ pipeline {
                 }
             }
             steps {
-                sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}+${env.TAG}_osx-x64_bin-jmods.zip"
-                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}+${env.TAG}_osx-x64_bin-sdk.zip"
+                sh "mv build/artifacts/bundles/javafx-jmods-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}+${env.TAG}_osx-x64_bin-jmods.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}+${env.TAG}_osx-x64_bin-sdk.zip"
             }
         }
 
@@ -217,8 +246,8 @@ pipeline {
                 }
             }
             steps {
-                sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_osx-x64_bin-jmods.zip"
-                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_osx-x64_bin-sdk.zip"
+                sh "mv build/artifacts/bundles/javafx-jmods-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_osx-x64_bin-jmods.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_osx-x64_bin-sdk.zip"
             }
         }
 
@@ -229,8 +258,8 @@ pipeline {
                 }
             }
             steps {
-                sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}_osx-x64_bin-jmods.zip"
-                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}_osx-x64_bin-sdk.zip"
+                sh "mv build/artifacts/bundles/javafx-jmods-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}_osx-x64_bin-jmods.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}_osx-x64_bin-sdk.zip"
             }
         }
 
@@ -297,7 +326,7 @@ pipeline {
                 }
             }
             steps {
-                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.MAJOR_VERSION}+${env.TAG}_monocle-osx-x64_bin-sdk.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.JFX_MAJOR_VERSION}+${env.TAG}_monocle-osx-x64_bin-sdk.zip"
             }
         }
 
@@ -308,7 +337,7 @@ pipeline {
                 }
             }
             steps {
-                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_monocle-osx-x64_bin-sdk.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.JFX_MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_monocle-osx-x64_bin-sdk.zip"
             }
         }
 
@@ -319,7 +348,7 @@ pipeline {
                 }
             }
             steps {
-                sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.MAJOR_VERSION}_monocle-osx-x64_bin-sdk.zip"
+                sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.JFX_MAJOR_VERSION}_monocle-osx-x64_bin-sdk.zip"
             }
         }
 
@@ -352,7 +381,7 @@ pipeline {
                 }
             }
             steps {
-                sh "git clean -d -x -f"
+                sh "git clean -d -x -f -e tools/jdk-* -e jdk-${env.JDK_FULL_VERSION}.tar.gz"
             }
         }
 
@@ -400,7 +429,7 @@ pipeline {
                 }
             }
             steps {
-                sh "cd build && zip -r javafx-static-sdk-regular-${env.MAJOR_VERSION}.zip sdk"
+                sh "cd build && zip -r javafx-static-sdk-regular-${env.JFX_MAJOR_VERSION}.zip sdk"
             }
         }
 
@@ -470,7 +499,7 @@ pipeline {
                 }
             }
             steps {
-                sh "cd build && zip -r javafx-static-sdk-monocle-${env.MAJOR_VERSION}.zip sdk"
+                sh "cd build && zip -r javafx-static-sdk-monocle-${env.JFX_MAJOR_VERSION}.zip sdk"
             }
         }
 
@@ -483,6 +512,14 @@ pipeline {
             steps {
                 archiveArtifacts artifacts: 'build/javafx-static-sdk-monocle-*.zip', fingerprint: true
             }
+        }
+    }
+
+    post {
+        // Remove the downloaded JDK.
+        always {
+            sh "rm -rf jdk-${env.JDK_FULL_VERSION}.tar.gz"
+            sh "rm -rf tools/jdk-*"
         }
     }
 }
