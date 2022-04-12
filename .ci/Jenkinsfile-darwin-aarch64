@@ -180,7 +180,7 @@ pipeline {
          */
         stage('Download JDK') {
             steps {
-                sh "wget -O jdk-${env.JDK_FULL_VERSION}.tar.gz https://download.oracle.com/java/${env.JDK_MAJOR_VERSION}/archive/jdk-${env.JDK_FULL_VERSION}_macos-aarch64_bin.tar.gz"
+                sh "curl https://download.oracle.com/java/${env.JDK_MAJOR_VERSION}/archive/jdk-${env.JDK_FULL_VERSION}_macos-aarch64_bin.tar.gz -o jdk-${env.JDK_FULL_VERSION}.tar.gz"
                 sh "tar zxvf jdk-${env.JDK_FULL_VERSION}.tar.gz --directory tools"
                 script {
                     env.JAVA_HOME = """${sh(
