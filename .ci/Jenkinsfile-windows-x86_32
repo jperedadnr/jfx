@@ -5,7 +5,6 @@
  * Versions: dynamic, dynamic monocle
  *
  * Mandatory Job Parameters:
- *   - JDK:   defines the jdk tool for this pipeline
  *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
  *   - TAG:   defines the tag to checkout: refs/tags/${TAG}
  *
@@ -32,10 +31,6 @@ pipeline {
     options {
         skipDefaultCheckout()
         copyArtifactPermission('OpenJFX-build')
-    }
-
-    tools {
-        jdk params.JDK
     }
 
     stages {
@@ -89,14 +84,38 @@ pipeline {
 
         /*
          * Load generic environment variables.
-         * MAJOR_VERSION: determined from the "jfx.release.*.version" properties in build.properties (i.e. 17, 17.0.1)
+         * JDK_FULL_VERSION: determined from the "jfx.build.jdk.version" property in build.properties (i.e. 17, 18.0.1)
+         * JDK_MAJOR_VERSION: determined from the full version (i.e. 17, 18)
+         * JDK_BUILD_NUMBER: determined from the "jfx.build.jdk.buildnum" property in build.properties (i.e. 8, 36)
+         * JFX_MAJOR_VERSION: determined from the "jfx.release.*.version" properties in build.properties (i.e. 17, 17.0.1)
          * REPO_ACCOUNT: the GitHub account name of the repository that is being cloned
          */
         stage('Load generic env vars') {
             steps {
                 dir("repo") {
                     script {
-                        env.MAJOR_VERSION = """${sh(
+                        env.JDK_FULL_VERSION = """${sh(
+                            returnStdout: true,
+                            script: '''#!/bin/bash -xe
+                                JDK_FULL_VERSION=$(cat build.properties | grep "^jfx\\.build\\.jdk\\.version=" | cut -d= -f2 | tr -d "\\n")
+                                echo -n "${JDK_FULL_VERSION}"
+                            '''
+                        )}"""
+                        env.JDK_MAJOR_VERSION = """${sh(
+                            returnStdout: true,
+                            script: '''#!/bin/bash -xe
+                                JDK_MAJOR_VERSION=$(cat build.properties | grep "^jfx\\.build\\.jdk\\.version=" | cut -d= -f2 | cut -d. -f1 | tr -d "\\n")
+                                echo -n "${JDK_MAJOR_VERSION}"
+                            '''
+                        )}"""
+                        env.JDK_BUILD_NUMBER = """${sh(
+                            returnStdout: true,
+                            script: '''#!/bin/bash -xe
+                                JDK_BUILD_NUMBER=$(cat build.properties | grep "^jfx\\.build\\.jdk\\.buildnum=" | cut -d= -f2 | tr -d "\\n")
+                                echo -n "${JDK_BUILD_NUMBER}"
+                            '''
+                        )}"""
+                        env.JFX_MAJOR_VERSION = """${sh(
                             returnStdout: true,
                             script: '''#!/bin/bash -xe
                                 JFX_MAJOR=$(cat build.properties | grep "^jfx\\.release\\.major\\.version" | cut -d= -f2 | tr -d "\\n")
@@ -163,6 +182,27 @@ pipeline {
             }
         }
 
+        /*
+         * Download the JDK.
+         */
+        stage('Download JDK') {
+            steps {
+                dir("repo") {
+                    sh "wget -O jdk-${env.JDK_FULL_VERSION}.zip https://github.com/adoptium/temurin${env.JDK_MAJOR_VERSION}-binaries/releases/download/jdk-${env.JDK_FULL_VERSION}%2B${env.JDK_BUILD_NUMBER}/OpenJDK${env.JDK_MAJOR_VERSION}U-jdk_x86-32_windows_hotspot_${env.JDK_FULL_VERSION}_${env.JDK_BUILD_NUMBER}.zip"
+                    sh "unzip jdk-${env.JDK_FULL_VERSION}.zip -d tools"
+                    script {
+                        env.JAVA_HOME = """${sh(
+                            returnStdout: true,
+                            script: '''#!/bin/bash -xe
+                                JDK_TOOLS_PATH="$(pwd)/$(ls -d tools/jdk-* | head -n1)"
+                                echo -n "$(cygpath -w ${JDK_TOOLS_PATH})"
+                            '''
+                        )}"""
+                    }
+                }
+            }
+        }
+
         stage('Gradle dynamic build') {
             when {
                 expression {
@@ -199,8 +239,8 @@ pipeline {
             }
             steps {
                 dir("repo") {
-                    sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}+${env.TAG}_windows-x86_bin-jmods.zip"
-                    sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}+${env.TAG}_windows-x86_bin-sdk.zip"
+                    sh "mv build/artifacts/bundles/javafx-jmods-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}+${env.TAG}_windows-x86_bin-jmods.zip"
+                    sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}+${env.TAG}_windows-x86_bin-sdk.zip"
                 }
             }
         }
@@ -213,8 +253,8 @@ pipeline {
             }
             steps {
                 dir("repo") {
-                    sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_windows-x86_bin-jmods.zip"
-                    sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_windows-x86_bin-sdk.zip"
+                    sh "mv build/artifacts/bundles/javafx-jmods-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_windows-x86_bin-jmods.zip"
+                    sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_windows-x86_bin-sdk.zip"
                 }
             }
         }
@@ -227,8 +267,8 @@ pipeline {
             }
             steps {
                 dir("repo") {
-                    sh "mv build/artifacts/bundles/javafx-jmods-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}_windows-x86_bin-jmods.zip"
-                    sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.MAJOR_VERSION}_windows-x86_bin-sdk.zip"
+                    sh "mv build/artifacts/bundles/javafx-jmods-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}_windows-x86_bin-jmods.zip"
+                    sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic/openjfx-${env.JFX_MAJOR_VERSION}_windows-x86_bin-sdk.zip"
                 }
             }
         }
@@ -282,7 +322,7 @@ pipeline {
             }
             steps {
                 dir("repo") {
-                    sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.MAJOR_VERSION}+${env.TAG}_monocle-windows-x86_bin-sdk.zip"
+                    sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.JFX_MAJOR_VERSION}+${env.TAG}_monocle-windows-x86_bin-sdk.zip"
                 }
             }
         }
@@ -295,7 +335,7 @@ pipeline {
             }
             steps {
                 dir("repo") {
-                    sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_monocle-windows-x86_bin-sdk.zip"
+                    sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.JFX_MAJOR_VERSION}-ea+${env.PROMOTED_BUILD_NUMBER}_monocle-windows-x86_bin-sdk.zip"
                 }
             }
         }
@@ -308,7 +348,7 @@ pipeline {
             }
             steps {
                 dir("repo") {
-                    sh "mv build/artifacts/bundles/javafx-sdk-${env.MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.MAJOR_VERSION}_monocle-windows-x86_bin-sdk.zip"
+                    sh "mv build/artifacts/bundles/javafx-sdk-${env.JFX_MAJOR_VERSION}.zip artifacts/dynamic-monocle/openjfx-${env.JFX_MAJOR_VERSION}_monocle-windows-x86_bin-sdk.zip"
                 }
             }
         }
@@ -323,6 +363,16 @@ pipeline {
                 dir("repo") {
                     archiveArtifacts artifacts: 'artifacts/dynamic-monocle/openjfx-*-sdk.zip,build/publications/*-win-x86-monocle.jar', fingerprint: true
                 }
+            }
+        }
+    }
+
+    post {
+        // Remove the downloaded JDK.
+        always {
+            dir("repo") {
+                sh "rm -rf jdk-${env.JDK_FULL_VERSION}.zip"
+                sh "rm -rf tools/jdk-*"
             }
         }
     }

@@ -9,7 +9,7 @@
 # environment variables used:
 #  - KEYCHAIN: the full location to the keychain file that contains the credentials for signing
 #  - KEYCHAIN_PASSWORD: the password to unlock the provided keychain
-#  - MAJOR_VERSION: the major version of OpenJFX that is being signed
+#  - JFX_MAJOR_VERSION: the major version of OpenJFX that is being signed
 #  - JAVA_HOME: the directory that points to the home folder of a JDK installation
 #
 
@@ -33,8 +33,8 @@ cd ../../
 
 # sign jars and dylib files inside sdk
 cd build/artifacts/bundles
-unzip javafx-sdk-${MAJOR_VERSION}.zip
-cd javafx-sdk-${MAJOR_VERSION}
+unzip javafx-sdk-${JFX_MAJOR_VERSION}.zip
+cd javafx-sdk-${JFX_MAJOR_VERSION}
 for jar in `find . -name "*.jar"`; do
   echo $jar
   codesign -f --deep --options runtime -s "Developer ID Application: Gluon Software BVBA (S7ZR395D8U)" --prefix org.openjfx. -vvvv "$jar"
@@ -44,13 +44,13 @@ for dylib in `find . -name "*.dylib"`; do
   codesign -f --deep --options runtime -s "Developer ID Application: Gluon Software BVBA (S7ZR395D8U)" --prefix org.openjfx. -vvvv "$dylib"
 done
 cd ..
-zip -ur javafx-sdk-${MAJOR_VERSION}.zip javafx-sdk-${MAJOR_VERSION}
+zip -ur javafx-sdk-${JFX_MAJOR_VERSION}.zip javafx-sdk-${JFX_MAJOR_VERSION}
 cd ../../../
 
 # sign dylib files inside jmods
 cd build/artifacts/bundles
-unzip javafx-jmods-${MAJOR_VERSION}.zip
-cd javafx-jmods-${MAJOR_VERSION}
+unzip javafx-jmods-${JFX_MAJOR_VERSION}.zip
+cd javafx-jmods-${JFX_MAJOR_VERSION}
 for jmod in `ls javafx.graphics.jmod javafx.media.jmod javafx.web.jmod`; do
   mkdir ${jmod%%.jmod}
   cd ${jmod%%.jmod}
@@ -62,5 +62,5 @@ for jmod in `ls javafx.graphics.jmod javafx.media.jmod javafx.web.jmod`; do
   rm -rf ${jmod%%.jmod}
 done
 cd ..
-zip -ur javafx-jmods-${MAJOR_VERSION}.zip javafx-jmods-${MAJOR_VERSION}
+zip -ur javafx-jmods-${JFX_MAJOR_VERSION}.zip javafx-jmods-${JFX_MAJOR_VERSION}
 cd ../../../

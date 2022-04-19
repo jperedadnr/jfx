@@ -315,6 +315,7 @@ ARM32.disableMedia = false
 ARM32.media = [:]
 ARM32.media.compiler = compiler
 ARM32.media.linker = linker
+ARM32.media.linkFlags = ""
 ARM32.media.extra_cflags = mediaCFlags.join(' ')
 ARM32.media.extra_ldflags = mediaLFlags.join(' ')
 
