@@ -3,7 +3,7 @@
     "name" : "com.sun.glass.ui.monocle.MonocleWindowManager",
     "methods" : [
       {"name":"<init>","parameterTypes":[] },
-      {"name":"repaintFromNative","parameterTypes":[] }
+      {"name":"repaintFromNative","parameterTypes":["com.sun.glass.ui.Screen"] }
     ]
   }
 ,
