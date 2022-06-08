@@ -348,6 +348,7 @@ pipeline {
                                     booleanParam(name: 'BUILD_MONOCLE', value: params.BUILD_MONOCLE),
                                     booleanParam(name: 'COMPILE_MEDIA', value: params.COMPILE_MEDIA),
                                     booleanParam(name: 'COMPILE_WEBKIT', value: params.COMPILE_WEBKIT),
+                                    booleanParam(name: 'USE_DEVKIT', value: params.USE_DEVKIT),
                                     string(name: 'GLUON_DRM_VERSION', value: params.GLUON_DRM_VERSION)
                                 ])
                             }

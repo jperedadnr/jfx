@@ -16,11 +16,12 @@
  *   - BUILD_MONOCLE:  builds the dynamic and static SDK including monocle
  *   - COMPILE_MEDIA:  enable compiling native media components
  *   - COMPILE_WEBKIT: enable compiling native webkit
+ *   - USE_DEVKIT:     use the devkit available in /opt/devkit/
  */
 
 pipeline {
     agent {
-        label 'aws && linux && x64'
+        label 'aws && ubuntu-22 && x64'
     }
 
     options {
@@ -149,6 +150,27 @@ pipeline {
         }
 
         /*
+         * Load environment variables specific to devkit builds.
+         * PKG_CONFIG_SYSROOT_DIR
+         * PKG_CONFIG_PATH
+         * PKG_CONFIG_ALLOW_SYSTEM_CFLAGS
+         */
+        stage('Load env vars (devkit)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.USE_DEVKIT
+                }
+            }
+            steps {
+                script {
+                    env.PKG_CONFIG_SYSROOT_DIR = "/opt/devkit/x86_64-linux-gnu/sysroot"
+                    env.PKG_CONFIG_PATH = "/opt/devkit/x86_64-linux-gnu/sysroot/usr/lib64/pkgconfig"
+                    env.PKG_CONFIG_ALLOW_SYSTEM_CFLAGS = "1"
+                }
+            }
+        }
+
+        /*
          * Download the JDK.
          */
         stage('Download JDK') {
@@ -169,12 +191,24 @@ pipeline {
         stage('Gradle dynamic build') {
             when {
                 expression {
-                    return params.BUILD_DYNAMIC
+                    return params.BUILD_DYNAMIC && !params.USE_DEVKIT
                 }
             }
             steps {
                 sh "mkdir -p artifacts/dynamic"
                 sh "sh gradlew --no-daemon -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PUSE_DEPEND=false -PBUILD_SRC_ZIP=true -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PBUILD_LIBAV_STUBS=true -PSTUB_RUNTIME= all publishToMavenLocal"
+            }
+        }
+
+        stage('Gradle dynamic build (devkit)') {
+            when {
+                expression {
+                    return params.BUILD_DYNAMIC && params.USE_DEVKIT
+                }
+            }
+            steps {
+                sh "mkdir -p artifacts/dynamic"
+                sh "sh gradlew --no-daemon -PtoolchainDir=/opt/devkit/bin -PCONF=Release -PMILESTONE_FCS=${env.MILESTONE_FCS} -PMAVEN_PUBLISH=true --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PHUDSON_BUILD_NUMBER=${env.BUILD_NUMBER} -PHUDSON_JOB_NAME=${env.JOB_BASE_NAME} -PUSE_DEPEND=false -PBUILD_SRC_ZIP=true -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PBUILD_LIBAV_STUBS=true -PSTUB_RUNTIME= all publishToMavenLocal"
             }
         }
 
@@ -239,7 +273,7 @@ pipeline {
         stage('Gradle dynamic monocle build') {
             when {
                 expression {
-                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && !params.USE_DEVKIT
                 }
             }
             steps {
@@ -251,7 +285,7 @@ pipeline {
         stage('Rename dynamic monocle maven publication artifacts') {
             when {
                 expression {
-                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && !params.USE_DEVKIT
                 }
             }
             steps {
@@ -262,7 +296,7 @@ pipeline {
         stage('Rename dynamic monocle artifact zips (fork)') {
             when {
                 expression {
-                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && params.REPO != 'gluonhq/gluonjfx'
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && !params.USE_DEVKIT && params.REPO != 'gluonhq/gluonjfx'
                 }
             }
             steps {
@@ -273,7 +307,7 @@ pipeline {
         stage('Rename dynamic monocle artifact zips (official / ea)') {
             when {
                 expression {
-                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && !params.USE_DEVKIT && params.REPO == 'gluonhq/gluonjfx' && !params.MILESTONE_FCS
                 }
             }
             steps {
@@ -284,7 +318,7 @@ pipeline {
         stage('Rename dynamic monocle artifact zips (official / fcs)') {
             when {
                 expression {
-                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && !params.USE_DEVKIT && params.REPO == 'gluonhq/gluonjfx' && params.MILESTONE_FCS
                 }
             }
             steps {
@@ -295,7 +329,7 @@ pipeline {
         stage('Archive dynamic monocle artifacts') {
             when {
                 expression {
-                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE
+                    return params.BUILD_DYNAMIC && params.BUILD_MONOCLE && !params.USE_DEVKIT
                 }
             }
             steps {
@@ -317,12 +351,23 @@ pipeline {
         stage('Gradle static build') {
             when {
                 expression {
-                    return params.BUILD_STATIC
+                    return params.BUILD_STATIC && !params.USE_DEVKIT
                 }
             }
             steps {
-                sh "sh gradlew clean"
-                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} -PSTATIC_BUILD=true sdk"
+                sh "sh gradlew --no-daemon --info --refresh-dependencies -PSTATIC_BUILD=true -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} clean sdk"
+                sh "objcopy --localize-hidden build/sdk/lib/libjavafx_iio.a"
+            }
+        }
+
+        stage('Gradle static build (devkit)') {
+            when {
+                expression {
+                    return params.BUILD_STATIC && params.USE_DEVKIT
+                }
+            }
+            steps {
+                sh "sh gradlew --no-daemon --info --refresh-dependencies -PSTATIC_BUILD=true -PtoolchainDir=/opt/devkit/bin -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=${env.COMPILE_WEBKIT} -PCOMPILE_MEDIA=${env.COMPILE_MEDIA} clean sdk"
                 sh "objcopy --localize-hidden build/sdk/lib/libjavafx_iio.a"
             }
         }
@@ -390,7 +435,7 @@ pipeline {
         stage('Gradle static monocle build') {
             when {
                 expression {
-                    return params.BUILD_STATIC && params.BUILD_MONOCLE
+                    return params.BUILD_STATIC && params.BUILD_MONOCLE && !params.USE_DEVKIT
                 }
             }
             steps {
@@ -402,7 +447,7 @@ pipeline {
         stage('Copy webkit static monocle libs') {
             when {
                 expression {
-                    return params.BUILD_STATIC && params.BUILD_MONOCLE && params.COMPILE_WEBKIT
+                    return params.BUILD_STATIC && params.BUILD_MONOCLE && !params.USE_DEVKIT && params.COMPILE_WEBKIT
                 }
             }
             steps {
@@ -413,7 +458,7 @@ pipeline {
         stage('Rename static monocle artifacts') {
             when {
                 expression {
-                    return params.BUILD_STATIC && params.BUILD_MONOCLE
+                    return params.BUILD_STATIC && params.BUILD_MONOCLE && !params.USE_DEVKIT
                 }
             }
             steps {
@@ -429,7 +474,7 @@ pipeline {
         stage('Create static monocle zip') {
             when {
                 expression {
-                    return params.BUILD_STATIC && params.BUILD_MONOCLE
+                    return params.BUILD_STATIC && params.BUILD_MONOCLE && !params.USE_DEVKIT
                 }
             }
             steps {
@@ -440,7 +485,7 @@ pipeline {
         stage('Archive static monocle artifacts') {
             when {
                 expression {
-                    return params.BUILD_STATIC && params.BUILD_MONOCLE
+                    return params.BUILD_STATIC && params.BUILD_MONOCLE && !params.USE_DEVKIT
                 }
             }
             steps {
