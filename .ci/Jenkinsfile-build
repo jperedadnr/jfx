@@ -484,7 +484,7 @@ pipeline {
                                     }
                                     env.PUBLICATION_TARGETS += Globals.publicationTargets["${target}"]
                                 }
-                                if (params.BUILD_MONOCLE || target == 'linux-arm32' && (!params.USE_DEVKIT || target != 'linux-x86_64')) {
+                                if ((params.BUILD_MONOCLE || target == 'linux-arm32') && (!params.USE_DEVKIT || target != 'linux-x86_64')) {
                                     if (env.PUBLICATION_TARGETS != "") {
                                         env.PUBLICATION_TARGETS += ","
                                     }
