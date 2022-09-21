@@ -43,7 +43,7 @@ ifeq ($(STATIC), true)
     CFLAGS += -DSTATIC_BUILD
 endif
 
-ifneq ($(ARCH), aarch64)
+ifneq (,$(findstring $(ARCH), x64 x32))
     ifneq ($(ARCH), arm32)
         CFLAGS += -msse2
     endif
