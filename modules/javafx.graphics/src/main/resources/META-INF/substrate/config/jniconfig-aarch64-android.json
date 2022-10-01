@@ -13,6 +13,7 @@
       {"name":"<init>","parameterTypes":[] },
       {"name":"gotTouchEventFromNative","parameterTypes":["int", "int[]", "int[]", "int[]", "int[]", "int"]},
       {"name":"dispatchKeyEventFromNative","parameterTypes":["int", "int", "char[]", "int"]},
+      {"name":"dispatchMenuEventFromNative","parameterTypes":["int", "int", "int", "int", "boolean"]},
       {"name":"registerDevice","parameterTypes":[]}
     ]
   }
