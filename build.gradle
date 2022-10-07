@@ -295,7 +295,6 @@ ext.ARCH_NAME = "x64"
 ext.IS_64 = OS_ARCH.toLowerCase().contains("64")
 ext.IS_AARCH64 = OS_ARCH.toLowerCase().contains("aarch64")
 ext.IS_LOONGARCH64 = OS_ARCH.toLowerCase().contains("loongarch64")
-ext.IS_ARM32 = OS_ARCH.toLowerCase().contains("arm32")
 ext.IS_MAC = OS_NAME.contains("mac") || OS_NAME.contains("darwin")
 ext.IS_WINDOWS = OS_NAME.contains("windows")
 ext.IS_LINUX = OS_NAME.contains("linux")
@@ -324,11 +323,7 @@ if (IS_64) {
         ARCH_NAME = "x64"
     }
 } else {
-    if (IS_ARM32) {
-        ARCH_NAME = "arm32"
-    } else {
-        ARCH_NAME = "x32"
-    }
+    ARCH_NAME = "x32"
 }
 
 // Get the JDK_HOME automatically based on the version of Java used to execute gradle. Or, if specified,
@@ -432,12 +427,9 @@ ext.IS_INCLUDE_MONOCLE = Boolean.parseBoolean(INCLUDE_MONOCLE)
 // aarch64 as -arch parameter.
 defineProperty("TARGET_ARCH", (IS_MAC && IS_AARCH64) ? "arm64" : OS_ARCH)
 
-ext.TARGET_ARCH_EXT = IS_64 ? IS_AARCH64 ? "aarch64" : "x64" : "x32";
-if (TARGET_ARCH == "arm32") {
-    ext.TARGET_ARCH_EXT = "arm32";
-}
-if (TARGET_ARCH == "aarch64") {
-    ext.TARGET_ARCH_EXT = "aarch64";
+ext.TARGET_ARCH_NAME = ARCH_NAME
+if (TARGET_ARCH == "arm32" || TARGET_ARCH == "aarch64") {
+    TARGET_ARCH_NAME = TARGET_ARCH
 }
 
 // BUILD_TOOLS_DOWNLOAD_SCRIPT specifies a path of a gradle script which downloads
@@ -2953,7 +2945,7 @@ project(":media") {
                     args("JAVA_HOME=${JDK_HOME}", "GENERATED_HEADERS_DIR=${generatedHeadersDir}",
                          "OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}", "BASE_NAME=jfxmedia",
                          "COMPILE_PARFAIT=${compileParfait}",
-                         "ARCH=${ARCH_NAME}",
+                         "ARCH=${TARGET_ARCH_NAME}",
                          "CC=${mediaProperties.compiler}", "LINKER=${mediaProperties.linker}",
                          "LINKFLAGS=${mediaProperties.linkFlags}", "STATIC=${IS_STATIC_BUILD}")
 
@@ -2977,7 +2969,7 @@ project(":media") {
                     exec {
                         commandLine ("make", "${makeJobsFlag}", "-C", "${nativeSrcDir}/gstreamer/projects/${projectDir}/gstreamer-lite")
                         args("OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}", "BASE_NAME=gstreamer-lite",
-                             "ARCH=${ARCH_NAME}", "CC=${mediaProperties.compiler}",
+                             "ARCH=${TARGET_ARCH_NAME}", "CC=${mediaProperties.compiler}",
                              "AR=${mediaProperties.ar}", "LINKER=${mediaProperties.linker}",
                              "LINKFLAGS=${mediaProperties.linkFlags}", "STATIC=${IS_STATIC_BUILD}")
 
@@ -2996,7 +2988,7 @@ project(":media") {
                     exec {
                         commandLine ("make", "${makeJobsFlag}", "-C", "${nativeSrcDir}/gstreamer/projects/${projectDir}/fxplugins")
                         args("OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}", "BASE_NAME=fxplugins",
-                             "ARCH=${ARCH_NAME}",
+                             "ARCH=${TARGET_ARCH_NAME}",
                              "CC=${mediaProperties.compiler}", "AR=${mediaProperties.ar}", "LINKER=${mediaProperties.linker}",
                              "LINKFLAGS=${mediaProperties.linkFlags}", "STATIC=${IS_STATIC_BUILD}")
 
@@ -3307,7 +3299,7 @@ project(":media") {
                                         args("CC=${mediaProperties.compiler}", "LINKER=${mediaProperties.linker}",
                                              "OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}",
                                              "BASE_NAME=avplugin", "VERSION=${version}", "LIBAV_DIR=${libavDir}",
-                                             "SUFFIX=", "ARCH=${ARCH_NAME}",
+                                             "SUFFIX=", "ARCH=${TARGET_ARCH_NAME}",
                                              "STATIC=${IS_STATIC_BUILD}")
                                     }
                                 }
@@ -3323,7 +3315,7 @@ project(":media") {
                                              "OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}",
                                              "BASE_NAME=avplugin", "VERSION=${version}", "LIBAV_DIR=${libavDir}",
                                              "SUFFIX=-ffmpeg",
-                                             "ARCH=${ARCH_NAME}")
+                                             "ARCH=${TARGET_ARCH_NAME}")
                                     }
                                 }
                             }
@@ -3338,7 +3330,7 @@ project(":media") {
                                              "OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}",
                                              "BASE_NAME=avplugin", "VERSION=${version}", "LIBAV_DIR=${libavDir}",
                                              "SUFFIX=-ffmpeg",
-                                             "ARCH=${ARCH_NAME}")
+                                             "ARCH=${TARGET_ARCH_NAME}")
                                     }
                                 }
                             }
@@ -3348,7 +3340,7 @@ project(":media") {
                                 commandLine ("make", "${makeJobsFlag}", "-C", "${nativeSrcDir}/gstreamer/projects/linux/avplugin")
                                 args("CC=${mediaProperties.compiler}", "LINKER=${mediaProperties.linker}",
                                      "OUTPUT_DIR=${nativeOutputDir}", "BUILD_TYPE=${buildType}",
-                                     "BASE_NAME=avplugin", "ARCH=${ARCH_NAME}", "STATIC=${IS_STATIC_BUILD}")
+                                     "BASE_NAME=avplugin", "ARCH=${TARGET_ARCH_NAME}", "STATIC=${IS_STATIC_BUILD}")
                             }
                         }
                     }
