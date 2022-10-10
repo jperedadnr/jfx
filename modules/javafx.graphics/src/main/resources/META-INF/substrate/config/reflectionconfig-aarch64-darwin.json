@@ -34,6 +34,10 @@
   }
 ,
   {
+    "name" : "com.sun.glass.ui.mac.MacPixels"
+  }
+,
+  {
     "name" : "com.sun.glass.ui.mac.MacView"
   }
 ,
