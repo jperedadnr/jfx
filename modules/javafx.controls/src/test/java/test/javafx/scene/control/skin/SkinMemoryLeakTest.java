@@ -220,13 +220,13 @@ public class SkinMemoryLeakTest {
         // step 2: fix and remove from list
         List<Class<? extends Control>> leakingClasses = List.of(
                 //
-                ColorPicker.class,
+                //ColorPicker.class,
 
                 //
-                ComboBox.class,
+                //ComboBox.class,
 
                 //
-                DatePicker.class,
+                //DatePicker.class,
 
                 //
                 //MenuBar.class,
@@ -238,7 +238,7 @@ public class SkinMemoryLeakTest {
                 Spinner.class,
 
                 //
-                SplitPane.class,
+                //SplitPane.class,
 
                 //
                 //TableView.class,
