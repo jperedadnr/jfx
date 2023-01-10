@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,39 +23,28 @@
  * questions.
  */
 
-#ifndef D3DPHONGMATERIAL_H
-#define D3DPHONGMATERIAL_H
+package javafx.scene.control;
 
-#include "D3DContext.h"
+/**
+ * Base class for a constrained column resize policy.
+ * Setting any policy that extends this class on a Tree/TableView results in
+ * disabling of its horizontal scroll bar.
+ *
+ * @see TableView#columnResizePolicyProperty
+ * @see TreeTableView#columnResizePolicyProperty
+ *
+ * @since 20
+ */
+public abstract class ConstrainedColumnResizeBase {
+    /**
+     * Constructor for subclasses to call.
+     */
+    public ConstrainedColumnResizeBase() {
+    }
 
-// See MaterialPhong.h, MaterialPhongShaders.h
-
-#define DIFFUSE 0
-#define SPECULAR 1
-#define BUMP 2
-#define SELFILLUMINATION 3
-
-class D3DPhongMaterial {
-public:
-    D3DPhongMaterial(D3DContext *pCtx);
-    virtual ~D3DPhongMaterial();
-    void setDiffuseColor(float r, float g, float b, float a);
-    float *getDiffuseColor();
-    void setSpecularColor(bool set, float r, float g, float b, float a);
-    float *getSpecularColor();
-    void setMap(int mapID, IDirect3DBaseTexture9 *texMap);
-    bool isBumpMap();
-    bool isSpecularMap();
-    bool isSpecularColor();
-    bool isSelfIllumMap();
-    IDirect3DBaseTexture9 * getMap(int type);
-
-private:
-    D3DContext *context = NULL;
-    float diffuseColor[4] = {0};
-    float specularColor[4] = {1, 1, 1, 32};
-    IDirect3DBaseTexture9 *map[4] = {NULL};
-    bool specularColorSet = false;
-};
-
-#endif  /* D3DPHONGMATERIAL_H */
+    @Override
+    public String toString() {
+        // name of a pseudo-style set on a Tree/TableView when a constrained resize policy is in effect
+        return "constrained-resize";
+    }
+}
