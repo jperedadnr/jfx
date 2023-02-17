@@ -92,7 +92,11 @@ project(":base") {
 }
 
 project(":web") {
-
+    apply plugin: 'java'
+    sourceSets.main.java.srcDirs = [ 'src/ios/java' ]
+    sourceSets.main.resources.srcDirs += ['src/ios/resources']
+    project.ext.moduleSourcePath = cygpath(rootProject.projectDir.path + '/modules/*/src/ios/java')
+    project.ext.bundledWebkit = true
 }
 
 project(":graphics") {
@@ -120,15 +124,9 @@ project(":controls") {
 
     apply plugin: 'java'
 
-    task copyResources()  {
-        copy {
-            from ("src/android/resources")
-            into ("build/classes/java/main/javafx.controls")
-        }
-    }
-
-    assemble.dependsOn("copyResources");
-
+    sourceSets.main.java.srcDirs += ['src/android/java']
+    sourceSets.main.resources.srcDirs += ['src/android/resources']
+    project.ext.moduleSourcePath = cygpath(rootProject.projectDir.path + '/modules/*/src/android/java')
 }
 
 ANDROID.jfxrtJarExcludes = [
@@ -209,10 +207,7 @@ ANDROID.webview.javahClasspath = files("${project("web").buildDir}/classes/andro
 ANDROID.webview.javahInclude = [
     "com/sun/webkit/NativeWebView.class"
 ]
-ANDROID.webview.nativeSource = [
-    files("${project("web").projectDir}/src/android/native/native_webview.c",
-"${project("web").projectDir}/src/android/native/android_webview.c")
-]
+ANDROID.webview.nativeSource = []
 ANDROID.webview.compiler = compiler
 ANDROID.webview.linker = linker
 ANDROID.webview.lib = "webview"

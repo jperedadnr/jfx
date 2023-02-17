@@ -1,0 +1,217 @@
+void defineProperty(String name, String defaultValue) {
+    if (!project.hasProperty(name)) {
+        project.ext.set(name, defaultValue);
+    }
+}
+
+void loadProperties(String sourceFileName) {
+    def config = new Properties()
+    def propFile = new File(sourceFileName)
+    if (propFile.canRead()) {
+        config.load(new FileInputStream(propFile))
+        for (java.util.Map.Entry property in config) {
+            def keySplit = property.key.split("\\.");
+            def key = keySplit[0];
+            for (int i = 1; i < keySplit.length; i++) {
+                key = key + keySplit[i].capitalize();
+            }
+            ext[key] = property.value;
+        }
+    }
+}
+
+loadProperties("$projectDir/build.properties")
+
+ext.MAVEN_GROUP_ID = "org.openjfx"
+
+defineProperty("PUBLICATION_TARGETS", "win,mac,linux")
+
+defineProperty("HUDSON_JOB_NAME", "not_hudson")
+defineProperty("HUDSON_BUILD_NUMBER","0000")
+defineProperty("PROMOTED_BUILD_NUMBER", "0")
+defineProperty("MILESTONE_FCS", "false")
+ext.IS_MILESTONE_FCS = Boolean.parseBoolean(MILESTONE_FCS)
+
+def relVer = 0
+if (jfxReleasePatchVersion == "0") {
+    if (jfxReleaseSecurityVersion == "0") {
+        if (jfxReleaseMinorVersion == "0") {
+            relVer = "${jfxReleaseMajorVersion}"
+        } else {
+            relVer = "${jfxReleaseMajorVersion}.${jfxReleaseMinorVersion}"
+        }
+    } else {
+        relVer = "${jfxReleaseMajorVersion}.${jfxReleaseMinorVersion}.${jfxReleaseSecurityVersion}"
+    }
+} else {
+    relVer = "${jfxReleaseMajorVersion}.${jfxReleaseMinorVersion}.${jfxReleaseSecurityVersion}.${jfxReleasePatchVersion}"
+}
+defineProperty("RELEASE_VERSION", relVer)
+
+def buildDate = new java.util.Date()
+def buildTimestamp = new java.text.SimpleDateFormat("yyyy-MM-dd-HHmmss").format(buildDate)
+defineProperty("BUILD_TIMESTAMP", buildTimestamp)
+def relSuffix = ""
+def relOpt = ""
+if (HUDSON_JOB_NAME == "not_hudson") {
+    relSuffix = "-internal"
+    relOpt = "-${buildTimestamp}"
+} else {
+    relSuffix = IS_MILESTONE_FCS ? "" : jfxReleaseSuffix
+}
+defineProperty("RELEASE_SUFFIX", relSuffix)
+defineProperty("RELEASE_VERSION_SHORT", "${RELEASE_VERSION}${RELEASE_SUFFIX}")
+defineProperty("RELEASE_VERSION_LONG", "${RELEASE_VERSION_SHORT}+${PROMOTED_BUILD_NUMBER}${relOpt}")
+defineProperty("MAVEN_VERSION", IS_MILESTONE_FCS ? "${RELEASE_VERSION_SHORT}" : "${RELEASE_VERSION_LONG}")
+
+def deps = [
+    'base': [],
+    'graphics': ['base'],
+    'controls': ['graphics'],
+    'fxml': ['controls'],
+    'media': ['graphics'],
+    'swing': ['graphics'],
+    'web': ['controls', 'media']
+]
+def modules = [
+    'base', 'graphics', 'controls', 'fxml', 'media', 'swing', 'web'
+]
+
+class PublicationTarget {
+    String name;
+    String upper;
+    String capital;
+}
+
+void publicationTargets(Closure c) {
+    if (PUBLICATION_TARGETS == "") {
+        return
+    }
+    PUBLICATION_TARGETS.split(",").each { target ->
+        PublicationTarget pt = new PublicationTarget();
+        pt.name = target;
+        pt.upper = target.trim().toUpperCase(Locale.ROOT)
+        pt.capital = target.trim().capitalize()
+        c(pt);
+    }
+}
+
+// Maven Publications
+def publicationDir = "${rootProject.projectDir}/${PROMOTED_BUILD_NUMBER}"
+
+apply plugin: 'maven-publish'
+apply plugin: 'signing'
+
+group = MAVEN_GROUP_ID
+version = MAVEN_VERSION
+
+modules.each { module ->
+    project.task("publicationEmptyJar${module.capitalize()}", type: Jar) {
+        destinationDir = file(publicationDir)
+        archiveName = "javafx-$module-empty.jar"
+        manifest {
+            attributes(
+                'Automatic-Module-Name':"javafx.${module}Empty"
+            )
+        }
+    }
+    project.task("publicationJavadocJar${module.capitalize()}", type: Jar) {
+        destinationDir = file(publicationDir)
+        archiveName = "javafx-$module-javadoc.jar"
+        from "$publicationDir/javadoc"
+    }
+    project.task("publicationSourcesJar${module.capitalize()}", type: Jar) {
+        destinationDir = file(publicationDir)
+        archiveName = "javafx-$module-sources.jar"
+        from "$publicationDir/modules_src/javafx.$module"
+    }
+}
+
+publishing {
+    repositories {
+        maven {
+            def repositoryUrl = project.hasProperty('repositoryUrl') ? project.getProperty('repositoryUrl') : ""
+            def repositoryUsername = project.hasProperty('repositoryUsername') ? project.getProperty('repositoryUsername') : ""
+            def repositoryPassword = project.hasProperty('repositoryPassword') ? project.getProperty('repositoryPassword') : ""
+            url repositoryUrl
+            credentials {
+                username repositoryUsername
+                password repositoryPassword
+            }
+        }
+    }
+
+    publications {
+        javafx(MavenPublication) {
+            artifactId = 'javafx'
+            artifacts = []
+        }        
+
+        modules.each { module ->
+            "maven$module"(MavenPublication) {
+                artifactId = "javafx-${module}"
+
+                artifact project.tasks."publicationEmptyJar${module.capitalize()}"
+                publicationTargets { t ->
+                    if (!(t.name == 'linux-arm32-monocle' && module == 'swing')) {
+                        artifact("$publicationDir/javafx.${module}-${t.name}.jar") {
+                            classifier "$t.name"
+                        }
+                    }
+                }
+                artifact project.tasks."publicationJavadocJar${module.capitalize()}" {
+                    classifier "javadoc"
+                }
+                artifact project.tasks."publicationSourcesJar${module.capitalize()}" {
+                    classifier "sources"
+                }
+
+                pom.withXml {
+                    Node parent = asNode().appendNode("parent")
+                    parent.appendNode("groupId", MAVEN_GROUP_ID)
+                    parent.appendNode("artifactId", "javafx")
+                    parent.appendNode("version", MAVEN_VERSION)
+
+                    Node dependencies = asNode().appendNode("dependencies")
+
+                    Node projectDependencyPlatform = dependencies.appendNode("dependency")
+                    projectDependencyPlatform.appendNode("groupId", MAVEN_GROUP_ID)
+                    projectDependencyPlatform.appendNode("artifactId", "javafx-${module}")
+                    projectDependencyPlatform.appendNode("version", MAVEN_VERSION)
+                    projectDependencyPlatform.appendNode("classifier", "\${javafx.platform}")
+
+                    deps[module].each { dep ->
+                        Node projectDependency = dependencies.appendNode("dependency")
+                        projectDependency.appendNode("groupId", MAVEN_GROUP_ID)
+                        projectDependency.appendNode("artifactId", "javafx-$dep")
+                        projectDependency.appendNode("version", MAVEN_VERSION)
+                    }
+                }
+            }
+        }
+    }
+}
+
+gradle.taskGraph.whenReady { g ->
+    tasks.findAll { it.name == 'generatePomFileForJavafxPublication'}.each { task ->
+        task.doLast {
+            copy {
+                into file("${project.buildDir}/publications/javafx")
+                from file("${rootProject.projectDir}/javafx.pom")
+                rename "javafx.pom", "pom-default.xml"
+                filter { line ->
+                    line.replaceAll("@VERSION@", MAVEN_VERSION)
+                }
+            }
+        }
+    }
+}
+
+if (!version.endsWith("-SNAPSHOT")) {
+    signing {
+        sign publishing.publications.javafx
+        modules.each { module ->
+            sign publishing.publications["maven$module"]
+        }
+    }
+}

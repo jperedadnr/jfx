@@ -1055,7 +1055,11 @@ JNIEXPORT jobjectArray JNICALL Java_com_sun_glass_ui_mac_MacApplication_staticSc
 JNIEXPORT jboolean JNICALL Java_com_sun_glass_ui_mac_MacApplication__1supportsSystemMenu
 (JNIEnv *env, jobject japplication)
 {
+#ifdef STATIC_BUILD
+    return YES;
+#else
     return !isEmbedded;
+#endif
 }
 
 /*

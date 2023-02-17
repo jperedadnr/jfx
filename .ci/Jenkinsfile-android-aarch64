@@ -1,0 +1,246 @@
+/*
+ * Jenkins Pipeline script for building OpenJFX. Final SDKs are stored as job artifacts.
+ *
+ * Target: android-aarch64
+ * Versions: static
+ *
+ * Mandatory Job Parameters:
+ *   - REPO:  defines the repository to clone: git@github.com:${REPO}.git
+ *   - TAG:   defines the tag to checkout: refs/tags/${TAG}
+ *
+ * Optional Job Parameters:
+ *   - MILESTONE_FCS:  if set to false: build an early access release; if set to true: build a milestone release
+ *   - BUILD_STATIC:   builds the static SDK for use with Gluon Substrate
+ */
+
+pipeline {
+    agent any
+
+    environment {
+        ANDROID_NDK = '/opt/android-ndk-r20b'
+        FREETYPE_DIR = '/opt/freetype/install/arm64-v8a'
+    }
+
+    options {
+        copyArtifactPermission('OpenJFX-build')
+    }
+
+    stages {
+        stage('Verify required REPO parameter') {
+            when {
+                expression {
+                    return params.REPO == ''
+                }
+            }
+            steps {
+                error("REPO parameter is required.")
+            }
+        }
+
+        stage('Verify required TAG parameter') {
+            when {
+                expression {
+                    return params.TAG == ''
+                }
+            }
+            steps {
+                error("TAG parameter is required.")
+            }
+        }
+
+        stage('Clone repository') {
+            steps {
+                checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: "git@github.com:${env.REPO}.git", credentialsId: 'github-account-tiainen']], branches: [[name: "refs/tags/${env.TAG}"]]], poll: false
+            }    
+        }
+
+        stage('Clean repository') {
+            steps {
+                sh "git clean -d -x -f"
+            }
+        }
+
+        /*
+         * Load generic environment variables.
+         * JDK_FULL_VERSION: determined from the "jfx.build.jdk.version" property in build.properties (i.e. 17, 18.0.1)
+         * JDK_MAJOR_VERSION: determined from the full version (i.e. 17, 18)
+         * JFX_MAJOR_VERSION: determined from the "jfx.release.*.version" properties in build.properties (i.e. 17, 17.0.1)
+         * REPO_ACCOUNT: the GitHub account name of the repository that is being cloned
+         */
+        stage('Load generic env vars') {
+            steps {
+                script {
+                    env.JDK_FULL_VERSION = """${sh(
+                        returnStdout: true,
+                        script: '''#!/bin/bash -xe
+                            JDK_FULL_VERSION=$(cat build.properties | grep "^jfx\\.build\\.jdk\\.version=" | cut -d= -f2 | tr -d "\\n")
+                            echo -n "${JDK_FULL_VERSION}"
+                        '''
+                    )}"""
+                    env.JDK_MAJOR_VERSION = """${sh(
+                        returnStdout: true,
+                        script: '''#!/bin/bash -xe
+                            JDK_MAJOR_VERSION=$(cat build.properties | grep "^jfx\\.build\\.jdk\\.version=" | cut -d= -f2 | cut -d. -f1 | tr -d "\\n")
+                            echo -n "${JDK_MAJOR_VERSION}"
+                        '''
+                    )}"""
+                    env.JFX_MAJOR_VERSION = """${sh(
+                        returnStdout: true,
+                        script: '''#!/bin/bash -xe
+                            JFX_MAJOR=$(cat build.properties | grep "^jfx\\.release\\.major\\.version" | cut -d= -f2 | tr -d "\\n")
+                            JFX_MINOR=$(cat build.properties | grep "^jfx\\.release\\.minor\\.version" | cut -d= -f2 | tr -d "\\n")
+                            JFX_SECURITY=$(cat build.properties | grep "^jfx\\.release\\.security\\.version" | cut -d= -f2 | tr -d "\\n")
+                            JFX_PATCH=$(cat build.properties | grep "^jfx\\.release\\.patch\\.version" | cut -d= -f2 | tr -d "\\n")
+                            if [[ ${JFX_PATCH} -gt 0 ]]; then
+                                echo -n "${JFX_MAJOR}.${JFX_MINOR}.${JFX_SECURITY}.${JFX_PATCH}"
+                            elif [[ ${JFX_MINOR} -gt 0 || ${JFX_SECURITY} -gt 0 ]]; then
+                                echo -n "${JFX_MAJOR}.${JFX_MINOR}.${JFX_SECURITY}"
+                            else
+                                echo -n "${JFX_MAJOR}"
+                            fi
+                        '''
+                    )}"""
+                    env.REPO_ACCOUNT = """${sh(
+                        returnStdout: true,
+                        script: 'echo ${REPO} | cut -d/ -f1 | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        /*
+         * Load environment variables specific to fork builds.
+         * PROMOTED_BUILD_NUMBER: set to the TAG parameter
+         */
+        stage('Load env vars (fork)') {
+            when {
+                not {
+                    environment name: 'REPO', value: 'gluonhq/gluonjfx'
+                }
+            }
+            steps {
+                script {
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
+                        returnStdout: true,
+                        script: 'echo ${TAG} | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        /*
+         * Load environment variables specific to official builds.
+         * PROMOTED_BUILD_NUMBER: set to the promoted build number of the promoted tag (i.e. number 3 from the tag 17+3-gluon)
+         */
+        stage('Load env vars (official)') {
+            when {
+                environment name: 'REPO', value: 'gluonhq/gluonjfx'
+            }
+            steps {
+                script {
+                    env.PROMOTED_BUILD_NUMBER = """${sh(
+                        returnStdout: true,
+                        script: 'echo ${TAG} | cut -d- -f1 | cut -d+ -f2 | tr -d "\\n"'
+                    )}"""
+                }
+            }
+        }
+
+        /*
+         * Download the JDK.
+         */
+        stage('Download JDK') {
+            steps {
+                sh "wget -O jdk-${env.JDK_FULL_VERSION}.tar.gz https://download.oracle.com/java/${env.JDK_MAJOR_VERSION}/archive/jdk-${env.JDK_FULL_VERSION}_linux-x64_bin.tar.gz"
+                sh "tar zxvf jdk-${env.JDK_FULL_VERSION}.tar.gz --directory tools"
+                script {
+                    env.JAVA_HOME = """${sh(
+                        returnStdout: true,
+                        script: '''#!/bin/bash -xe
+                            echo -n "$(pwd)/$(ls -d tools/jdk-* | head -n1)"
+                        '''
+                    )}"""
+                }
+            }
+        }
+
+        stage('Gradle static build') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                sh "sh gradlew --no-daemon --info --refresh-dependencies -PPROMOTED_BUILD_NUMBER=${env.PROMOTED_BUILD_NUMBER} -PCOMPILE_WEBKIT=false -PCOMPILE_MEDIA=false -PSTATIC_BUILD=true -PCOMPILE_TARGETS=android -PANDROID_NDK=${env.ANDROID_NDK} -PFREETYPE_DIR=${env.FREETYPE_DIR} clean sdk"
+            }
+        }
+
+        stage('Rename sdk folder') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                sh "mv build/android-sdk build/sdk"
+            }
+        }
+
+        stage('Rename artifacts') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                sh "cp build/sdk/lib/javafx.base.jar build/sdk/lib/javafx-base.jar"
+                sh "cp build/sdk/lib/javafx.controls.jar build/sdk/lib/javafx-controls.jar"
+                sh "cp build/sdk/lib/javafx.fxml.jar build/sdk/lib/javafx-fxml.jar"
+                sh "cp build/sdk/lib/javafx.graphics.jar build/sdk/lib/javafx-graphics.jar"
+                sh "cp build/sdk/lib/javafx.media.jar build/sdk/lib/javafx-media.jar"
+                sh "cp build/sdk/lib/javafx.web.jar build/sdk/lib/javafx-web.jar"
+            }
+        }
+
+        stage('Copy native libs') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                sh "cp ${env.FREETYPE_DIR}/lib/libfreetype.so build/sdk/lib"
+            }
+        }
+
+        stage('Create static zip') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                sh "cd build && zip -r javafx-static-sdk-regular-${env.JFX_MAJOR_VERSION}.zip sdk"
+            }
+        }
+
+        stage('Archive static zip') {
+            when {
+                expression {
+                    return params.BUILD_STATIC
+                }
+            }
+            steps {
+                archiveArtifacts artifacts: 'build/javafx-static-sdk-regular-*.zip', fingerprint: true
+            }
+        }
+    }
+
+    post {
+        // Remove the downloaded JDK.
+        always {
+            sh "rm -rf jdk-${env.JDK_FULL_VERSION}.tar.gz"
+            sh "rm -rf tools/jdk-*"
+        }
+    }
+}

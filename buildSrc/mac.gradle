@@ -180,6 +180,10 @@ MAC.strip = "${toolchainDir}strip"
 MAC.stripArgs = [ "-x" ]
 
 MAC.glass = [:]
+if (IS_INCLUDE_MONOCLE) {
+// disabled for now, as it requires some changes to the compiler flags to make the build work etc...
+//    MAC.glass.variants = ["monocle"]
+}
 MAC.glass.javahInclude = [
     "com/sun/glass/events/**",
     "com/sun/glass/ui/*",
@@ -192,6 +196,14 @@ MAC.glass.ccFlags = [ccFlags,
 MAC.glass.linker = linker
 MAC.glass.linkFlags = [linkFlags].flatten()
 MAC.glass.lib = "glass"
+
+MAC.glass.monocle = [:]
+MAC.glass.monocle.nativeSource = file("${project("graphics").projectDir}/src/main/native-glass/monocle")
+MAC.glass.monocle.compiler = compiler
+MAC.glass.monocle.ccFlags = [ccFlags].flatten()
+MAC.glass.monocle.linker = linker
+MAC.glass.monocle.linkFlags = [linkFlags].flatten()
+MAC.glass.monocle.lib = "glass_monocle"
 
 MAC.decora = [:]
 MAC.decora.compiler = compiler
@@ -263,4 +275,6 @@ MAC.media.ar = "${toolchainDir}libtool"
 
 MAC.webkit = [:]
 MAC.webkit.compiler = compiler
+MAC.webkit.ccFlags = [ccFlags].flatten()
 MAC.webkit.linker = linker
+MAC.webkit.linkFlags = [linkFlags].flatten()

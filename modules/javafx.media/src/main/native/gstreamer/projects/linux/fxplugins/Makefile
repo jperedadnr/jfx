@@ -12,7 +12,11 @@ DIRLIST = progressbuffer       \
           progressbuffer/posix \
           javasource
 
-TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+ifeq ($(STATIC), true) 
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).a
+else
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+endif
 
 CFLAGS = -fPIC                   \
          -Wformat                \
@@ -35,8 +39,14 @@ CFLAGS = -fPIC                   \
          -DGLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_2_48 \
          -ffunction-sections -fdata-sections
 
+ifeq ($(STATIC), true)
+    CFLAGS += -DSTATIC_BUILD
+endif
+
 ifneq (,$(findstring $(ARCH), x64 x32))
-    CFLAGS += -msse2
+    ifneq ($(ARCH), arm32)
+        CFLAGS += -msse2
+    endif
 endif
 
 ifeq ($(BUILD_TYPE), Release)
@@ -54,7 +64,7 @@ INCLUDES = -I$(SRCBASE_DIR) \
 PACKAGES_INCLUDES := $(shell pkg-config --cflags glib-2.0)
 PACKAGES_LIBS := $(shell pkg-config --libs glib-2.0 gobject-2.0)
 
-LDFLAGS = -L$(BUILD_DIR) -lgstreamer-lite $(PACKAGES_LIBS) \
+LDFLAGS = $(LINKFLAGS) -L$(BUILD_DIR) -lgstreamer-lite $(PACKAGES_LIBS) \
           -z relro \
           -static-libgcc -static-libstdc++ -Wl,--gc-sections
 
@@ -88,5 +98,11 @@ $(OBJ_DIRS):
 $(TARGET_DIRS):
 	mkdir -p $(TARGET_DIRS)
 
+ifeq ($(STATIC), true) 
+    LINKARGS = r $@ $(OBJECTS)
+else 
+    LINKARGS = -shared $(OBJECTS) $(LDFLAGS) -o $@
+endif
+
 $(TARGET): $(OBJECTS)
-	$(LINKER) -shared $(OBJECTS) $(LDFLAGS) -o $@
+	$(LINKER) $(LINKARGS)

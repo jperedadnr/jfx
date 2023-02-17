@@ -35,7 +35,11 @@ DIRLIST = gstreamer/gst \
           gst-plugins-bad/gst/aiff \
           gst-plugins-base/gst/app
 
-TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+ifeq ($(STATIC), true) 
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).a
+else
+    TARGET = $(BUILD_DIR)/lib$(BASE_NAME).so
+endif
 
 CFLAGS =-fPIC                   \
         -Wformat                \
@@ -57,6 +61,10 @@ CFLAGS =-fPIC                   \
         -DGLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_2_48 \
         -ffunction-sections -fdata-sections
 
+ifeq ($(STATIC), true)
+    CFLAGS += -DSTATIC_BUILD
+endif
+
 ifeq ($(BUILD_TYPE), Release)
     CFLAGS += -Os
 else
@@ -77,9 +85,9 @@ INCLUDES = -I$(BASE_DIR)/plugins                          \
            -I$(SRCBASE_DIR)/gst-plugins-bad/gst-libs
 
 PACKAGES_INCLUDES := $(shell pkg-config --cflags alsa glib-2.0)
-PACKAGES_LIBS := $(shell pkg-config --libs alsa glib-2.0 gobject-2.0 gmodule-2.0 gthread-2.0)
+PACKAGES_LIBS := $(shell pkg-config --libs-only-L --libs-only-l alsa glib-2.0 gobject-2.0 gmodule-2.0 gthread-2.0)
 
-LDFLAGS = -L$(BUILD_DIR) -lm $(PACKAGES_LIBS) \
+LDFLAGS = $(LINKFLAGS) -L$(BUILD_DIR) -lm $(PACKAGES_LIBS) \
           -z relro \
           -static-libgcc -static-libstdc++ -Wl,--gc-sections
 
@@ -288,5 +296,11 @@ $(OBJ_DIRS):
 $(TARGET_DIRS):
 	mkdir -p $(TARGET_DIRS)
 
+ifeq ($(STATIC), true) 
+    LINKARGS = r $@ $(OBJECTS)
+else 
+    LINKARGS = -shared $(OBJECTS) $(LDFLAGS) -o $@
+endif
+
 $(TARGET): $(OBJECTS)
-	$(LINKER) -shared $(OBJECTS) $(LDFLAGS) -o $@
+	$(LINKER) $(LINKARGS)
