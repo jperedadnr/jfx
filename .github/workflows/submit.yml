@@ -330,6 +330,18 @@ jobs:
           .\gradlew.bat -version
           .\gradlew.bat --info all
 
+      - name: zip SDK
+        run: |
+          mkdir staging
+          zip -r sdk.zip jfx/build/sdk/
+          cp sdk.zip staging
+
+      - name: Upload SDK
+        uses: actions/upload-artifact@v2
+        with:
+          name: Package
+          path: staging
+
       - name: Run JavaFX headless tests
         working-directory: jfx
         run: |
