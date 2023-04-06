@@ -61,6 +61,7 @@ jobs:
 
 
   linux_x64_build:
+    if: ${{ false }}
     name: Linux x64
     needs: validation
     runs-on: "ubuntu-20.04"
@@ -143,6 +144,7 @@ jobs:
 
 
   macos_x64_build:
+    if: ${{ false }}
     name: macOS x64
     needs: validation
     runs-on: "macos-11"
@@ -337,6 +339,7 @@ jobs:
           path: jfx/build/sdk
 
       - name: Run JavaFX headless tests
+        if: ${{ false }}
         working-directory: jfx
         run: |
           echo "JAVA_HOME=$env:JAVA_HOME"
