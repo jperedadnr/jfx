@@ -145,8 +145,8 @@ public class ScriptMapper {
         else if (code <= 0x109f) { // U+1000 - U+109F Myanmar
             return true;
         }
-        else if (code < 0x1100) {
-            return false;
+        else if (code < 0x1100) { // U+10A0 - U+10FF Georgian
+            return true;
         }
         else if (code <= 0x11ff) { // U+1100 - U+11FF Old Hangul
             return true;
