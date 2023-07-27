@@ -34,6 +34,7 @@ import java.io.RandomAccessFile;
 import java.net.URI;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -217,26 +218,15 @@ public class NativeLibLoader {
             String reallib = "/"+System.mapLibraryName(libraryName);
             InputStream is = caller.getResourceAsStream(reallib);
             if (is != null) {
-                int counter = 0;
-                while (counter < 5) {
-                    try {
-                        String fp = cacheLibrary(is, reallib, caller);
-                        if (load) {
-                            System.load(fp);
-                            if (verbose) {
-                                System.err.println("Loaded library " + reallib + " from resource");
-                            }
-                        } else if (verbose) {
-                            System.err.println("Unpacked library " + reallib + " from resource");
-                        }
-                        counter = 10;
-                    } catch (DirectoryAlreadyInUseException ex) {
-                        counter++;
-                        Thread.sleep(100);
-                        System.out.println("locked, try again: " + counter);
+                String fp = cacheLibrary(is, reallib, caller);
+                if (load) {
+                    System.load(fp);
+                    if (verbose) {
+                        System.err.println("Loaded library " + reallib + " from resource");
                     }
+                } else if (verbose) {
+                    System.err.println("Unpacked library " + reallib + " from resource");
                 }
-                System.out.println("got lib");
                 return true;
             }
         } catch (Throwable t) {
@@ -248,8 +238,7 @@ public class NativeLibLoader {
         return false;
     }
 
-    private static String cacheLibrary(InputStream is, String name, Class caller)
-            throws IOException, DirectoryAlreadyInUseException {
+    private static String cacheLibrary(InputStream is, String name, Class caller) throws IOException {
         String jfxVersion = System.getProperty("javafx.runtime.version", "versionless");
         String userCache = System.getProperty("javafx.cachedir", "");
         String arch = System.getProperty("os.arch");
@@ -321,31 +310,31 @@ public class NativeLibLoader {
             System.out.println("copy path = " + path + ", " + Arrays.toString(cacheDir.listFiles()) + ", " + v);
             File lockFile = new File(cacheDir, ".lock");
             try (RandomAccessFile lockRaf = new RandomAccessFile(lockFile, "rw");
-                 FileChannel fc = lockRaf.getChannel()) {
-                FileLock lock = null;
+                 FileChannel fc = lockRaf.getChannel();
+                 FileLock lock = fc.lock()) {
                 try {
-                    lock = fc.tryLock();
-                    if (lock == null) {
-                        System.out.println("hmm, locked! " + v);
-                        throw new DirectoryAlreadyInUseException(cacheDir.toString(), null);
-                    } else {
-                        System.out.println("copy " + v);
-                        Files.copy(is, path);
-                        System.out.println("copy done " + v);
+                    System.out.println("copy " + v);
+                    Files.copy(is, path);
+                    System.out.println("copy done " + v);
+                } catch (FileAlreadyExistsException ex) {
+                    if (verbose) {
+                        System.err.println("WARNING: Library " + path + " already exists: " + ex);
+                    }
+                } catch (Exception ex) {
+                    if (verbose) {
+                        System.err.println("WARNING: Library " + path + " ignoring: " + ex);
                     }
                 } finally {
                     if (lock != null) {
                         try {
                             lock.release();
-                            lock.close();
                         } catch (Exception ex) {
-                            System.out.println("Error closing lock");
-                            ex.printStackTrace();
+                            if (verbose) {
+                                System.err.println("WARNING: Error releasing lock: " + ex);
+                            }
                         }
                     }
                 }
-            } catch (DirectoryAlreadyInUseException e) {
-                throw new DirectoryAlreadyInUseException(cacheDir.toString(), null);
             }
             System.out.println("copy path done, " + Arrays.toString(cacheDir.listFiles()) + " " + v);
 
@@ -353,12 +342,6 @@ public class NativeLibLoader {
 
         String fp = f.getAbsolutePath();
         return fp;
-    }
-
-    static final class DirectoryAlreadyInUseException extends Exception {
-        DirectoryAlreadyInUseException(String message, Throwable cause) {
-            super(message, cause);
-        }
     }
 
     static byte[] calculateCheckSum(File file) {
