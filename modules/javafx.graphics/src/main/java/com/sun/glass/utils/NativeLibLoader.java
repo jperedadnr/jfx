@@ -305,18 +305,14 @@ public class NativeLibLoader {
             }
         }
         if (write) {
-            String v = System.getProperty("javafx.test.v", "test0");
             Path path = f.toPath();
-            System.out.println("copy path = " + path + ", " + Arrays.toString(cacheDir.listFiles()) + ", " + v);
             File lockFile = new File(cacheDir, ".lock");
             try (RandomAccessFile lockRaf = new RandomAccessFile(lockFile, "rw");
                  FileChannel fc = lockRaf.getChannel();
                  FileLock lock = fc.lock()) {
                 try {
-                    System.out.println("copy " + v + " lock: " + lock.acquiredBy());
                     if (!Files.exists(path)) {
                         Files.copy(is, path);
-                        System.out.println("copy done " + v);
                     }
                 } catch (FileAlreadyExistsException ex) {
                     if (verbose) {
@@ -338,8 +334,6 @@ public class NativeLibLoader {
                     }
                 }
             }
-            System.out.println("copy path done, " + Arrays.toString(cacheDir.listFiles()) + " " + v);
-
         }
 
         String fp = f.getAbsolutePath();
