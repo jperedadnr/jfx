@@ -313,9 +313,11 @@ public class NativeLibLoader {
                  FileChannel fc = lockRaf.getChannel();
                  FileLock lock = fc.lock()) {
                 try {
-                    System.out.println("copy " + v);
-                    Files.copy(is, path);
-                    System.out.println("copy done " + v);
+                    System.out.println("copy " + v + " lock: " + lock.acquiredBy());
+                    if (!Files.exists(path)) {
+                        Files.copy(is, path);
+                        System.out.println("copy done " + v);
+                    }
                 } catch (FileAlreadyExistsException ex) {
                     if (verbose) {
                         System.err.println("WARNING: Library " + path + " already exists: " + ex);
