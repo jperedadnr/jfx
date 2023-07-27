@@ -314,13 +314,9 @@ public class NativeLibLoader {
                     if (!Files.exists(path)) {
                         Files.copy(is, path);
                     }
-                } catch (FileAlreadyExistsException ex) {
-                    if (verbose) {
-                        System.err.println("WARNING: Library " + path + " already exists: " + ex);
-                    }
                 } catch (Exception ex) {
                     if (verbose) {
-                        System.err.println("WARNING: Library " + path + " ignoring: " + ex);
+                        System.err.println("WARNING: Error copying Library " + path + ": " + ex);
                     }
                 } finally {
                     if (lock != null) {
