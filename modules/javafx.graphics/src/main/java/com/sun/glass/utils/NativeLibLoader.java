@@ -304,28 +304,20 @@ public class NativeLibLoader {
         if (write) {
             Path path = f.toPath();
             File lockFile = new File(cacheDir, ".lock");
-            try (RandomAccessFile lockRaf = new RandomAccessFile(lockFile, "rw");
-                 FileChannel fc = lockRaf.getChannel();
-                 FileLock lock = fc.lock()) {
+            try (RandomAccessFile randomAccessFile = new RandomAccessFile(lockFile, "rw");
+                 FileChannel fileChannel = randomAccessFile.getChannel();
+                 FileLock fileLock = fileChannel.lock()) {
                 try {
                     if (!Files.exists(path)) {
                         Files.copy(is, path);
                     }
-                } catch (Exception ex) {
-                    if (verbose) {
-                        System.err.println("WARNING: Error copying Library " + path + ": " + ex);
-                    }
                 } finally {
-                    if (lock != null) {
-                        try {
-                            lock.release();
-                        } catch (Exception ex) {
-                            if (verbose) {
-                                System.err.println("WARNING: Error releasing lock: " + ex);
-                            }
-                        }
+                    if (fileLock != null) {
+                        fileLock.release();
                     }
                 }
+            } catch (IOException ex) {
+                throw new IOException("Error copying Library " + path + ": " + ex.getMessage(), ex);
             }
         }
 
