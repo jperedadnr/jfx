@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@ package com.sun.javafx.application;
 
 import static com.sun.javafx.FXPermissions.CREATE_TRANSPARENT_WINDOW_PERMISSION;
 import com.sun.javafx.PlatformUtil;
+import com.sun.javafx.application.preferences.PlatformPreferences;
 import com.sun.javafx.css.StyleManager;
 import com.sun.javafx.tk.TKListener;
 import com.sun.javafx.tk.TKStage;
@@ -1044,4 +1045,59 @@ public class PlatformImpl {
                 return Toolkit.getToolkit().isSupported(feature);
         }
     }
+
+    private static PlatformPreferences platformPreferences;
+
+    public static PlatformPreferences getPlatformPreferences() {
+        if (platformPreferences == null) {
+            throw new IllegalStateException("Toolkit not initialized");
+        }
+
+        return platformPreferences;
+    }
+
+    /**
+     * Called by Glass when the toolkit is initialized.
+     *
+     * @param platformKeyMappings a map of platform-specific keys to well-known keys
+     * @param preferences the initial set of platform preferences
+     */
+    public static void initPreferences(Map<String, Class<?>> platformKeys,
+                                       Map<String, String> platformKeyMappings,
+                                       Map<String, Object> preferences) {
+        platformPreferences = new PlatformPreferences(platformKeys, platformKeyMappings);
+        platformPreferences.update(preferences);
+    }
+
+    /**
+     * Called by Glass when one or several platform preferences have changed.
+     * <p>
+     * This method can be called on any thread. The supplied {@code preferences} map may
+     * include all platform preferences, or only the changed preferences. If a preference
+     * was removed, the corresponding key is mapped to {@code null}.
+     *
+     * @param preferences a map that includes the changed preferences
+     */
+    public static void updatePreferences(Map<String, Object> preferences) {
+        if (isFxApplicationThread()) {
+            checkHighContrastThemeChanged(preferences);
+            platformPreferences.update(preferences);
+        } else {
+            // Make a defensive copy in case the caller of this method decides to re-use or
+            // modify its preferences map after the method returns. Don't use Map.copyOf
+            // because the preferences map may contain null values.
+            Map<String, Object> preferencesCopy = new HashMap<>(preferences);
+            runLater(() -> updatePreferences(preferencesCopy));
+        }
+    }
+
+    // This method will be removed when StyleThemes are added.
+    private static void checkHighContrastThemeChanged(Map<String, Object> preferences) {
+        if (Boolean.TRUE.equals(preferences.get("Windows.SPI.HighContrastOn"))) {
+            setAccessibilityTheme(preferences.get("Windows.SPI.HighContrastColorScheme") instanceof String s ? s : null);
+        } else {
+            setAccessibilityTheme(null);
+        }
+    }
+
 }
