@@ -26,6 +26,7 @@
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.InvalidationListener;
+import javafx.collections.MapChangeListener;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -44,8 +45,6 @@ import java.util.stream.Stream;
 import java.util.stream.Collectors;
 
 public class PlatformPreferencesChangedTest extends Application {
-
-    private Map<String, Object> cachedPreferences;
 
     @Override
     public void start(Stage stage) {
@@ -70,7 +69,9 @@ public class PlatformPreferencesChangedTest extends Application {
             new VBox(
                 new Label("1. On a supported platform, change any of the platform preferences."),
                 new Label("    See javafx.application.Platform.Preferences for a list of supported platforms.")),
-            new Label("2. Observe whether the changed preferences are reported in the log below."),
+            new VBox(
+                new Label("2. Observe whether the changed preferences are reported in the log below."),
+                new Label("    Added or removed preferences are marked with a plus or minus sign.")),
             new Label("3. Click \"Pass\" if the changes were correctly reported, otherwise click \"Fail\"."),
             new HBox(5, passButton, failButton, clearButton)
         ));
@@ -81,24 +82,30 @@ public class PlatformPreferencesChangedTest extends Application {
         root.setCenter(textArea);
         BorderPane.setMargin(textArea, new Insets(20, 0, 0, 0));
 
-        cachedPreferences = new HashMap<>(Platform.getPreferences());
-        textArea.setText("preferences = " + formatPrefs(cachedPreferences.entrySet()));
+        appendText(textArea, "preferences: " + formatPrefs(Platform.getPreferences().entrySet()));
 
-        Platform.getPreferences().addListener(
-            (InvalidationListener)observable -> {
-                Set<Map.Entry<String, Object>> changed = Platform.getPreferences().entrySet().stream()
-                        .filter(entry -> !Objects.equals(entry.getValue(), cachedPreferences.get(entry.getKey())))
-                        .collect(Collectors.toSet());
+        Platform.getPreferences().addListener((InvalidationListener)observable -> {
+            appendText(textArea, "\r\nchanged:");
+        });
 
-                double scrollTop = textArea.getScrollTop();
-                textArea.setText(textArea.getText() + "changed = " + formatPrefs(changed));
-                textArea.setScrollTop(scrollTop);
-
-                cachedPreferences = new HashMap<>(Platform.getPreferences());
-            });
+        Platform.getPreferences().addListener((MapChangeListener<String, Object>)change -> {
+            if (change.wasRemoved() && change.wasAdded()) {
+                appendText(textArea, "\t" + formatEntry(change.getKey(), change.getValueAdded()));
+            } else if (change.wasRemoved()) {
+                appendText(textArea, "\t-" + change.getKey());
+            } else {
+                appendText(textArea, "\t+" + formatEntry(change.getKey(), change.getValueAdded()));
+            }
+        });
 
         stage.setScene(new Scene(root));
         stage.show();
+    }
+
+    private void appendText(TextArea textArea, String text) {
+        double scrollTop = textArea.getScrollTop();
+        textArea.setText(textArea.getText() + text + "\r\n");
+        textArea.setScrollTop(scrollTop);
     }
 
     public static void main(String[] args) {
@@ -106,16 +113,17 @@ public class PlatformPreferencesChangedTest extends Application {
     }
 
     private static String formatPrefs(Set<Map.Entry<String, Object>> prefs) {
-        String entries = prefs.stream()
-                .sorted(Map.Entry.comparingByKey())
-                .map(entry -> {
-                    if (entry.getValue() instanceof Object[] array) {
-                        return entry.getKey() + "=" + Arrays.toString(array);
-                    }
-                    return entry.getKey() + "=" + entry.getValue();
-                })
-                .collect(Collectors.joining("\r\n\t"));
+        return "\r\n\t" + prefs.stream()
+            .sorted(Map.Entry.comparingByKey())
+            .map(entry -> formatEntry(entry.getKey(), entry.getValue()))
+            .collect(Collectors.joining("\r\n\t"));
+    }
 
-        return "{\r\n\t" + entries + "\r\n}\r\n";
+    private static String formatEntry(String key, Object value) {
+        if (value instanceof Object[] array) {
+            return key + "=" + Arrays.toString(array);
+        }
+
+        return key + "=" + value;
     }
 }
