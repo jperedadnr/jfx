@@ -231,6 +231,7 @@ IFACEMETHODIMP GlassTextRangeProvider::GetEnclosingElement(IRawElementProviderSi
 
 IFACEMETHODIMP GlassTextRangeProvider::GetText(int maxLength, BSTR *pRetVal)
 {
+    fprintf(stderr, "GlassTextRangeProvider::GetText %d %p\n", maxLength, pRetVal);
     JNIEnv* env = GetEnv();
     if (env == NULL) return E_FAIL;
     jstring string = (jstring)env->CallObjectMethod(m_jTextRangeProvider, mid_GetText, maxLength);

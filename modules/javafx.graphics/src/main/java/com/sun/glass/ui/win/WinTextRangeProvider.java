@@ -359,6 +359,7 @@ class WinTextRangeProvider {
     }
 
     private String GetText(int maxLength) {
+        System.out.println("WinTextRangeProvider::GetText maxLength = " + maxLength);
         String text = (String)getAttribute(TEXT);
         if (text == null) return null;
         validateRange(text);
