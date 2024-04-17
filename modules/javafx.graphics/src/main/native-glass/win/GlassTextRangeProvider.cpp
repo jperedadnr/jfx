@@ -44,6 +44,8 @@ int printStackTrace()
     symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
     DWORD displacement;
     IMAGEHLP_LINE64 line;
+    SymInitialize(process, NULL, TRUE);
+    SymSetOptions(SYMOPT_LOAD_LINES);
     line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
     for (int i = 0; i < numberOfFrames; i++)
     {
