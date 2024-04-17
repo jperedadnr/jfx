@@ -59,9 +59,26 @@
 #include <wchar.h>
 #include <windows.h>
 #include <windowsx.h>
+#include <execinfo.h>
 
 #include "Utils.h"
 #include "OleUtils.h"
 #include "Dwmapi.h"
+
+class MyException : public std::exception {
+
+    char ** strs;
+    MyException( const std::string & message ) {
+         int i, frames = backtrace(callstack, 128);
+         strs = backtrace_symbols(callstack, frames);
+    }
+
+    void printStackTrace() {
+        for (i = 0; i < frames; ++i) {
+            fprintf(stderr, "%s\n", strs[i]);
+        }
+        free(strs);
+    }
+};
 
 #endif /* #ifndef _GLASS_COMMON_ */
