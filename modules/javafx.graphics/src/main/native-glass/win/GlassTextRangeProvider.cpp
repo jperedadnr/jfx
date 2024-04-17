@@ -29,6 +29,39 @@
 #include "GlassTextRangeProvider.h"
 #include "GlassAccessible.h"
 
+#define TRACE_MAX_STACK_FRAMES 1024
+#define TRACE_MAX_FUNCTION_NAME_LENGTH 1024
+
+int printStackTrace()
+{
+    void *stack[TRACE_MAX_STACK_FRAMES];
+    HANDLE process = GetCurrentProcess();
+    SymInitialize(process, NULL, TRUE);
+    WORD numberOfFrames = CaptureStackBackTrace(0, TRACE_MAX_STACK_FRAMES, stack, NULL);
+    char buf[sizeof(SYMBOL_INFO)+(TRACE_MAX_FUNCTION_NAME_LENGTH - 1) * sizeof(TCHAR)];
+    SYMBOL_INFO* symbol = (SYMBOL_INFO*)buf;
+    symbol->MaxNameLen = TRACE_MAX_FUNCTION_NAME_LENGTH;
+    symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+    DWORD displacement;
+    IMAGEHLP_LINE64 line;
+    line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+    for (int i = 0; i < numberOfFrames; i++)
+    {
+        DWORD64 address = (DWORD64)(stack[i]);
+        SymFromAddr(process, address, NULL, symbol);
+        if (SymGetLineFromAddr64(process, address, &displacement, &line))
+        {
+            fprintf(stderr, "\tat %s in %s: line: %lu: address: 0x%0X\n", symbol->Name, line.FileName, line.LineNumber, symbol->Address);
+        }
+        else
+        {
+            fprintf(stderr, "\tSymGetLineFromAddr64 returned error code %lu.\n", GetLastError());
+            fprintf(stderr, "\tat %s, address 0x%0X.\n", symbol->Name, symbol->Address);
+        }
+    }
+    return 0;
+}
+
 /* TextRangeProvider Method IDs */
 static jmethodID mid_Clone;
 static jmethodID mid_Compare;
@@ -240,7 +273,7 @@ IFACEMETHODIMP GlassTextRangeProvider::GetEnclosingElement(IRawElementProviderSi
 IFACEMETHODIMP GlassTextRangeProvider::GetText(int maxLength, BSTR *pRetVal)
 {
     fprintf(stderr, "GlassTextRangeProvider::GetText %d %p\n", maxLength, pRetVal);
-    *((int*) 0) = 0;
+    printStackTrace();
     JNIEnv* env = GetEnv();
     if (env == NULL) return E_FAIL;
     jstring string = (jstring)env->CallObjectMethod(m_jTextRangeProvider, mid_GetText, maxLength);
