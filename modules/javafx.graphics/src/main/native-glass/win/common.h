@@ -60,7 +60,6 @@
 #include <windows.h>
 #include <windowsx.h>
 
-#include "stdafx.h"
 #include <process.h>
 #include <iostream>
 #include <dbghelp.h>
