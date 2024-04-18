@@ -60,12 +60,6 @@
 #include <windows.h>
 #include <windowsx.h>
 
-#include <stdlib.h>
-#include <locale.h>
-#include <process.h>
-#include <iostream>
-#include "dbghelp.h"
-
 #include "Utils.h"
 #include "OleUtils.h"
 #include "Dwmapi.h"
