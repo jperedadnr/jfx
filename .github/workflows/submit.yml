@@ -447,9 +447,9 @@ jobs:
       # BOOT_JDK_FILENAME: "${{ fromJson(needs.prerequisites.outputs.dependencies).LINUX_X64_BOOT_JDK_FILENAME }}"
       # BOOT_JDK_URL: "${{ fromJson(needs.prerequisites.outputs.dependencies).LINUX_X64_BOOT_JDK_URL }}"
       # BOOT_JDK_SHA256: "${{ fromJson(needs.prerequisites.outputs.dependencies).LINUX_X64_BOOT_JDK_SHA256 }}"
-      BOOT_JDK_VERSION: "24.0.1"
-      BOOT_JDK_FILENAME: "jdk-24.0.1_windows-x64_bin.zip"
-      BOOT_JDK_URL: "https://download.oracle.com/java/24/archive/jdk-24.0.1_windows-x64_bin.zip"
+      BOOT_JDK_VERSION: "25"
+      BOOT_JDK_FILENAME: "bellsoft-jdk25+37-windows-aarch64.zip"
+      BOOT_JDK_URL: "https://download.bell-sw.com/java/25+37/bellsoft-jdk25+37-windows-aarch64.zip"
       ANT_DIR: "apache-ant-1.10.5"
       ANT_FILENAME: "apache-ant-1.10.5.tar.gz"
       ANT_URL: "https://archive.apache.org/dist/ant/binaries/apache-ant-1.10.5-bin.tar.gz"
@@ -462,9 +462,14 @@ jobs:
 
       - uses: msys2/setup-msys2@v2
 
-      - shell: powershell
-        run: msys2 -c 'uname -a'
-        
+      - name: Download boot JDK
+        run: |
+          mkdir -p "$HOME\bootjdk"
+          & curl -L "$env:BOOT_JDK_URL" -o "$HOME/bootjdk/$env:BOOT_JDK_FILENAME"
+          # FIXME: sha256sum
+          tar -xf "$HOME/bootjdk/$env:BOOT_JDK_FILENAME" -C "$HOME/bootjdk"
+          # FIXME: enable cache for boot JDK
+
       - name: Install dependencies
         run: |
           mkdir -p "$HOME\build-tools"
@@ -479,8 +484,7 @@ jobs:
           # dir "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC"
 
           # $env:Path = "$HOME\cygwin\cygwin64\bin;$HOME\cygwin\cygwin64\bin;$env:Path" ;
-          # $env:JAVA_HOME = "$HOME\bootjdk\jdk-$env:BOOT_JDK_VERSION" ;
-          $env:JAVA_HOME = $env:JAVA_HOME_23_AARCH64 ;
+          $env:JAVA_HOME = "$HOME\bootjdk\jdk-$env:BOOT_JDK_VERSION" ;
           echo "JAVA_HOME=$env:JAVA_HOME"
           $env:ANT_HOME = "${HOME}\build-tools\$env:ANT_DIR"
           echo "ANT_HOME=$env:ANT_HOME"
