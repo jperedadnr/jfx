@@ -33,8 +33,10 @@
 #include <JavaScriptCore/JSRetainPtr.h>
 #include <JavaScriptCore/JavaScript.h>
 #include <wtf/CrossThreadCopier.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/URL.h>
 #include <wtf/URLParser.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore::ContentExtensions {
@@ -43,36 +45,23 @@ static void append(Vector<uint8_t>& vector, size_t length)
 {
     RELEASE_ASSERT(length <= std::numeric_limits<uint32_t>::max());
     uint32_t integer = length;
-    vector.append(std::span<const uint8_t> { reinterpret_cast<const uint8_t*>(&integer), sizeof(integer) });
-}
-
-static void uncheckedAppend(Vector<uint8_t>& vector, size_t length)
-{
-    RELEASE_ASSERT(length <= std::numeric_limits<uint32_t>::max());
-    uint32_t integer = length;
-    vector.uncheckedAppend(std::span<const uint8_t> { reinterpret_cast<const uint8_t*>(&integer), sizeof(integer) });
+    vector.append(asByteSpan(integer));
 }
 
 static void append(Vector<uint8_t>& vector, const CString& string)
 {
-    vector.append(std::span<const uint8_t> { reinterpret_cast<const uint8_t*>(string.data()), string.length() });
-}
-
-static void uncheckedAppend(Vector<uint8_t>& vector, const CString& string)
-{
-    vector.uncheckedAppend(std::span<const uint8_t> { reinterpret_cast<const uint8_t*>(string.data()), string.length() });
+    vector.append(string.span());
 }
 
 static size_t deserializeLength(std::span<const uint8_t> span, size_t offset)
 {
-    RELEASE_ASSERT(span.size() >= offset + sizeof(uint32_t));
-    return *reinterpret_cast<const uint32_t*>(span.data() + offset);
+    return reinterpretCastSpanStartTo<const uint32_t>(span.subspan(offset));
 }
 
 static String deserializeUTF8String(std::span<const uint8_t> span, size_t offset, size_t length)
 {
     RELEASE_ASSERT(span.size() >= offset + length);
-    return String::fromUTF8(span.data() + offset, length);
+    return String::fromUTF8(span.subspan(offset, length));
 }
 
 static void writeLengthToVectorAtOffset(Vector<uint8_t>& vector, size_t offset)
@@ -80,9 +69,8 @@ static void writeLengthToVectorAtOffset(Vector<uint8_t>& vector, size_t offset)
     auto length = vector.size() - offset;
     RELEASE_ASSERT(length <= std::numeric_limits<uint32_t>::max());
     uint32_t integer = length;
-    RELEASE_ASSERT(vector.size() >= offset + sizeof(uint32_t));
-    RELEASE_ASSERT(!*reinterpret_cast<uint32_t*>(vector.data() + offset));
-    *reinterpret_cast<uint32_t*>(vector.data() + offset) = integer;
+    RELEASE_ASSERT(!reinterpretCastSpanStartTo<uint32_t>(vector.subspan(offset)));
+    reinterpretCastSpanStartTo<uint32_t>(vector.mutableSpan().subspan(offset)) = integer;
 }
 
 Expected<ModifyHeadersAction, std::error_code> ModifyHeadersAction::parse(const JSON::Object& modifyHeaders)
@@ -100,7 +88,7 @@ Expected<ModifyHeadersAction, std::error_code> ModifyHeadersAction::parse(const 
             auto info = ModifyHeaderInfo::parse(value.get());
             if (!info)
                 return makeUnexpected(info.error());
-            vector.uncheckedAppend(WTFMove(*info));
+            vector.append(WTFMove(*info));
         }
         return vector;
     };
@@ -128,14 +116,6 @@ ModifyHeadersAction ModifyHeadersAction::isolatedCopy() const &
 ModifyHeadersAction ModifyHeadersAction::isolatedCopy() &&
 {
     return { crossThreadCopy(WTFMove(requestHeaders)), crossThreadCopy(WTFMove(responseHeaders)), crossThreadCopy(priority) };
-}
-
-bool ModifyHeadersAction::operator==(const ModifyHeadersAction& other) const
-{
-    return other.hashTableType == this->hashTableType
-        && other.requestHeaders == this->requestHeaders
-        && other.responseHeaders == this->responseHeaders
-        && other.priority == this->priority;
 }
 
 void ModifyHeadersAction::serialize(Vector<uint8_t>& vector) const
@@ -180,13 +160,13 @@ size_t ModifyHeadersAction::serializedLength(std::span<const uint8_t> span)
     return deserializeLength(span, 0);
 }
 
-void ModifyHeadersAction::applyToRequest(ResourceRequest& request, HashMap<String, ModifyHeadersAction::ModifyHeadersOperationType>& headerNameToFirstOperationApplied)
+void ModifyHeadersAction::applyToRequest(ResourceRequest& request, UncheckedKeyHashMap<String, ModifyHeadersAction::ModifyHeadersOperationType>& headerNameToFirstOperationApplied)
 {
     for (auto& info : requestHeaders)
         info.applyToRequest(request, headerNameToFirstOperationApplied);
 }
 
-void ModifyHeadersAction::ModifyHeaderInfo::applyToRequest(ResourceRequest& request, HashMap<String, ModifyHeadersAction::ModifyHeadersOperationType>& headerNameToFirstOperationApplied)
+void ModifyHeadersAction::ModifyHeaderInfo::applyToRequest(ResourceRequest& request, UncheckedKeyHashMap<String, ModifyHeadersAction::ModifyHeadersOperationType>& headerNameToFirstOperationApplied)
 {
     std::visit(WTF::makeVisitor([&] (const AppendOperation& operation) {
         ModifyHeadersOperationType previouslyAppliedHeaderOperation = headerNameToFirstOperationApplied.get(operation.header);
@@ -197,7 +177,7 @@ void ModifyHeadersAction::ModifyHeaderInfo::applyToRequest(ResourceRequest& requ
         if (existingValue.isEmpty())
             request.setHTTPHeaderField(operation.header, operation.value);
         else
-            request.setHTTPHeaderField(operation.header, makeString(existingValue, "; ", operation.value));
+            request.setHTTPHeaderField(operation.header, makeString(existingValue, "; "_s, operation.value));
 
         if (previouslyAppliedHeaderOperation == ModifyHeadersAction::ModifyHeadersOperationType::Unknown)
             headerNameToFirstOperationApplied.add(operation.header, ModifyHeadersAction::ModifyHeadersOperationType::Append);
@@ -255,11 +235,6 @@ auto ModifyHeadersAction::ModifyHeaderInfo::isolatedCopy() const & -> ModifyHead
 auto ModifyHeadersAction::ModifyHeaderInfo::isolatedCopy() && -> ModifyHeaderInfo
 {
     return { crossThreadCopy(WTFMove(operation)) };
-}
-
-bool ModifyHeadersAction::ModifyHeaderInfo::operator==(const ModifyHeaderInfo& other) const
-{
-    return other.operation == this->operation;
 }
 
 void ModifyHeadersAction::ModifyHeaderInfo::serialize(Vector<uint8_t>& vector) const
@@ -352,12 +327,6 @@ RedirectAction RedirectAction::isolatedCopy() &&
     return { crossThreadCopy(WTFMove(action)) };
 }
 
-bool RedirectAction::operator==(const RedirectAction& other) const
-{
-    return other.hashTableType == this->hashTableType
-        && other.action == this->action;
-}
-
 void RedirectAction::serialize(Vector<uint8_t>& vector) const
 {
     auto beginIndex = vector.size();
@@ -428,10 +397,10 @@ void RedirectAction::RegexSubstitutionAction::serialize(Vector<uint8_t>& vector)
         + sizeof(uint32_t)
         + regexSubstitutionUTF8.length()
         + regexFilterUTF8.length());
-    uncheckedAppend(vector, regexSubstitutionUTF8.length());
-    uncheckedAppend(vector, regexFilterUTF8.length());
-    uncheckedAppend(vector, regexSubstitutionUTF8);
-    uncheckedAppend(vector, regexFilterUTF8);
+    append(vector, regexSubstitutionUTF8.length());
+    append(vector, regexFilterUTF8.length());
+    append(vector, regexSubstitutionUTF8);
+    append(vector, regexFilterUTF8);
 }
 
 auto RedirectAction::RegexSubstitutionAction::deserialize(std::span<const uint8_t> span) -> RegexSubstitutionAction
@@ -444,14 +413,14 @@ auto RedirectAction::RegexSubstitutionAction::deserialize(std::span<const uint8_
     return { WTFMove(regexSubstitution), WTFMove(regexFilter) };
 }
 
-static JSRetainPtr<JSStringRef> makeJSString(const char* utf8)
+static JSRetainPtr<JSStringRef> makeJSString(ASCIILiteral literal)
 {
-    return adopt(JSStringCreateWithUTF8CString(utf8));
+    return adopt(JSStringCreateWithUTF8CString(literal));
 }
 
 static JSRetainPtr<JSStringRef> makeJSString(const String& string)
 {
-    return makeJSString(string.utf8().data());
+    return adopt(JSStringCreateWithUTF8CString(string.utf8().data()));
 }
 
 void RedirectAction::RegexSubstitutionAction::applyToURL(URL& url) const
@@ -466,7 +435,7 @@ void RedirectAction::RegexSubstitutionAction::applyToURL(URL& url) const
     auto toObject = [&] (JSValueRef value) {
         return JSValueToObject(context, value, nullptr);
     };
-    auto getProperty = [&] (JSValueRef value, const char* name) {
+    auto getProperty = [&] (JSValueRef value, ASCIILiteral name) {
         return JSObjectGetProperty(context, toObject(value), makeJSString(name).get(), nullptr);
     };
     auto getArrayValue = [&] (JSValueRef value, size_t index) {
@@ -486,13 +455,13 @@ void RedirectAction::RegexSubstitutionAction::applyToURL(URL& url) const
     JSValueRef regexFilterValue = JSValueMakeString(context, makeJSString(regexFilter).get());
     JSObjectRef regexp = JSObjectMakeRegExp(context, 1, &regexFilterValue, nullptr);
     JSValueRef urlValue = JSValueMakeString(context, makeJSString(url.string()).get());
-    JSObjectRef matchFunction = JSValueToObject(context, getProperty(urlValue, "match"), nullptr);
+    JSObjectRef matchFunction = JSValueToObject(context, getProperty(urlValue, "match"_s), nullptr);
     JSValueRef result = JSObjectCallAsFunction(context, matchFunction, toObject(urlValue), 1, &regexp, nullptr);
     if (!JSValueIsArray(context, result))
         return;
 
     String substitution = regexSubstitution;
-    size_t resultLength = JSValueToNumber(context, getProperty(result, "length"), nullptr);
+    size_t resultLength = JSValueToNumber(context, getProperty(result, "length"_s), nullptr);
     for (size_t i = 0; i < std::min<size_t>(10, resultLength); i++)
         substitution = makeStringByReplacingAll(substitution, makeString('\\', i), valueToWTFString(getArrayValue(result, i)));
 
@@ -559,18 +528,6 @@ auto RedirectAction::URLTransformAction::isolatedCopy() && -> URLTransformAction
         crossThreadCopy(WTFMove(queryTransform)), crossThreadCopy(WTFMove(scheme)), crossThreadCopy(WTFMove(username)) };
 }
 
-bool RedirectAction::URLTransformAction::operator==(const URLTransformAction& other) const
-{
-    return other.fragment == this->fragment
-        && other.host == this->host
-        && other.password == this->password
-        && other.path == this->path
-        && other.port == this->port
-        && other.queryTransform == this->queryTransform
-        && other.scheme == this->scheme
-        && other.username == this->username;
-}
-
 void RedirectAction::URLTransformAction::serialize(Vector<uint8_t>& vector) const
 {
     uint8_t hasFragment = !!fragment;
@@ -602,8 +559,8 @@ void RedirectAction::URLTransformAction::serialize(Vector<uint8_t>& vector) cons
         + (hasQuery ? 1 + (queryString ? sizeof(uint32_t) + queryStringUTF8.length() : 0) : 0));
 
     auto beginIndex = vector.size();
-    uncheckedAppend(vector, 0);
-    vector.uncheckedAppend(
+    append(vector, 0);
+    vector.append(
         hasFragment << 7
         | hasHost << 6
         | hasPassword << 5
@@ -613,34 +570,32 @@ void RedirectAction::URLTransformAction::serialize(Vector<uint8_t>& vector) cons
         | hasUsername << 1
         | hasQuery << 0
     );
-    auto uncheckedAppendLengthAndString = [&] (const CString& string) {
-        uncheckedAppend(vector, string.length());
-        uncheckedAppend(vector, string);
+    auto appendLengthAndString = [&] (const CString& string) {
+        append(vector, string.length());
+        append(vector, string);
     };
     if (hasFragment)
-        uncheckedAppendLengthAndString(fragmentUTF8);
+        appendLengthAndString(fragmentUTF8);
     if (hasHost)
-        uncheckedAppendLengthAndString(hostUTF8);
+        appendLengthAndString(hostUTF8);
     if (hasPassword)
-        uncheckedAppendLengthAndString(passwordUTF8);
+        appendLengthAndString(passwordUTF8);
     if (hasPath)
-        uncheckedAppendLengthAndString(pathUTF8);
+        appendLengthAndString(pathUTF8);
     if (hasScheme)
-        uncheckedAppendLengthAndString(schemeUTF8);
+        appendLengthAndString(schemeUTF8);
     if (hasUsername)
-        uncheckedAppendLengthAndString(usernameUTF8);
+        appendLengthAndString(usernameUTF8);
     if (hasPort) {
-        vector.uncheckedAppend(!!*port);
-        if (*port) {
-            vector.uncheckedAppend(**port >> 0);
-            vector.uncheckedAppend(**port >> 8);
+        vector.append(!!*port);
+        if (*port)
+            vector.appendList({ **port >> 0, **port >> 8 });
         }
-    }
     if (hasQuery) {
-        vector.uncheckedAppend(queryTransform.index());
+        vector.append(queryTransform.index());
         std::visit(WTF::makeVisitor([&](const String&) {
-            uncheckedAppend(vector, queryStringUTF8.length());
-            uncheckedAppend(vector, queryStringUTF8);
+            append(vector, queryStringUTF8.length());
+            append(vector, queryStringUTF8);
         }, [&](const QueryTransform& transform) {
             transform.serialize(vector);
         }), queryTransform);
@@ -729,7 +684,7 @@ auto RedirectAction::URLTransformAction::QueryTransform::parse(const JSON::Objec
         for (auto& parameter : *removeParametersArray) {
             if (parameter.get().type() != JSON::Value::Type::String)
                 return makeUnexpected(ContentExtensionError::JSONRemoveParametersNotStringArray);
-            removeParametersVector.uncheckedAppend(parameter.get().asString());
+            removeParametersVector.append(parameter.get().asString());
         }
         parsedQueryTransform.removeParams = WTFMove(removeParametersVector);
     }
@@ -744,7 +699,7 @@ auto RedirectAction::URLTransformAction::QueryTransform::parse(const JSON::Objec
             auto keyValue = QueryKeyValue::parse(queryKeyValue.get());
             if (!keyValue)
                 return makeUnexpected(keyValue.error());
-            keyValues.uncheckedAppend(WTFMove(*keyValue));
+            keyValues.append(WTFMove(*keyValue));
         }
         parsedQueryTransform.addOrReplaceParams = WTFMove(keyValues);
     }
@@ -785,12 +740,12 @@ void RedirectAction::URLTransformAction::QueryTransform::applyToURL(URL& url) co
     if (!url.hasQuery())
         return;
 
-    HashSet<String> keysToRemove;
+    UncheckedKeyHashSet<String> keysToRemove;
     for (auto& key : removeParams)
         keysToRemove.add(key);
 
     Vector<KeyValuePair<String, String>> keysToAdd;
-    HashMap<String, String> keysToReplace;
+    UncheckedKeyHashMap<String, String> keysToReplace;
     for (auto& [key, replaceOnly, value] : addOrReplaceParams) {
         if (replaceOnly)
             keysToReplace.add(key, value);
@@ -851,12 +806,6 @@ auto RedirectAction::URLTransformAction::QueryTransform::isolatedCopy() const & 
 auto RedirectAction::URLTransformAction::QueryTransform::isolatedCopy() && -> QueryTransform
 {
     return { crossThreadCopy(WTFMove(addOrReplaceParams)), crossThreadCopy(WTFMove(removeParams)) };
-}
-
-bool RedirectAction::URLTransformAction::QueryTransform::operator==(const QueryTransform& other) const
-{
-    return other.addOrReplaceParams == this->addOrReplaceParams
-        && other.removeParams == this->removeParams;
 }
 
 void RedirectAction::URLTransformAction::QueryTransform::serialize(Vector<uint8_t>& vector) const
@@ -925,13 +874,6 @@ auto RedirectAction::URLTransformAction::QueryTransform::QueryKeyValue::parse(co
     return { { WTFMove(key), replaceOnly, WTFMove(value) } };
 }
 
-bool RedirectAction::URLTransformAction::QueryTransform::QueryKeyValue::operator==(const QueryKeyValue& other) const
-{
-    return other.key == this->key
-        && other.replaceOnly == this->replaceOnly
-        && other.value == this->value;
-}
-
 void RedirectAction::URLTransformAction::QueryTransform::QueryKeyValue::serialize(Vector<uint8_t>& vector) const
 {
     constexpr auto headerLength = sizeof(uint32_t) + sizeof(uint32_t) + sizeof(bool);
@@ -941,11 +883,11 @@ void RedirectAction::URLTransformAction::QueryTransform::QueryKeyValue::serializ
     auto valueUTF8 = value.utf8();
     auto serializedLength = headerLength + keyUTF8.length() + valueUTF8.length();
     vector.reserveCapacity(vector.size() + serializedLength);
-    uncheckedAppend(vector, serializedLength);
-    uncheckedAppend(vector, keyUTF8.length());
-    vector.uncheckedAppend(replaceOnly);
-    uncheckedAppend(vector, keyUTF8);
-    uncheckedAppend(vector, valueUTF8);
+    append(vector, serializedLength);
+    append(vector, keyUTF8.length());
+    vector.append(replaceOnly);
+    append(vector, keyUTF8);
+    append(vector, valueUTF8);
 }
 
 auto RedirectAction::URLTransformAction::QueryTransform::QueryKeyValue::deserialize(std::span<const uint8_t> span) -> QueryKeyValue

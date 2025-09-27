@@ -43,6 +43,7 @@ class RTCError;
 
 enum class DtlsTransportState;
 enum class Priority;
+class PriorityValue;
 enum class RTCErrorType;
 enum class RtpTransceiverDirection;
 }
@@ -72,12 +73,13 @@ ExceptionCode toExceptionCode(webrtc::RTCErrorType);
 Exception toException(const webrtc::RTCError&);
 RefPtr<RTCError> toRTCError(const webrtc::RTCError&);
 
+RTCPriorityType toRTCPriorityType(webrtc::PriorityValue);
 RTCPriorityType toRTCPriorityType(webrtc::Priority);
 webrtc::Priority fromRTCPriorityType(RTCPriorityType);
 
 inline String fromStdString(const std::string& value)
 {
-    return String::fromUTF8(value.data(), value.length());
+    return String::fromUTF8(value);
 }
 
 RTCIceCandidateFields convertIceCandidate(const cricket::Candidate&);

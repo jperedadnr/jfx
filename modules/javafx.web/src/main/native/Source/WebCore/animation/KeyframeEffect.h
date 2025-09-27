@@ -25,8 +25,11 @@
 
 #pragma once
 
+#include "AcceleratedEffect.h"
+#include "Animation.h"
 #include "AnimationEffect.h"
 #include "AnimationEffectPhase.h"
+#include "BlendingKeyframes.h"
 #include "CSSPropertyBlendingClient.h"
 #include "CompositeOperation.h"
 #include "CompositeOperationOrAuto.h"
@@ -35,7 +38,7 @@
 #include "Element.h"
 #include "IterationCompositeOperation.h"
 #include "KeyframeEffectOptions.h"
-#include "KeyframeList.h"
+#include "KeyframeInterpolation.h"
 #include "RenderStyle.h"
 #include "Styleable.h"
 #include "WebAnimationTypes.h"
@@ -50,25 +53,31 @@ class FilterOperations;
 class MutableStyleProperties;
 class RenderStyle;
 
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+class AcceleratedEffect;
+#endif
+
 namespace Style {
 struct ResolutionContext;
 }
 
-class KeyframeEffect final : public AnimationEffect, public CSSPropertyBlendingClient {
-    WTF_MAKE_ISO_ALLOCATED(KeyframeEffect);
+class KeyframeEffect final : public AnimationEffect, public CSSPropertyBlendingClient, public KeyframeInterpolation {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(KeyframeEffect);
 public:
     static ExceptionOr<Ref<KeyframeEffect>> create(JSC::JSGlobalObject&, Document&, Element*, JSC::Strong<JSC::JSObject>&&, std::optional<std::variant<double, KeyframeEffectOptions>>&&);
     static Ref<KeyframeEffect> create(Ref<KeyframeEffect>&&);
-    static Ref<KeyframeEffect> create(const Element&, PseudoId);
+    static Ref<KeyframeEffect> create(const Element&, const std::optional<Style::PseudoElementIdentifier>&);
+
+    using KeyframeOffset = std::variant<std::nullptr_t, double, TimelineRangeOffset, String>;
 
     struct BasePropertyIndexedKeyframe {
-        std::variant<std::nullptr_t, Vector<std::optional<double>>, double> offset = Vector<std::optional<double>>();
+        std::variant<std::nullptr_t, Vector<KeyframeOffset>, double, TimelineRangeOffset, String> offset = Vector<KeyframeOffset>();
         std::variant<Vector<String>, String> easing = Vector<String>();
         std::variant<Vector<CompositeOperationOrAuto>, CompositeOperationOrAuto> composite = Vector<CompositeOperationOrAuto>();
     };
 
     struct BaseKeyframe {
-        MarkableDouble offset;
+        KeyframeOffset offset;
         String easing { "linear"_s };
         CompositeOperationOrAuto composite { CompositeOperationOrAuto::Auto };
     };
@@ -89,8 +98,8 @@ public:
     };
 
     struct ComputedKeyframe : BaseComputedKeyframe {
-        HashMap<CSSPropertyID, String> styleStrings;
-        HashMap<AtomString, String> customStyleStrings;
+        UncheckedKeyHashMap<CSSPropertyID, String> styleStrings;
+        UncheckedKeyHashMap<AtomString, String> customStyleStrings;
     };
 
     struct ParsedKeyframe : ComputedKeyframe {
@@ -112,7 +121,7 @@ public:
 
     const std::optional<const Styleable> targetStyleable() const;
 
-    Vector<ComputedKeyframe> getKeyframes(Document&);
+    Vector<ComputedKeyframe> getKeyframes();
     ExceptionOr<void> setBindingsKeyframes(JSC::JSGlobalObject&, Document&, JSC::Strong<JSC::JSObject>&&);
     ExceptionOr<void> setKeyframes(JSC::JSGlobalObject&, Document&, JSC::Strong<JSC::JSObject>&&);
 
@@ -124,10 +133,9 @@ public:
     void setBindingsComposite(CompositeOperation);
 
     void getAnimatedStyle(std::unique_ptr<RenderStyle>& animatedStyle);
-    void apply(RenderStyle& targetStyle, const Style::ResolutionContext&, std::optional<Seconds> = std::nullopt);
+    OptionSet<AnimationImpact> apply(RenderStyle& targetStyle, const Style::ResolutionContext&, std::optional<Seconds> = std::nullopt);
     void invalidate();
 
-    void animationTimingDidChange();
     void animationRelevancyDidChange();
     void transformRelatedPropertyDidChange();
     enum class RecomputationReason : uint8_t { LogicalPropertyChange, Other };
@@ -148,10 +156,12 @@ public:
 
     std::optional<unsigned> transformFunctionListPrefix() const override;
 
-    void computeDeclarativeAnimationBlendingKeyframes(const RenderStyle* oldStyle, const RenderStyle& newStyle, const Style::ResolutionContext&);
-    const KeyframeList& blendingKeyframes() const { return m_blendingKeyframes; }
-    const HashSet<AnimatableProperty>& animatedProperties();
-    bool animatesProperty(AnimatableProperty) const;
+    void computeStyleOriginatedAnimationBlendingKeyframes(const RenderStyle* oldStyle, const RenderStyle& newStyle, const Style::ResolutionContext&);
+    const BlendingKeyframes& blendingKeyframes() const { return m_blendingKeyframes; }
+    const UncheckedKeyHashSet<AnimatableCSSProperty>& animatedProperties();
+    bool animatesProperty(const AnimatableCSSProperty&) const;
+    const UncheckedKeyHashSet<AnimatableCSSProperty>& acceleratedProperties() const { return m_acceleratedProperties; }
+    const UncheckedKeyHashSet<AnimatableCSSProperty>& acceleratedPropertiesWithImplicitKeyframe() const { return m_acceleratedPropertiesWithImplicitKeyframe; }
 
     bool computeExtentOfTransformAnimation(LayoutRect&) const;
     bool computeTransformedExtentViaTransformList(const FloatRect&, const RenderStyle&, LayoutRect&) const;
@@ -170,10 +180,13 @@ public:
     void customPropertyRegistrationDidChange(const AtomString&);
 
     bool canBeAccelerated() const;
+    bool accelerationWasPrevented() const { return m_runningAccelerated == RunningAccelerated::Prevented; }
     bool preventsAcceleration() const;
     void effectStackNoLongerPreventsAcceleration();
     void effectStackNoLongerAllowsAcceleration();
-    void wasRemovedFromStack();
+    void effectStackNoLongerAllowsAccelerationDuringAcceleratedActionApplication();
+    void wasAddedToEffectStack();
+    void wasRemovedFromEffectStack();
 
     void lastStyleChangeEventStyleDidChange(const RenderStyle* previousStyle, const RenderStyle* currentStyle);
     void acceleratedPropertiesOverriddenByCascadeDidChange();
@@ -182,8 +195,13 @@ public:
 
     WebAnimationType animationType() const { return m_animationType; }
 
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+    const AcceleratedEffect* acceleratedRepresentation() const { return m_acceleratedRepresentation.get(); }
+    void setAcceleratedRepresentation(const AcceleratedEffect* acceleratedRepresentation) { m_acceleratedRepresentation = acceleratedRepresentation; }
+#endif
+
 private:
-    KeyframeEffect(Element*, PseudoId);
+    KeyframeEffect(Element*, const std::optional<Style::PseudoElementIdentifier>&);
 
     enum class AcceleratedAction : uint8_t { Play, Pause, UpdateProperties, TransformChange, Stop };
     enum class AcceleratedProperties : uint8_t { None, Some, All };
@@ -196,7 +214,7 @@ private:
         ~CanBeAcceleratedMutationScope();
 
     private:
-        KeyframeEffect* m_effect;
+        RefPtr<KeyframeEffect> m_effect;
         bool m_couldOriginallyPreventAcceleration;
 #if ENABLE(THREADED_ANIMATION_RESOLUTION)
         bool m_couldOriginallyBeAccelerated;
@@ -210,26 +228,28 @@ private:
     void addPendingAcceleratedAction(AcceleratedAction);
     bool isCompletelyAccelerated() const { return m_acceleratedPropertiesState == AcceleratedProperties::All; }
     void updateAcceleratedActions();
-    void setAnimatedPropertiesInStyle(RenderStyle&, double iterationProgress, double currentIteration);
-    TimingFunction* timingFunctionForKeyframeAtIndex(size_t) const;
-    TimingFunction* timingFunctionForBlendingKeyframe(const KeyframeValue&) const;
-    Ref<const Animation> backingAnimationForCompositedRenderer() const;
+    void setAnimatedPropertiesInStyle(RenderStyle&, const ComputedEffectTiming&);
+    const TimingFunction* timingFunctionForKeyframeAtIndex(size_t) const;
+    const TimingFunction* timingFunctionForBlendingKeyframe(const BlendingKeyframe&) const;
+    Ref<const Animation> backingAnimationForCompositedRenderer();
     void computedNeedsForcedLayout();
     void computeStackingContextImpact();
-    void computeSomeKeyframesUseStepsTimingFunction();
+    void computeSomeKeyframesUseStepsOrLinearTimingFunctionWithPoints();
     void clearBlendingKeyframes();
     void updateBlendingKeyframes(RenderStyle& elementStyle, const Style::ResolutionContext&);
     void computeCSSAnimationBlendingKeyframes(const RenderStyle& unanimatedStyle, const Style::ResolutionContext&);
     void computeCSSTransitionBlendingKeyframes(const RenderStyle& oldStyle, const RenderStyle& newStyle);
     void computeAcceleratedPropertiesState();
-    void setBlendingKeyframes(KeyframeList&&);
-    bool isTargetingTransformRelatedProperty() const;
+    void setBlendingKeyframes(BlendingKeyframes&&);
     void checkForMatchingTransformFunctionLists();
     void computeHasImplicitKeyframeForAcceleratedProperty();
     void computeHasKeyframeComposingAcceleratedProperty();
-    void computeHasExplicitlyInheritedKeyframeProperty();
     void computeHasAcceleratedPropertyOverriddenByCascadeProperty();
     void computeHasReferenceFilter();
+    void computeHasSizeDependentTransform();
+    void analyzeAcceleratedProperties();
+    void updateIsAssociatedWithProgressBasedTimeline();
+
     void abilityToBeAcceleratedDidChange();
     void updateAcceleratedAnimationIfNecessary();
 
@@ -237,13 +257,13 @@ private:
     class StackMembershipMutationScope {
         WTF_MAKE_NONCOPYABLE(StackMembershipMutationScope);
     public:
-        StackMembershipMutationScope(KeyframeEffect*);
+        StackMembershipMutationScope(KeyframeEffect&);
         ~StackMembershipMutationScope();
 
     private:
-        KeyframeEffect* m_effect;
+        RefPtr<KeyframeEffect> m_effect;
         RefPtr<Element> m_originalTarget;
-        PseudoId m_originalPseudoId;
+        std::optional<Style::PseudoElementIdentifier> m_originalPseudoElementIdentifier;
     };
 
     bool threadedAnimationResolutionEnabled() const;
@@ -256,23 +276,41 @@ private:
     void animationDidChangeTimingProperties() final;
     void animationWasCanceled() final;
     void animationSuspensionStateDidChange(bool) final;
-    void animationTimelineDidChange(AnimationTimeline*) final;
+    void animationTimelineDidChange(const AnimationTimeline*) final;
     void animationDidFinish() final;
     void setAnimation(WebAnimation*) final;
-    Seconds timeToNextTick(const BasicEffectTiming&) const final;
-    bool ticksContinouslyWhileActive() const final;
+    Seconds timeToNextTick(const BasicEffectTiming&) final;
+    bool ticksContinuouslyWhileActive() const final;
     std::optional<double> progressUntilNextStep(double) const final;
     bool preventsAnimationReadiness() const final;
+    void animationProgressBasedTimelineSourceDidChangeMetrics(const TimelineRange&) final;
+
+    const ViewTimeline* activeViewTimeline();
+    void updateComputedKeyframeOffsetsIfNeeded();
+
+    // KeyframeInterpolation
+    CompositeOperation compositeOperation() const final { return m_compositeOperation; }
+    IterationCompositeOperation iterationCompositeOperation() const final { return m_iterationCompositeOperation; }
+    const KeyframeInterpolation::Keyframe& keyframeAtIndex(size_t) const final;
+    size_t numberOfKeyframes() const final { return m_blendingKeyframes.size(); }
+    const TimingFunction* timingFunctionForKeyframe(const KeyframeInterpolation::Keyframe&) const final;
+    bool isPropertyAdditiveOrCumulative(KeyframeInterpolation::Property) const final;
 
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 
     AtomString m_keyframesName;
-    KeyframeList m_blendingKeyframes { emptyAtom() };
-    HashSet<AnimatableProperty> m_animatedProperties;
+    BlendingKeyframes m_blendingKeyframes { emptyAtom() };
+    UncheckedKeyHashSet<AnimatableCSSProperty> m_animatedProperties;
+    UncheckedKeyHashSet<AnimatableCSSProperty> m_acceleratedProperties;
+    UncheckedKeyHashSet<AnimatableCSSProperty> m_acceleratedPropertiesWithImplicitKeyframe;
     Vector<ParsedKeyframe> m_parsedKeyframes;
     Vector<AcceleratedAction> m_pendingAcceleratedActions;
     RefPtr<Element> m_target;
-    PseudoId m_pseudoId { PseudoId::None };
+    std::optional<Style::PseudoElementIdentifier> m_pseudoElementIdentifier { };
+
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+    WeakPtr<AcceleratedEffect> m_acceleratedRepresentation;
+#endif
 
     AcceleratedAction m_lastRecordedAcceleratedAction { AcceleratedAction::Stop };
     WebAnimationType m_animationType { WebAnimationType::WebAnimation };
@@ -285,12 +323,15 @@ private:
     bool m_triggersStackingContext { false };
     size_t m_transformFunctionListsMatchPrefix { 0 };
     bool m_inTargetEffectStack { false };
+    bool m_someKeyframesUseLinearTimingFunctionWithPoints { false };
     bool m_someKeyframesUseStepsTimingFunction { false };
     bool m_hasImplicitKeyframeForAcceleratedProperty { false };
     bool m_hasKeyframeComposingAcceleratedProperty { false };
-    bool m_hasExplicitlyInheritedKeyframeProperty { false };
     bool m_hasAcceleratedPropertyOverriddenByCascadeProperty { false };
     bool m_hasReferenceFilter { false };
+    bool m_animatesSizeAndSizeDependentTransform { false };
+    bool m_isAssociatedWithProgressBasedTimeline { false };
+    bool m_needsComputedKeyframeOffsetsUpdate { false };
 };
 
 } // namespace WebCore

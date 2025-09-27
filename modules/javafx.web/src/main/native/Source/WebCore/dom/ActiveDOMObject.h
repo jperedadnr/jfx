@@ -28,6 +28,7 @@
 
 #include "ContextDestructionObserver.h"
 #include "TaskSource.h"
+#include <wtf/AbstractRefCounted.h>
 #include <wtf/Assertions.h>
 #include <wtf/CancellableTask.h>
 #include <wtf/Forward.h>
@@ -49,12 +50,14 @@ enum class ReasonForSuspension : uint8_t {
     PageWillBeSuspended,
 };
 
-class WEBCORE_EXPORT ActiveDOMObject : public ContextDestructionObserver {
+class WEBCORE_EXPORT ActiveDOMObject : public AbstractRefCounted, public ContextDestructionObserver {
 public:
     // The suspendIfNeeded must be called exactly once after object construction to update
     // the suspended state to match that of the ScriptExecutionContext.
     void suspendIfNeeded();
     void assertSuspendIfNeededWasCalled() const;
+
+    void didMoveToNewDocument(Document&);
 
     // This function is used by JS bindings to determine if the JS wrapper should be kept alive or not.
     bool hasPendingActivity() const { return m_pendingActivityInstanceCount || virtualHasPendingActivity(); }
@@ -62,8 +65,6 @@ public:
     // However, the suspend function will sometimes be called even if canSuspendForDocumentSuspension() returns false.
     // That happens in step-by-step JS debugging for example - in this case it would be incorrect
     // to stop the object. Exact semantics of suspend is up to the object in cases like that.
-
-    virtual const char* activeDOMObjectName() const = 0;
 
     // These functions must not have a side effect of creating or destroying
     // any ActiveDOMObject. That means they must not result in calls to arbitrary JavaScript.

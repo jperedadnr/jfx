@@ -178,6 +178,7 @@
 || defined(__ARM_ARCH_6J__) \
 || defined(__ARM_ARCH_6K__) \
 || defined(__ARM_ARCH_6Z__) \
+|| defined(__ARM_ARCH_6KZ__) \
 || defined(__ARM_ARCH_6ZK__) \
 || defined(__ARM_ARCH_6T2__) \
 || defined(__ARMV6__)
@@ -339,7 +340,7 @@
 
 /* BENABLE(LIBPAS) is enabling libpas build. But this does not mean we use libpas for bmalloc replacement. */
 #if !defined(BENABLE_LIBPAS)
-#if BCPU(ADDRESS64) && (BOS(DARWIN) || (!BOS(LINUX) && !BPLATFORM(GTK) && !BPLATFORM(WPE)))
+#if BCPU(ADDRESS64) && (BOS(DARWIN) || (BOS(LINUX) && (BCPU(X86_64) || BCPU(ARM64))) || BPLATFORM(PLAYSTATION))
 #define BENABLE_LIBPAS 1
 #ifndef PAS_BMALLOC
 #define PAS_BMALLOC 1
@@ -366,24 +367,6 @@
 #define BUSE_PRECOMPUTED_CONSTANTS_VMPAGE16K 1
 #endif
 
-/* The unified Config record feature is not available for Windows because the
-   Windows port puts WTF in a separate DLL, and the offlineasm code accessing
-   the config record expects the config record to be directly accessible like
-   a global variable (and not have to go thru DLL shenanigans). C++ code would
-   resolve these DLL bindings automatically, but offlineasm does not.
-
-   The permanently freezing feature also currently relies on the Config records
-   being unified, and the Windows port also does not currently have an
-   implementation for the freezing mechanism anyway. For simplicity, we just
-   disable both the use of unified Config record and config freezing for the
-   Windows port.
-*/
-#if BOS(WINDOWS)
-#define BENABLE_UNIFIED_AND_FREEZABLE_CONFIG_RECORD 0
-#else
-#define BENABLE_UNIFIED_AND_FREEZABLE_CONFIG_RECORD 1
-#endif
-
 /* We only export the mallocSize and mallocGoodSize APIs if they're supported by the DebugHeap allocator (currently only Darwin) and the current bmalloc allocator (currently only libpas). */
 #if BUSE(LIBPAS) && BOS(DARWIN)
 #define BENABLE_MALLOC_SIZE 1
@@ -391,4 +374,12 @@
 #else
 #define BENABLE_MALLOC_SIZE 0
 #define BENABLE_MALLOC_GOOD_SIZE 0
+#endif
+
+#if !defined(BUSE_TZONE)
+#if BUSE(LIBPAS) && BOS(DARWIN) && (BCPU(ARM64) || BCPU(X86_64))
+#define BUSE_TZONE 1
+#else
+#define BUSE_TZONE 0
+#endif
 #endif

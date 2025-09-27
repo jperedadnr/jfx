@@ -55,9 +55,18 @@ RefPtr<SVGFilter> SVGFilter::create(SVGFilterElement& filterElement, OptionSet<F
     return filter;
 }
 
-RefPtr<SVGFilter> SVGFilter::create(const FloatRect& targetBoundingBox, SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&& expression, FilterEffectVector&& effects, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
+Ref<SVGFilter> SVGFilter::create(const FloatRect& targetBoundingBox, SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&& expression, FilterEffectVector&& effects, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
 {
     return adoptRef(*new SVGFilter(targetBoundingBox, primitiveUnits, WTFMove(expression), WTFMove(effects), renderingResourceIdentifier));
+}
+
+Ref<SVGFilter> SVGFilter::create(const FloatRect& targetBoundingBox, SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&& expression, FilterEffectVector&& effects, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier, OptionSet<FilterRenderingMode> filterRenderingModes, const FloatSize& filterScale, const FloatRect& filterRegion)
+{
+    Ref filter = adoptRef(*new SVGFilter(targetBoundingBox, primitiveUnits, WTFMove(expression), WTFMove(effects), renderingResourceIdentifier, filterScale, filterRegion));
+    // Setting filter rendering modes cannot be moved to the constructor because it ends up
+    // calling supportedFilterRenderingModes() which is a virtual function.
+    filter->setFilterRenderingModes(filterRenderingModes);
+    return filter;
 }
 
 SVGFilter::SVGFilter(const FloatSize& filterScale, const FloatRect& filterRegion, const FloatRect& targetBoundingBox, SVGUnitTypes::SVGUnitType primitiveUnits, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier)
@@ -76,34 +85,42 @@ SVGFilter::SVGFilter(const FloatRect& targetBoundingBox, SVGUnitTypes::SVGUnitTy
 {
 }
 
+SVGFilter::SVGFilter(const FloatRect& targetBoundingBox, SVGUnitTypes::SVGUnitType primitiveUnits, SVGFilterExpression&& expression, FilterEffectVector&& effects, std::optional<RenderingResourceIdentifier> renderingResourceIdentifier, const FloatSize& filterScale, const FloatRect& filterRegion)
+    : Filter(Filter::Type::SVGFilter, filterScale, filterRegion, renderingResourceIdentifier)
+    , m_targetBoundingBox(targetBoundingBox)
+    , m_primitiveUnits(primitiveUnits)
+    , m_expression(WTFMove(expression))
+    , m_effects(WTFMove(effects))
+{
+}
+
 static std::optional<std::tuple<SVGFilterEffectsGraph, FilterEffectGeometryMap>> buildFilterEffectsGraph(SVGFilterElement& filterElement, const SVGFilter& filter, const GraphicsContext& destinationContext)
 {
     if (filterElement.countChildNodes() > maxCountChildNodes)
         return std::nullopt;
 
-    SVGFilterEffectsGraph graph(SourceGraphic::create(), SourceAlpha::create());
+    const auto colorSpace = filterElement.colorInterpolation() == ColorInterpolation::LinearRGB ? DestinationColorSpace::LinearSRGB() : DestinationColorSpace::SRGB();
+    SVGFilterEffectsGraph graph(SourceGraphic::create(colorSpace), SourceAlpha::create(colorSpace));
     FilterEffectGeometryMap effectGeometryMap;
 
-    for (auto& effectElement : childrenOfType<SVGFilterPrimitiveStandardAttributes>(filterElement)) {
-        auto inputs = graph.getNamedNodes(effectElement.filterEffectInputsNames());
+    for (Ref effectElement : childrenOfType<SVGFilterPrimitiveStandardAttributes>(filterElement)) {
+        auto inputs = graph.getNamedNodes(effectElement->filterEffectInputsNames());
         if (!inputs)
             return std::nullopt;
 
-        auto effect = effectElement.filterEffect(*inputs, destinationContext);
+        auto effect = effectElement->filterEffect(*inputs, destinationContext);
         if (!effect)
             return std::nullopt;
 
-        if (auto flags = effectElement.effectGeometryFlags()) {
-            auto effectBoundaries = SVGLengthContext::resolveRectangle<SVGFilterPrimitiveStandardAttributes>(&effectElement, filter.primitiveUnits(), filter.targetBoundingBox());
+        if (auto flags = effectElement->effectGeometryFlags()) {
+            auto effectBoundaries = SVGLengthContext::resolveRectangle<SVGFilterPrimitiveStandardAttributes>(effectElement.ptr(), filter.primitiveUnits(), filter.targetBoundingBox());
             effectGeometryMap.add(*effect, FilterEffectGeometry(effectBoundaries, flags));
         }
 
-#if ENABLE(DESTINATION_COLOR_SPACE_LINEAR_SRGB)
-        if (effectElement.colorInterpolation() == ColorInterpolation::LinearRGB)
+        if (effectElement->colorInterpolation() == ColorInterpolation::LinearRGB)
             effect->setOperatingColorSpace(DestinationColorSpace::LinearSRGB());
-#endif
 
-        graph.addNamedNode(AtomString { effectElement.result() }, { *effect });
+        graph.addNamedNode(AtomString { effectElement->result() }, { *effect });
         graph.setNodeInputs(*effect, WTFMove(*inputs));
     }
 
@@ -153,10 +170,10 @@ static std::optional<SVGFilterPrimitivesGraph> buildFilterPrimitivesGraph(SVGFil
 
     SVGFilterPrimitivesGraph graph;
 
-    for (auto& effectElement : childrenOfType<SVGFilterPrimitiveStandardAttributes>(filterElement)) {
+    for (Ref effectElement : childrenOfType<SVGFilterPrimitiveStandardAttributes>(filterElement)) {
         // We should not be strict about not finding the input primitives here because SourceGraphic and SourceAlpha do not have primitives.
-        auto inputs = graph.getNamedNodes(effectElement.filterEffectInputsNames()).value_or(SVGFilterPrimitivesGraph::NodeVector());
-        graph.addNamedNode(AtomString { effectElement.result() }, { effectElement });
+        auto inputs = graph.getNamedNodes(effectElement->filterEffectInputsNames()).value_or(SVGFilterPrimitivesGraph::NodeVector());
+        graph.addNamedNode(AtomString { effectElement->result() }, effectElement.copyRef());
         graph.setNodeInputs(effectElement, WTFMove(inputs));
     }
 
@@ -240,7 +257,7 @@ FilterEffectVector SVGFilter::effectsOfType(FilterFunction::Type filterType) con
     return effects;
 }
 
-FilterResults& SVGFilter::ensureResults(const FilterResultsCreator& resultsCreator)
+FilterResults& SVGFilter::ensureResults(NOESCAPE const FilterResultsCreator& resultsCreator)
 {
     if (!m_results)
         m_results = resultsCreator();
@@ -283,8 +300,8 @@ RefPtr<FilterImage> SVGFilter::apply(FilterImage* sourceImage, FilterResults& re
         auto& geometry = term.geometry;
 
         if (effect->filterType() == FilterEffect::Type::SourceGraphic) {
-            if (auto result = results.effectResult(effect)) {
-                stack.append({ *result });
+            if (RefPtr result = results.effectResult(effect)) {
+                stack.append(result.releaseNonNull());
                 continue;
             }
 
@@ -309,12 +326,12 @@ RefPtr<FilterImage> SVGFilter::apply(FilterImage* sourceImage, FilterResults& re
     return stack.takeLast();
 }
 
-FilterStyleVector SVGFilter::createFilterStyles(const Filter&, const FilterStyle& sourceStyle) const
+FilterStyleVector SVGFilter::createFilterStyles(GraphicsContext& context, const Filter&, const FilterStyle& sourceStyle) const
 {
-    return createFilterStyles(sourceStyle);
+    return createFilterStyles(context, sourceStyle);
 }
 
-FilterStyleVector SVGFilter::createFilterStyles(const FilterStyle& sourceStyle) const
+FilterStyleVector SVGFilter::createFilterStyles(GraphicsContext& context, const FilterStyle& sourceStyle) const
 {
     ASSERT(!m_expression.isEmpty());
     ASSERT(supportedFilterRenderingModes().contains(FilterRenderingMode::GraphicsContext));
@@ -330,7 +347,7 @@ FilterStyleVector SVGFilter::createFilterStyles(const FilterStyle& sourceStyle) 
             continue;
 
         ASSERT(effect->numberOfImageInputs() == 1);
-        auto style = effect->createFilterStyle(*this, lastStyle, geometry);
+        auto style = effect->createFilterStyle(context, *this, lastStyle, geometry);
 
         lastStyle = style;
         styles.append(style);

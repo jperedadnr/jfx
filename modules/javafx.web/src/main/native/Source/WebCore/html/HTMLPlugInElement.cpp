@@ -50,8 +50,9 @@
 #include "Settings.h"
 #include "ShadowRoot.h"
 #include "SubframeLoader.h"
+#include "VoidCallback.h"
 #include "Widget.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
 #include "YouTubePluginReplacement.h"
@@ -59,12 +60,12 @@
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLPlugInElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLPlugInElement);
 
 using namespace HTMLNames;
 
-HTMLPlugInElement::HTMLPlugInElement(const QualifiedName& tagName, Document& document)
-    : HTMLFrameOwnerElement(tagName, document, CreateHTMLPlugInElement)
+HTMLPlugInElement::HTMLPlugInElement(const QualifiedName& tagName, Document& document, OptionSet<TypeFlag> typeFlags)
+    : HTMLFrameOwnerElement(tagName, document, typeFlags | TypeFlag::HasCustomStyleResolveCallbacks)
     , m_swapRendererTimer(*this, &HTMLPlugInElement::swapRendererTimerFired)
 {
 }
@@ -72,6 +73,7 @@ HTMLPlugInElement::HTMLPlugInElement(const QualifiedName& tagName, Document& doc
 HTMLPlugInElement::~HTMLPlugInElement()
 {
     ASSERT(!m_instance); // cleared in detach()
+    ASSERT(!m_pendingPDFTestCallback);
 }
 
 bool HTMLPlugInElement::willRespondToMouseClickEventsWithEditability(Editability) const
@@ -79,7 +81,7 @@ bool HTMLPlugInElement::willRespondToMouseClickEventsWithEditability(Editability
     if (isDisabledFormControl())
         return false;
     auto renderer = this->renderer();
-    return renderer && renderer->isWidget();
+    return renderer && renderer->isRenderWidget();
 }
 
 void HTMLPlugInElement::willDetachRenderers()
@@ -130,7 +132,7 @@ RenderWidget* HTMLPlugInElement::renderWidgetLoadingPlugin() const
         // Needs to load the plugin immediatedly because this function is called
         // when JavaScript code accesses the plugin.
         // FIXME: <rdar://16893708> Check if dispatching events here is safe.
-        document().updateLayoutIgnorePendingStylesheets(Document::RunPostLayoutTasks::Synchronously);
+        document().updateLayout({ LayoutOptions::IgnorePendingStylesheets, LayoutOptions::RunPostLayoutTasksSynchronously });
     }
     return renderWidget(); // This will return nullptr if the renderer is not a RenderWidget.
 }
@@ -176,6 +178,21 @@ void HTMLPlugInElement::collectPresentationalHintsForAttribute(const QualifiedNa
     }
 }
 
+Node::InsertedIntoAncestorResult HTMLPlugInElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+{
+    auto result = HTMLFrameOwnerElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    if (insertionType.connectedToDocument)
+        document().didConnectPluginElement();
+    return result;
+}
+
+void HTMLPlugInElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+{
+    HTMLFrameOwnerElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    if (removalType.disconnectedFromDocument)
+        document().didDisconnectPluginElement();
+}
+
 void HTMLPlugInElement::defaultEventHandler(Event& event)
 {
     // Firefox seems to use a fake event listener to dispatch events to plug-in (tested with mouse events only).
@@ -184,21 +201,18 @@ void HTMLPlugInElement::defaultEventHandler(Event& event)
 
     // FIXME: Mouse down and scroll events are passed down to plug-in via custom code in EventHandler; these code paths should be united.
 
-    auto renderer = this->renderer();
-    if (!is<RenderWidget>(renderer))
+    auto* renderer = dynamicDowncast<RenderWidget>(this->renderer());
+    if (!renderer)
         return;
 
-    if (is<RenderEmbeddedObject>(*renderer) && downcast<RenderEmbeddedObject>(*renderer).isPluginUnavailable())
-        downcast<RenderEmbeddedObject>(*renderer).handleUnavailablePluginIndicatorEvent(&event);
+    if (CheckedPtr renderEmbedded = dynamicDowncast<RenderEmbeddedObject>(*renderer); renderEmbedded && renderEmbedded->isPluginUnavailable())
+        renderEmbedded->handleUnavailablePluginIndicatorEvent(&event);
 
-    // Don't keep the widget alive over the defaultEventHandler call, since that can do things like navigate.
-    {
-        RefPtr<Widget> widget = downcast<RenderWidget>(*renderer).widget();
-        if (widget)
+    if (RefPtr widget = renderer->widget())
         widget->handleEvent(event);
         if (event.defaultHandled())
             return;
-    }
+
     HTMLFrameOwnerElement::defaultEventHandler(event);
 }
 
@@ -219,9 +233,11 @@ bool HTMLPlugInElement::supportsFocus() const
     if (HTMLFrameOwnerElement::supportsFocus())
         return true;
 
-    if (useFallbackContent() || !is<RenderEmbeddedObject>(renderer()))
+    if (useFallbackContent())
         return false;
-    return !downcast<RenderEmbeddedObject>(*renderer()).isPluginUnavailable();
+
+    auto* renderer = dynamicDowncast<RenderEmbeddedObject>(this->renderer());
+    return renderer && !renderer->isPluginUnavailable();
 }
 
 RenderPtr<RenderElement> HTMLPlugInElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition& insertionPosition)
@@ -232,6 +248,11 @@ RenderPtr<RenderElement> HTMLPlugInElement::createElementRenderer(RenderStyle&& 
     return createRenderer<RenderEmbeddedObject>(*this, WTFMove(style));
 }
 
+bool HTMLPlugInElement::isReplaced(const RenderStyle&) const
+{
+    return !m_pluginReplacement || !m_pluginReplacement->willCreateRenderer();
+}
+
 void HTMLPlugInElement::swapRendererTimerFired()
 {
     ASSERT(displayState() == PreparingPluginReplacement);
@@ -240,7 +261,6 @@ void HTMLPlugInElement::swapRendererTimerFired()
 
     // Create a shadow root, which will trigger the code to add a snapshot container
     // and reattach, thus making a new Renderer.
-    Ref<HTMLPlugInElement> protectedThis(*this);
     ensureUserAgentShadowRoot();
 }
 
@@ -260,8 +280,6 @@ void HTMLPlugInElement::didAddUserAgentShadowRoot(ShadowRoot& root)
 {
     if (!m_pluginReplacement || !document().page() || displayState() != PreparingPluginReplacement)
         return;
-
-    root.setResetStyleInheritance(true);
 
     m_pluginReplacement->installReplacement(root);
 
@@ -346,7 +364,7 @@ bool HTMLPlugInElement::requestObject(const String& relativeURL, const String& m
         completedURL = document().completeURL(relativeURL);
 
     ReplacementPlugin* replacement = pluginReplacementForType(completedURL, mimeType);
-    if (!replacement || !replacement->isEnabledBySettings(document().settings()))
+    if (!replacement)
         return false;
 
     LOG(Plugins, "%p - Found plug-in replacement for %s.", this, completedURL.string().utf8().data());
@@ -356,94 +374,23 @@ bool HTMLPlugInElement::requestObject(const String& relativeURL, const String& m
     return true;
 }
 
-bool HTMLPlugInElement::setReplacement(RenderEmbeddedObject::PluginUnavailabilityReason reason, const String& unavailabilityDescription)
-{
-    if (!is<RenderEmbeddedObject>(renderer()))
-        return false;
-
-    if (reason == RenderEmbeddedObject::UnsupportedPlugin)
-        document().addConsoleMessage(MessageSource::JS, MessageLevel::Warning, "Tried to use an unsupported plug-in."_s);
-
-    Ref<HTMLPlugInElement> protectedThis(*this);
-    downcast<RenderEmbeddedObject>(*renderer()).setPluginUnavailabilityReasonWithDescription(reason, unavailabilityDescription);
-    bool replacementIsObscured = isReplacementObscured();
-    // hittest in isReplacementObscured() method could destroy the renderer. Let's refetch it.
-    if (is<RenderEmbeddedObject>(renderer()))
-        downcast<RenderEmbeddedObject>(*renderer()).setUnavailablePluginIndicatorIsHidden(replacementIsObscured);
-    return replacementIsObscured;
-}
-
-bool HTMLPlugInElement::isReplacementObscured()
-{
-    Ref topDocument = document().topDocument();
-    RefPtr topFrameView = topDocument->view();
-    if (!topFrameView)
-        return false;
-
-    topFrameView->updateLayoutAndStyleIfNeededRecursive();
-
-    // Updating the layout may have detached this document from the top document.
-    auto* renderView = topDocument->renderView();
-    if (!renderView || !document().view() || &document().topDocument() != topDocument.ptr())
-        return false;
-
-    if (!renderer() || !is<RenderEmbeddedObject>(*renderer()))
-        return false;
-    auto& pluginRenderer = downcast<RenderEmbeddedObject>(*renderer());
-    // Check the opacity of each layer containing the element or its ancestors.
-    float opacity = 1.0;
-    for (auto* layer = pluginRenderer.enclosingLayer(); layer; layer = layer->parent()) {
-        opacity *= layer->renderer().style().opacity();
-        if (opacity < 0.1)
-            return true;
-    }
-    // Calculate the absolute rect for the blocked plugin replacement text.
-    LayoutPoint absoluteLocation(pluginRenderer.absoluteBoundingBoxRect().location());
-    LayoutRect rect = pluginRenderer.unavailablePluginIndicatorBounds(absoluteLocation);
-    if (rect.isEmpty())
-        return true;
-    auto viewRect = document().view()->convertToRootView(snappedIntRect(rect));
-    auto x = viewRect.x();
-    auto y = viewRect.y();
-    auto width = viewRect.width();
-    auto height = viewRect.height();
-    // Hit test the center and near the corners of the replacement text to ensure
-    // it is visible and is not masked by other elements.
-    constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::IgnoreClipping, HitTestRequest::Type::DisallowUserAgentShadowContent, HitTestRequest::Type::AllowChildFrameContent };
-    HitTestResult result;
-    HitTestLocation location { LayoutPoint { viewRect.center() } };
-    ASSERT(!renderView->needsLayout());
-    ASSERT(!renderView->document().needsStyleRecalc());
-    bool hit = topDocument->hitTest(hitType, location, result);
-    if (!hit || result.innerNode() != &pluginRenderer.frameOwnerElement())
-        return true;
-
-    location = LayoutPoint(x, y);
-    hit = topDocument->hitTest(hitType, location, result);
-    if (!hit || result.innerNode() != &pluginRenderer.frameOwnerElement())
-        return true;
-
-    location = LayoutPoint(x + width, y);
-    hit = topDocument->hitTest(hitType, location, result);
-    if (!hit || result.innerNode() != &pluginRenderer.frameOwnerElement())
-        return true;
-
-    location = LayoutPoint(x + width, y + height);
-    hit = topDocument->hitTest(hitType, location, result);
-    if (!hit || result.innerNode() != &pluginRenderer.frameOwnerElement())
-        return true;
-
-    location = LayoutPoint(x, y + height);
-    hit = topDocument->hitTest(hitType, location, result);
-    if (!hit || result.innerNode() != &pluginRenderer.frameOwnerElement())
-        return true;
-    return false;
-}
-
 bool HTMLPlugInElement::canLoadScriptURL(const URL&) const
 {
     // FIXME: Probably want to at least check canAddSubframe.
-    return true;
+        return true;
+}
+
+void HTMLPlugInElement::pluginDestroyedWithPendingPDFTestCallback(RefPtr<VoidCallback>&& callback)
+{
+    ASSERT(!m_pendingPDFTestCallback);
+    m_pendingPDFTestCallback = WTFMove(callback);
+}
+
+RefPtr<VoidCallback> HTMLPlugInElement::takePendingPDFTestCallback()
+{
+    if (!m_pendingPDFTestCallback)
+        return nullptr;
+    return WTFMove(m_pendingPDFTestCallback);
 }
 
 }

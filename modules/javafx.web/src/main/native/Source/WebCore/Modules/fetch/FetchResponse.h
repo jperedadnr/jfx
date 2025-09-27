@@ -30,10 +30,12 @@
 
 #include "FetchBodyOwner.h"
 #include "FetchHeaders.h"
+#include "HTTPStatusCodes.h"
 #include "ReadableStreamSink.h"
 #include "ResourceResponse.h"
 #include <JavaScriptCore/TypedArrays.h>
 #include <span>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace JSC {
@@ -53,10 +55,12 @@ public:
     using Type = ResourceResponse::Type;
 
     struct Init {
-        unsigned short status { 200 };
+        unsigned short status { httpStatus200OK };
         AtomString statusText;
         std::optional<FetchHeaders::Init> headers;
     };
+
+    virtual ~FetchResponse();
 
     WEBCORE_EXPORT static Ref<FetchResponse> create(ScriptExecutionContext*, std::optional<FetchBody>&&, FetchHeaders::Guard, ResourceResponse&&);
 
@@ -136,7 +140,6 @@ private:
 
     // FetchBodyOwner
     void stop() final;
-    const char* activeDOMObjectName() const final;
     void loadBody() final;
 
     const ResourceResponse& filteredResponse() const;
@@ -147,7 +150,8 @@ private:
     void processReceivedError();
 
     class Loader final : public FetchLoaderClient {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(Loader);
+        WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Loader);
     public:
         Loader(FetchResponse&, NotificationCallback&&);
         ~Loader();
@@ -170,7 +174,7 @@ private:
         void didReceiveResponse(const ResourceResponse&) final;
         void didReceiveData(const SharedBuffer&) final;
 
-        FetchResponse& m_response;
+        WeakRef<FetchResponse> m_response;
         NotificationCallback m_responseCallback;
         ConsumeDataByChunkCallback m_consumeDataCallback;
         std::unique_ptr<FetchLoader> m_loader;

@@ -39,7 +39,7 @@ class JSWebAssemblyInstance;
 class JSWebAssemblyStruct final : public WebAssemblyGCObjectBase {
 public:
     using Base = WebAssemblyGCObjectBase;
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     static void destroy(JSCell*);
 
@@ -51,28 +51,26 @@ public:
 
     DECLARE_EXPORT_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(WebAssemblyGCObjectType, StructureFlags), info());
-    }
+    static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
-    static JSWebAssemblyStruct* tryCreate(JSGlobalObject*, Structure*, JSWebAssemblyInstance*, uint32_t, RefPtr<const Wasm::RTT>);
+    static JSWebAssemblyStruct* create(VM&, Structure*, JSWebAssemblyInstance*, uint32_t, RefPtr<const Wasm::RTT>&&);
 
     DECLARE_VISIT_CHILDREN;
 
     uint64_t get(uint32_t) const;
-    void set(JSGlobalObject*, uint32_t, JSValue);
+    void set(uint32_t, uint64_t);
+    void set(uint32_t, v128_t);
     const Wasm::StructType* structType() const { return m_type->as<Wasm::StructType>(); }
     Wasm::FieldType fieldType(uint32_t fieldIndex) const { return structType()->field(fieldIndex); }
 
     // Returns the offset for m_payload.m_storage
-    static ptrdiff_t offsetOfPayload() { return OBJECT_OFFSETOF(JSWebAssemblyStruct, m_payload) + FixedVector<uint8_t>::offsetOfStorage(); }
+    static constexpr ptrdiff_t offsetOfPayload() { return OBJECT_OFFSETOF(JSWebAssemblyStruct, m_payload) + FixedVector<uint8_t>::offsetOfStorage(); }
 
     const uint8_t* fieldPointer(uint32_t fieldIndex) const;
     uint8_t* fieldPointer(uint32_t fieldIndex);
 
 protected:
-    JSWebAssemblyStruct(VM&, Structure*, Ref<const Wasm::TypeDefinition>&&, RefPtr<const Wasm::RTT>);
+    JSWebAssemblyStruct(VM&, Structure*, Ref<const Wasm::TypeDefinition>&&, RefPtr<const Wasm::RTT>&&);
     DECLARE_DEFAULT_FINISH_CREATION;
 
     // FIXME: It is possible to encode the type information in the structure field of Wasm.Struct and remove this field.

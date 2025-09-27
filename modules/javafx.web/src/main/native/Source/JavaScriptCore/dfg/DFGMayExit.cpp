@@ -71,6 +71,7 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case BottomValue:
     case PutHint:
     case PhantomNewObject:
+    case PhantomNewArrayWithConstantSize:
     case PhantomNewInternalFieldObject:
     case PutStack:
     case KillStack:
@@ -92,6 +93,7 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case DoubleRep:
     case Int52Rep:
     case ValueRep:
+    case PurifyNaN:
     case ExtractOSREntryLocal:
     case ExtractCatchLocal:
     case ClearCatchLocals:
@@ -105,11 +107,7 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case PutClosureVar:
     case PutInternalField:
     case PutGlobalVariable:
-    case GetByOffset:
-    case GetClosureVar:
     case GetInternalField:
-    case GetGlobalLexicalVariable:
-    case GetGlobalVar:
     case RecordRegExpCachedResult:
     case NukeStructureAndSetButterfly:
     case GetButterfly:
@@ -127,6 +125,15 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case CompareEqPtr:
         break;
 
+    case GetByOffset:
+    case GetClosureVar:
+    case GetGlobalLexicalVariable:
+    case GetGlobalVar: {
+        if (node->hasDoubleResult())
+            return Exits;
+        break;
+    }
+
     case EnumeratorNextUpdatePropertyName:
     case StrCat:
     case Call:
@@ -139,6 +146,7 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case CreateActivation:
     case MaterializeCreateActivation:
     case MaterializeNewObject:
+    case MaterializeNewArrayWithConstantSize:
     case MaterializeNewInternalFieldObject:
     case NewFunction:
     case NewGeneratorFunction:
@@ -148,6 +156,8 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case NewStringObject:
     case NewInternalFieldObject:
     case NewRegexp:
+    case NewMap:
+    case NewSet:
     case NewArrayWithConstantSize:
     case ToNumber:
     case ToNumeric:
@@ -155,6 +165,8 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case RegExpExecNonGlobalOrSticky:
     case RegExpMatchFastGlobal:
     case CallWasm:
+    case CallCustomAccessorGetter:
+    case CallCustomAccessorSetter:
     case AllocatePropertyStorage:
     case ReallocatePropertyStorage:
         result = ExitsForExceptions;
@@ -220,8 +232,15 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
             break;
         return Exits;
 
-    case CompareEq:
     case CompareStrictEq:
+        if (node->isBinaryUseKind(BooleanUse) || node->isSymmetricBinaryUseKind(BooleanUse, UntypedUse))
+            break;
+        if (node->isBinaryUseKind(MiscUse) || node->isSymmetricBinaryUseKind(MiscUse, UntypedUse))
+            break;
+        if (node->isBinaryUseKind(OtherUse) || node->isSymmetricBinaryUseKind(OtherUse, UntypedUse))
+            break;
+        FALLTHROUGH;
+    case CompareEq:
     case CompareLess:
     case CompareLessEq:
     case CompareGreater:
@@ -231,6 +250,8 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
         if (node->isBinaryUseKind(DoubleRepUse))
             break;
         if (node->isBinaryUseKind(Int52RepUse))
+            break;
+        if (node->isBinaryUseKind(SymbolUse))
             break;
         return Exits;
 
@@ -252,6 +273,7 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case ArithSqrt:
     case ArithUnary:
     case ArithFRound:
+    case ArithF16Round:
         if (node->child1().useKind() == DoubleRepUse)
             break;
         return Exits;
@@ -283,10 +305,20 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
         case StringOrStringObjectUse:
             result = ExitsForExceptions;
             break;
+        case StringOrOtherUse:
+            break;
         default:
             return Exits;
         }
         break;
+
+    case StringReplaceString: {
+        if (node->child3().useKind() == StringUse) {
+            result = ExitsForExceptions;
+            break;
+        }
+        return Exits;
+    }
 
     default:
         // If in doubt, return true.

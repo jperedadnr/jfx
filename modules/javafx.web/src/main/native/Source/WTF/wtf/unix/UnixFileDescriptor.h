@@ -34,8 +34,11 @@
 namespace WTF {
 
 class UnixFileDescriptor {
-    WTF_MAKE_NONCOPYABLE(UnixFileDescriptor);
 public:
+    // This class is noncopyable because otherwise it's very hard to avoid accidental file
+    // descriptor duplication. If you intentionally want a dup, call the duplicate method.
+    WTF_MAKE_NONCOPYABLE(UnixFileDescriptor);
+
     UnixFileDescriptor() = default;
 
     enum AdoptionTag { Adopt };

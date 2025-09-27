@@ -66,10 +66,10 @@ class RTCDataChannelHandler {
 public:
     virtual ~RTCDataChannelHandler() = default;
 
-    virtual void setClient(RTCDataChannelHandlerClient&, ScriptExecutionContextIdentifier) = 0;
+    virtual void setClient(RTCDataChannelHandlerClient&, std::optional<ScriptExecutionContextIdentifier>) = 0;
 
     virtual bool sendStringData(const CString&) = 0;
-    virtual bool sendRawData(const uint8_t*, size_t) = 0;
+    virtual bool sendRawData(std::span<const uint8_t>) = 0;
     virtual void close() = 0;
 
     virtual std::optional<unsigned short> id() const { return { }; }

@@ -45,7 +45,7 @@
 #include "pas_thread_local_cache_layout.h"
 #include "pas_thread_local_cache_node.h"
 
-static const bool verbose = false;
+static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_SEGREGATED_HEAPS);
 
 struct enumeration_context;
 struct local_allocator_node;
@@ -674,7 +674,7 @@ bool pas_enumerate_segregated_heaps(pas_enumerator* enumerator)
 
         for (index = PAS_DEALLOCATION_LOG_SIZE; index--;) {
             uintptr_t object =
-                tlc->deallocation_log[index] >> PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_NUM_BITS;
+                tlc->deallocation_log[index] & ~PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_MASK;
             if (object) {
                 pas_ptr_hash_set_set(
                     &context.objects_in_deallocation_log, (void*)object,

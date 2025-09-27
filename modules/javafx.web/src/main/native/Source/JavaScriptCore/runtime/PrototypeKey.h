@@ -56,20 +56,14 @@ public:
     unsigned inlineCapacity() const { return m_inlineCapacity; }
     const ClassInfo* classInfo() const { return m_classInfo; }
 
-    bool operator==(const PrototypeKey& other) const
-    {
-        return m_prototype == other.m_prototype
-            && m_executable == other.m_executable
-            && m_inlineCapacity == other.m_inlineCapacity
-            && m_classInfo == other.m_classInfo;
-    }
+    friend bool operator==(const PrototypeKey&, const PrototypeKey&) = default;
 
     explicit operator bool() const { return *this != PrototypeKey(); }
     bool isHashTableDeletedValue() const { return *this == PrototypeKey(WTF::HashTableDeletedValue); }
 
     unsigned hash() const
     {
-        return WTF::IntHash<uintptr_t>::hash(bitwise_cast<uintptr_t>(m_prototype) ^ bitwise_cast<uintptr_t>(m_executable) ^ bitwise_cast<uintptr_t>(m_classInfo)) + m_inlineCapacity;
+        return WTF::IntHash<uintptr_t>::hash(std::bit_cast<uintptr_t>(m_prototype) ^ std::bit_cast<uintptr_t>(m_executable) ^ std::bit_cast<uintptr_t>(m_classInfo)) + m_inlineCapacity;
     }
 
 private:

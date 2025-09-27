@@ -51,7 +51,8 @@ private:
 };
 
 class RenderFrameSet final : public RenderBox {
-    WTF_MAKE_ISO_ALLOCATED(RenderFrameSet);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderFrameSet);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderFrameSet);
 public:
     RenderFrameSet(HTMLFrameSetElement&, RenderStyle&&);
     virtual ~RenderFrameSet();
@@ -69,6 +70,7 @@ public:
 
 private:
     void element() const = delete;
+    void computeIntrinsicLogicalWidths(LayoutUnit&, LayoutUnit&) const override { }
 
     static const int noSplit = -1;
 
@@ -87,7 +89,6 @@ private:
     };
 
     ASCIILiteral renderName() const override { return "RenderFrameSet"_s; }
-    bool isFrameSet() const override { return true; }
 
     void layout() override;
     void paint(PaintInfo&, const LayoutPoint&) override;
@@ -97,7 +98,7 @@ private:
 
     void setIsResizing(bool);
 
-    void layOutAxis(GridAxis&, const Length*, int availableSpace);
+    void layOutAxis(GridAxis&, std::span<const Length>, int availableSpace);
     void computeEdgeInfo();
     void fillFromEdgeInfo(const FrameEdgeInfo& edgeInfo, int r, int c);
     void positionFrames();
@@ -119,4 +120,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderFrameSet, isFrameSet())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderFrameSet, isRenderFrameSet())

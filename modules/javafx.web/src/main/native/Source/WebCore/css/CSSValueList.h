@@ -23,10 +23,12 @@
 #include "CSSValue.h"
 #include <array>
 #include <unicode/umachine.h>
+#include <wtf/MallocSpan.h>
 
 namespace WebCore {
 
-using CSSValueListBuilder = Vector<Ref<CSSValue>, 4>;
+static constexpr size_t CSSValueListBuilderInlineCapacity = 4;
+using CSSValueListBuilder = Vector<Ref<CSSValue>, CSSValueListBuilderInlineCapacity>;
 
 class CSSValueContainingVector : public CSSValue {
 public:
@@ -55,8 +57,8 @@ public:
     bool hasValue(CSSValue&) const;
     bool hasValue(CSSValueID) const;
 
-    void serializeItems(StringBuilder&) const;
-    String serializeItems() const;
+    void serializeItems(StringBuilder&, const CSS::SerializationContext&) const;
+    String serializeItems(const CSS::SerializationContext&) const;
 
     bool itemsEqual(const CSSValueContainingVector&) const;
     bool containsSingleEqualItem(const CSSValue&) const;
@@ -64,16 +66,21 @@ public:
     using CSSValue::separator;
     using CSSValue::separatorCSSText;
 
-    bool customTraverseSubresources(const Function<bool(const CachedResource&)>&) const;
+    bool customTraverseSubresources(NOESCAPE const Function<bool(const CachedResource&)>&) const;
 
     CSSValueListBuilder copyValues() const;
 
     // Consider removing these functions and having callers use size() and operator[] instead.
     unsigned length() const { return size(); }
     const CSSValue* item(unsigned index) const { return index < size() ? &(*this)[index] : nullptr; }
+    RefPtr<const CSSValue> protectedItem(unsigned index) const { return item(index); }
     const CSSValue* itemWithoutBoundsCheck(unsigned index) const { return &(*this)[index]; }
 
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>&) const;
+
 protected:
+    friend bool CSSValue::addHash(Hasher&) const;
+
     CSSValueContainingVector(ClassType, ValueSeparator);
     CSSValueContainingVector(ClassType, ValueSeparator, CSSValueListBuilder);
     CSSValueContainingVector(ClassType, ValueSeparator, Ref<CSSValue>);
@@ -82,13 +89,15 @@ protected:
     CSSValueContainingVector(ClassType, ValueSeparator, Ref<CSSValue>, Ref<CSSValue>, Ref<CSSValue>, Ref<CSSValue>);
     ~CSSValueContainingVector();
 
+    bool addDerivedHash(Hasher&) const;
+
 private:
     unsigned m_size { 0 };
     std::array<const CSSValue*, 4> m_inlineStorage;
-    const CSSValue** m_additionalStorage;
+    MallocSpan<const CSSValue*> m_additionalStorage;
 };
 
-class CSSValueList : public CSSValueContainingVector {
+class CSSValueList final : public CSSValueContainingVector {
 public:
     static Ref<CSSValueList> create(UChar separator, CSSValueListBuilder);
 
@@ -106,10 +115,12 @@ public:
     static Ref<CSSValueList> createSlashSeparated(Ref<CSSValue>); // FIXME: Upgrade callers to not use a list at all.
     static Ref<CSSValueList> createSlashSeparated(Ref<CSSValue>, Ref<CSSValue>);
 
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSValueList&) const;
 
 private:
+    friend void add(Hasher&, const CSSValueList&);
+
     explicit CSSValueList(ValueSeparator);
     CSSValueList(ValueSeparator, CSSValueListBuilder);
     CSSValueList(ValueSeparator, Ref<CSSValue>);
@@ -122,18 +133,20 @@ inline CSSValueContainingVector::~CSSValueContainingVector()
 {
     for (auto& value : *this)
         value.deref();
-    if (m_size > m_inlineStorage.size())
-        fastFree(m_additionalStorage);
 }
 
 inline const CSSValue& CSSValueContainingVector::operator[](unsigned index) const
 {
-    ASSERT(index < m_size);
     unsigned maxInlineSize = m_inlineStorage.size();
-    if (index < maxInlineSize)
+    if (index < maxInlineSize) {
+        ASSERT(index < m_size);
         return *m_inlineStorage[index];
+    }
+    ASSERT(index < m_size);
     return *m_additionalStorage[index - maxInlineSize];
 }
+
+void add(Hasher&, const CSSValueContainingVector&);
 
 } // namespace WebCore
 

@@ -36,10 +36,10 @@
 
 namespace WebCore {
 
-typedef HashSet<String, ASCIICaseInsensitiveHash> HTTPHeaderSet;
+typedef UncheckedKeyHashSet<String, ASCIICaseInsensitiveHash> HTTPHeaderSet;
 
 class ResourceResponse;
-enum class HTTPHeaderName;
+enum class HTTPHeaderName : uint16_t;
 
 enum class XSSProtectionDisposition {
     Invalid,
@@ -103,8 +103,10 @@ WEBCORE_EXPORT bool parseRange(StringView, RangeAllowWhitespace, long long& rang
 ContentTypeOptionsDisposition parseContentTypeOptionsHeader(StringView header);
 
 // Parsing Complete HTTP Messages.
-size_t parseHTTPHeader(const uint8_t* data, size_t length, String& failureReason, StringView& nameStr, String& valueStr, bool strict = true);
-size_t parseHTTPRequestBody(const uint8_t* data, size_t length, Vector<uint8_t>& body);
+size_t parseHTTPHeader(std::span<const uint8_t> data, String& failureReason, StringView& nameStr, String& valueStr, bool strict = true);
+size_t parseHTTPRequestBody(std::span<const uint8_t> data, Vector<uint8_t>& body);
+
+std::optional<uint64_t> parseContentLength(StringView);
 
 // HTTP Header routine as per https://fetch.spec.whatwg.org/#terminology-headers
 bool isForbiddenHeader(const String& name, StringView value);
@@ -124,7 +126,7 @@ bool isSafeMethod(const String&);
 WEBCORE_EXPORT CrossOriginResourcePolicy parseCrossOriginResourcePolicyHeader(StringView);
 
 template<class HashType>
-bool addToAccessControlAllowList(const String& string, unsigned start, unsigned end, HashSet<String, HashType>& set)
+bool addToAccessControlAllowList(const String& string, unsigned start, unsigned end, UncheckedKeyHashSet<String, HashType>& set)
 {
     StringImpl* stringImpl = string.impl();
     if (!stringImpl)
@@ -151,9 +153,9 @@ bool addToAccessControlAllowList(const String& string, unsigned start, unsigned 
 }
 
 template<class HashType = DefaultHash<String>>
-std::optional<HashSet<String, HashType>> parseAccessControlAllowList(const String& string)
+std::optional<UncheckedKeyHashSet<String, HashType>> parseAccessControlAllowList(const String& string)
 {
-    HashSet<String, HashType> set;
+    UncheckedKeyHashSet<String, HashType> set;
     unsigned start = 0;
     size_t end;
     while ((end = string.find(',', start)) != notFound) {

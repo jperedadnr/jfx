@@ -31,6 +31,8 @@
 #include <wtf/Assertions.h>
 #include <wtf/CagedUniquePtr.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 class WatchpointSet;
@@ -47,7 +49,7 @@ class ScopedArgumentsTable final : public JSCell {
 public:
     using Base = JSCell;
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     template<typename CellType, SubspaceAccess mode>
     static GCClient::IsoSubspace* subspaceFor(VM& vm)
@@ -78,13 +80,14 @@ public:
 
     ScopedArgumentsTable* trySet(VM&, uint32_t index, ScopeOffset);
     void trySetWatchpointSet(uint32_t index, WatchpointSet* watchpoints);
+    void clearWatchpointSet(uint32_t index) { m_watchpointSets[index] = nullptr; }
 
     DECLARE_INFO;
 
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 
-    static ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(ScopedArgumentsTable, m_length); }
-    static ptrdiff_t offsetOfArguments() { return OBJECT_OFFSETOF(ScopedArgumentsTable, m_arguments); }
+    static constexpr ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(ScopedArgumentsTable, m_length); }
+    static constexpr ptrdiff_t offsetOfArguments() { return OBJECT_OFFSETOF(ScopedArgumentsTable, m_arguments); }
 
     typedef CagedUniquePtr<Gigacage::Primitive, ScopeOffset> ArgumentsPtr;
 
@@ -94,7 +97,7 @@ private:
     ScopeOffset& at(uint32_t i) const
     {
         ASSERT_WITH_SECURITY_IMPLICATION(i < m_length);
-        return m_arguments.get(length())[i];
+        return m_arguments.get()[i];
     }
 
     uint32_t m_length;
@@ -104,3 +107,5 @@ private:
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

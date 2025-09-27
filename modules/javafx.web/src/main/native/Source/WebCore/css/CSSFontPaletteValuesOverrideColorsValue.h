@@ -41,35 +41,37 @@ class ScriptExecutionContext;
 
 class CSSFontPaletteValuesOverrideColorsValue final : public CSSValue {
 public:
-    static Ref<CSSFontPaletteValuesOverrideColorsValue> create(Ref<CSSPrimitiveValue>&& key, Ref<CSSPrimitiveValue>&& color)
+    static Ref<CSSFontPaletteValuesOverrideColorsValue> create(Ref<CSSPrimitiveValue>&& key, Ref<CSSValue>&& color)
     {
         return adoptRef(*new CSSFontPaletteValuesOverrideColorsValue(WTFMove(key), WTFMove(color)));
     }
 
-    const CSSPrimitiveValue& key() const
-    {
-        return m_key.get();
-    }
+    const CSSPrimitiveValue& key() const { return m_key; }
+    const CSSValue& color() const { return m_color; }
 
-    const CSSPrimitiveValue& color() const
-    {
-        return m_color.get();
-    }
-
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
 
     bool equals(const CSSFontPaletteValuesOverrideColorsValue&) const;
 
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    {
+        if (func(m_key.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        if (func(m_color.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        return IterationStatus::Continue;
+    }
+
 private:
-    CSSFontPaletteValuesOverrideColorsValue(Ref<CSSPrimitiveValue>&& key, Ref<CSSPrimitiveValue>&& color)
-        : CSSValue(FontPaletteValuesOverrideColorsClass)
+    CSSFontPaletteValuesOverrideColorsValue(Ref<CSSPrimitiveValue>&& key, Ref<CSSValue>&& color)
+        : CSSValue(ClassType::FontPaletteValuesOverrideColors)
         , m_key(WTFMove(key))
         , m_color(WTFMove(color))
     {
     }
 
     Ref<CSSPrimitiveValue> m_key;
-    Ref<CSSPrimitiveValue> m_color;
+    Ref<CSSValue> m_color;
 };
 
 } // namespace WebCore

@@ -51,7 +51,7 @@ public:
 
     virtual ~CachedModuleScriptLoader();
 
-    bool load(Document&, URL&& sourceURL);
+    bool load(Document&, URL&& sourceURL, std::optional<ServiceWorkersMode>);
 
     CachedScript* cachedScript() { return m_cachedScript.get(); }
     CachedScriptFetcher& scriptFetcher() { return static_cast<CachedScriptFetcher&>(ModuleScriptLoader::scriptFetcher()); }
@@ -59,7 +59,7 @@ public:
 private:
     CachedModuleScriptLoader(ModuleScriptLoaderClient&, DeferredPromise&, CachedScriptFetcher&, RefPtr<JSC::ScriptFetchParameters>&&);
 
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
 
     CachedResourceHandle<CachedScript> m_cachedScript;
     URL m_sourceURL;

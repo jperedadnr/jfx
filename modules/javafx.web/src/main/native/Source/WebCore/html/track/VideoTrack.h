@@ -30,6 +30,7 @@
 
 #include "TrackBase.h"
 #include "VideoTrackPrivateClient.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
 
 namespace WebCore {
@@ -42,6 +43,7 @@ class VideoTrackList;
 class VideoTrackPrivate;
 
 class VideoTrack final : public MediaTrackBase, private VideoTrackPrivateClient {
+    WTF_MAKE_TZONE_ALLOCATED(VideoTrack);
 public:
     static Ref<VideoTrack> create(ScriptExecutionContext* context, VideoTrackPrivate& trackPrivate)
     {
@@ -68,7 +70,7 @@ public:
 
     void setPrivate(VideoTrackPrivate&);
 #if !RELEASE_LOG_DISABLED
-    void setLogger(const Logger&, const void*) final;
+    void setLogger(const Logger&, uint64_t) final;
 #endif
 
 private:
@@ -81,7 +83,7 @@ private:
     void configurationChanged(const PlatformVideoTrackConfiguration&) final;
 
     // TrackPrivateBaseClient
-    void idChanged(const AtomString&) final;
+    void idChanged(TrackID) final;
     void labelChanged(const AtomString&) final;
     void languageChanged(const AtomString&) final;
     void willRemove() final;
@@ -92,7 +94,7 @@ private:
     void updateConfigurationFromPrivate();
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "VideoTrack"; }
+    ASCIILiteral logClassName() const final { return "VideoTrack"_s; }
 #endif
 
     WeakPtr<VideoTrackList> m_videoTrackList;

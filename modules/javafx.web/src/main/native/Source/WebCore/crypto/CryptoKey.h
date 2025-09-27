@@ -26,14 +26,11 @@
 #pragma once
 
 #if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAesKeyAlgorithm.h"
-#include "CryptoAlgorithmIdentifier.h"
 #include "CryptoEcKeyAlgorithm.h"
 #include "CryptoHmacKeyAlgorithm.h"
 #include "CryptoKeyAlgorithm.h"
-#include "CryptoKeyType.h"
-#include "CryptoKeyUsage.h"
+#include "CryptoKeyData.h"
 #include "CryptoRsaHashedKeyAlgorithm.h"
 #include "CryptoRsaKeyAlgorithm.h"
 #include <variant>
@@ -47,18 +44,10 @@ namespace WebCore {
 
 class WebCoreOpaqueRoot;
 
-enum class CryptoKeyClass {
-    AES,
-    EC,
-    HMAC,
-    OKP,
-    RSA,
-    Raw,
-};
-
 class CryptoKey : public ThreadSafeRefCounted<CryptoKey> {
 public:
     using Type = CryptoKeyType;
+    using Data = CryptoKeyData;
     using KeyAlgorithm = std::variant<CryptoKeyAlgorithm, CryptoAesKeyAlgorithm, CryptoEcKeyAlgorithm, CryptoHmacKeyAlgorithm, CryptoRsaHashedKeyAlgorithm, CryptoRsaKeyAlgorithm>;
 
     CryptoKey(CryptoAlgorithmIdentifier, Type, bool extractable, CryptoKeyUsageBitmap);
@@ -68,8 +57,11 @@ public:
     bool extractable() const { return m_extractable; }
     Vector<CryptoKeyUsage> usages() const;
     virtual KeyAlgorithm algorithm() const = 0;
-
     virtual CryptoKeyClass keyClass() const = 0;
+    virtual bool isValid() const { return true; }
+
+    WEBCORE_EXPORT virtual Data data() const = 0;
+    WEBCORE_EXPORT static RefPtr<CryptoKey> create(Data&&);
 
     CryptoAlgorithmIdentifier algorithmIdentifier() const { return m_algorithmIdentifier; }
     CryptoKeyUsageBitmap usagesBitmap() const { return m_usages; }
@@ -98,5 +90,4 @@ WebCoreOpaqueRoot root(CryptoKey*);
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ToClassName) \
     static bool isType(const WebCore::CryptoKey& key) { return key.keyClass() == WebCore::KeyClass; } \
 SPECIALIZE_TYPE_TRAITS_END()
-
 #endif // ENABLE(WEB_CRYPTO)

@@ -23,12 +23,13 @@
 #include "SVGScriptElement.h"
 
 #include "Document.h"
+#include "DocumentInlines.h"
 #include "Event.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGScriptElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SVGScriptElement);
 
 inline SVGScriptElement::SVGScriptElement(const QualifiedName& tagName, Document& document, bool wasInsertedByParser, bool alreadyStarted)
     : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
@@ -80,15 +81,21 @@ void SVGScriptElement::childrenChanged(const ChildChange& change)
     ScriptElement::childrenChanged(change);
 }
 
+void SVGScriptElement::finishParsingChildren()
+{
+    SVGElement::finishParsingChildren();
+    ScriptElement::finishParsingChildren();
+}
+
 void SVGScriptElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
 {
     SVGElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, document().completeURL(href()));
+    addSubresourceURL(urls, protectedDocument()->completeURL(href()));
 }
-Ref<Element> SVGScriptElement::cloneElementWithoutAttributesAndChildren(Document& targetDocument)
+Ref<Element> SVGScriptElement::cloneElementWithoutAttributesAndChildren(Document& document, CustomElementRegistry*)
 {
-    return adoptRef(*new SVGScriptElement(tagQName(), targetDocument, false, alreadyStarted()));
+    return adoptRef(*new SVGScriptElement(tagQName(), document, false, alreadyStarted()));
 }
 
 void SVGScriptElement::dispatchErrorEvent()

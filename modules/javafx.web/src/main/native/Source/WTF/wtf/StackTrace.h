@@ -28,10 +28,15 @@
 
 #include <optional>
 #include <span>
+#include <wtf/Forward.h>
 #include <wtf/SystemFree.h>
 
 #if HAVE(BACKTRACE_SYMBOLS) || HAVE(BACKTRACE)
 #include <execinfo.h>
+#endif
+
+#if USE(LIBBACKTRACE)
+#include <backtrace.h>
 #endif
 
 #if HAVE(DLADDR)
@@ -44,9 +49,15 @@
 #include <wtf/win/DbgHelperWin.h>
 #endif
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WTF {
 
 class PrintStream;
+
+#if USE(LIBBACKTRACE)
+WTF_EXPORT_PRIVATE char** symbolize(void* const*, int);
+#endif
 
 class StackTrace {
     WTF_MAKE_FAST_ALLOCATED;
@@ -59,8 +70,10 @@ public:
     }
 
     void dump(PrintStream&) const;
-private:
+    void forEachFrame(NOESCAPE const std::invocable<int, void*, const char*> auto&) const;
+    WTF_EXPORT_PRIVATE String toString() const;
 
+private:
     StackTrace(size_t size, size_t initialFrame)
         : m_size(size)
         , m_initialFrame(initialFrame)
@@ -102,10 +115,13 @@ public:
 
     WTF_EXPORT_PRIVATE static std::optional<DemangleEntry> demangle(void*);
 
-    template<typename Functor>
-    void forEach(Functor functor) const
+    void forEach(NOESCAPE const std::invocable<int, void*, const char*> auto& functor) const
     {
-#if HAVE(BACKTRACE_SYMBOLS)
+#if USE(LIBBACKTRACE)
+        char** symbols = symbolize(m_stack.data(), m_stack.size());
+        if (!symbols)
+            return;
+#elif HAVE(BACKTRACE_SYMBOLS)
         char** symbols = backtrace_symbols(m_stack.data(), m_stack.size());
         if (!symbols)
             return;
@@ -132,7 +148,11 @@ public:
             functor(i + 1, m_stack[i], name);
         }
 
-#if HAVE(BACKTRACE_SYMBOLS)
+#if USE(LIBBACKTRACE)
+        for (size_t i = 0; i < m_stack.size(); ++i)
+            free(symbols[i]);
+        free(symbols);
+#elif HAVE(BACKTRACE_SYMBOLS)
         free(symbols);
 #endif
     }
@@ -166,8 +186,15 @@ inline void StackTrace::dump(PrintStream& out) const
     StackTracePrinter { *this }.dump(out);
 }
 
+void StackTrace::forEachFrame(NOESCAPE const std::invocable<int, void*, const char*> auto& functor) const
+{
+    StackTraceSymbolResolver { *this }.forEach(functor);
+}
+
 } // namespace WTF
 
 using WTF::StackTrace;
 using WTF::StackTraceSymbolResolver;
 using WTF::StackTracePrinter;
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

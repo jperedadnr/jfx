@@ -26,12 +26,13 @@
 #pragma once
 
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore::WebGPU {
 
-class TextureView : public RefCounted<TextureView> {
+class TextureView : public RefCountedAndCanMakeWeakPtr<TextureView> {
 public:
     virtual ~TextureView() = default;
 

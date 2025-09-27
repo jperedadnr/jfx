@@ -41,9 +41,13 @@ private:
     DummyModelPlayer(ModelPlayerClient&);
 
     // ModelPlayer overrides.
+#if ENABLE(MODEL_PROCESS)
+    ModelPlayerIdentifier identifier() const final { return m_id; }
+#endif
     void load(Model&, LayoutSize) override;
     void sizeDidChange(LayoutSize) override;
     PlatformLayer* layer() override;
+    std::optional<LayerHostingContextIdentifier> layerHostingContextIdentifier() override;
     void enterFullscreen() override;
     void handleMouseDown(const LayoutPoint&, MonotonicTime) override;
     void handleMouseMove(const LayoutPoint&, MonotonicTime) override;
@@ -65,6 +69,9 @@ private:
 #endif
 
     WeakPtr<ModelPlayerClient> m_client;
+#if ENABLE(MODEL_PROCESS)
+    ModelPlayerIdentifier m_id;
+#endif
 };
 
 }

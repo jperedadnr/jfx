@@ -34,6 +34,7 @@
 #include <wtf/Logger.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/MediaTime.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 
 namespace WebCore {
@@ -43,7 +44,7 @@ class TrackBuffer final
     : public LoggerHelper
 #endif
 {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(TrackBuffer);
 public:
     static UniqueRef<TrackBuffer> create(RefPtr<MediaDescription>&&);
     static UniqueRef<TrackBuffer> create(RefPtr<MediaDescription>&&, const MediaTime&);
@@ -54,10 +55,11 @@ public:
 
     bool updateMinimumUpcomingPresentationTime();
 
-    bool reenqueueMediaForTime(const MediaTime&, const MediaTime& timeFudgeFactor);
+    bool reenqueueMediaForTime(const MediaTime&, const MediaTime& timeFudgeFactor, bool isEnded = false);
     MediaTime findSeekTimeForTargetTime(const MediaTime& targetTime, const MediaTime& negativeThreshold, const MediaTime& positiveThreshold);
-    bool removeCodedFrames(const MediaTime& start, const MediaTime& end, const MediaTime& currentTime);
-    PlatformTimeRanges removeSamples(const DecodeOrderSampleMap::MapType&, const char*);
+    int64_t removeCodedFrames(const MediaTime& start, const MediaTime& end, const MediaTime& currentTime);
+    PlatformTimeRanges removeSamples(const DecodeOrderSampleMap::MapType&, ASCIILiteral);
+    int64_t codedFramesIntervalSize(const MediaTime& start, const MediaTime& end);
 
     void resetTimestampOffset();
     void reset();
@@ -109,10 +111,10 @@ public:
     PlatformTimeRanges& buffered() { return m_buffered; }
 
 #if !RELEASE_LOG_DISABLED
-    void setLogger(const Logger&, const void*);
+    void setLogger(const Logger&, uint64_t);
     const Logger& logger() const final { ASSERT(m_logger); return *m_logger.get(); }
-    const void* logIdentifier() const final { return m_logIdentifier; }
-    const char* logClassName() const final { return "TrackBuffer"; }
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const final { return "TrackBuffer"_s; }
     WTFLogChannel& logChannel() const final;
 #endif
 
@@ -144,7 +146,7 @@ private:
 
 #if !RELEASE_LOG_DISABLED
     RefPtr<const Logger> m_logger;
-    const void* m_logIdentifier;
+    uint64_t m_logIdentifier { 0 };
 #endif
 
     uint32_t m_lastFrameTimescale { 0 };

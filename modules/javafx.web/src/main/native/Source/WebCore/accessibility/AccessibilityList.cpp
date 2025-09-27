@@ -41,31 +41,31 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-AccessibilityList::AccessibilityList(RenderObject* renderer)
-    : AccessibilityRenderObject(renderer)
+AccessibilityList::AccessibilityList(AXID axID, RenderObject& renderer)
+    : AccessibilityRenderObject(axID, renderer)
 {
 }
 
-AccessibilityList::AccessibilityList(Node& node)
-    : AccessibilityRenderObject(node)
+AccessibilityList::AccessibilityList(AXID axID, Node& node)
+    : AccessibilityRenderObject(axID, node)
 {
 }
 
 AccessibilityList::~AccessibilityList() = default;
 
-Ref<AccessibilityList> AccessibilityList::create(RenderObject* renderer)
+Ref<AccessibilityList> AccessibilityList::create(AXID axID, RenderObject& renderer)
 {
-    return adoptRef(*new AccessibilityList(renderer));
+    return adoptRef(*new AccessibilityList(axID, renderer));
 }
 
-Ref<AccessibilityList> AccessibilityList::create(Node& node)
+Ref<AccessibilityList> AccessibilityList::create(AXID axID, Node& node)
 {
-    return adoptRef(*new AccessibilityList(node));
+    return adoptRef(*new AccessibilityList(axID, node));
 }
 
-bool AccessibilityList::computeAccessibilityIsIgnored() const
+bool AccessibilityList::computeIsIgnored() const
 {
-    return accessibilityIsIgnoredByDefault();
+    return isIgnoredByDefault();
 }
 
 bool AccessibilityList::isUnorderedList() const
@@ -100,7 +100,7 @@ bool AccessibilityList::childHasPseudoVisibleListItemMarkers(Node* node)
 {
     // Check if the list item has a pseudo-element that should be accessible (e.g. an image or text)
     auto* element = dynamicDowncast<Element>(node);
-    auto* beforePseudo = element ? element->beforePseudoElement() : nullptr;
+    RefPtr beforePseudo = element ? element->beforePseudoElement() : nullptr;
     if (!beforePseudo)
         return false;
 
@@ -108,11 +108,11 @@ bool AccessibilityList::childHasPseudoVisibleListItemMarkers(Node* node)
     if (!axBeforePseudo)
         return false;
 
-    if (!axBeforePseudo->accessibilityIsIgnored())
+    if (!axBeforePseudo->isIgnored())
         return true;
 
-    for (const auto& child : axBeforePseudo->children()) {
-        if (!child->accessibilityIsIgnored())
+    for (const auto& child : axBeforePseudo->unignoredChildren()) {
+        if (!child->isIgnored())
             return true;
     }
 
@@ -128,49 +128,61 @@ bool AccessibilityList::childHasPseudoVisibleListItemMarkers(Node* node)
 
 AccessibilityRole AccessibilityList::determineAccessibilityRole()
 {
+    if (!m_childrenDirty && childrenInitialized())
+        return determineAccessibilityRoleWithCleanChildren();
+
+    m_ariaRole = determineAriaRoleAttribute();
+    return isDescriptionList() ? AccessibilityRole::DescriptionList : AccessibilityRole::List;
+}
+
+AccessibilityRole AccessibilityList::determineAccessibilityRoleWithCleanChildren()
+{
+    ASSERT(!m_childrenDirty && childrenInitialized());
     m_ariaRole = determineAriaRoleAttribute();
 
     // Directory is mapped to list for now, but does not adhere to the same heuristics.
     if (ariaRoleAttribute() == AccessibilityRole::Directory)
         return AccessibilityRole::List;
 
-    // Heuristic to determine if this list is being used for layout or for content.
-    //   1. If it's a named list, like ol or aria=list, then it's a list.
+    // Heuristic to determine if an ambiguous list is relevant to convey to the accessibility tree.
+    //   1. If it's an ordered list or has role="list" defined, then it's a list.
     //      1a. Unless the list has no children, then it's not a list.
-    //   2. If it displays visible list markers, it's a list.
-    //   3. If it does not display list markers and has only one child, it's not a list.
-    //   4. If it does not have any listitem children, it's not a list.
-    //   5. Otherwise it's a list (for now).
+    //   2. If it is contained in <nav> or <el role="navigation">, it's a list.
+    //   3. If it displays visible list markers, it's a list.
+    //   4. If it does not display list markers, it's not a list.
+    //   5. If it has one or zero listitem children, it's not a list.
+    //   6. Otherwise it's a list.
 
     auto role = AccessibilityRole::List;
 
     // Temporarily set role so that we can query children (otherwise canHaveChildren returns false).
-    m_role = role;
+    SetForScope temporaryRole(m_role, role);
 
     unsigned listItemCount = 0;
     bool hasVisibleMarkers = false;
 
-    const auto& children = this->children();
+    const auto& children = unignoredChildren();
     // DescriptionLists are always semantically a description list, so do not apply heuristics.
     if (isDescriptionList() && children.size())
         return AccessibilityRole::DescriptionList;
 
     for (const auto& child : children) {
+        RefPtr node = child->node();
         auto* axChild = dynamicDowncast<AccessibilityObject>(child.get());
         if (axChild && axChild->ariaRoleAttribute() == AccessibilityRole::ListItem)
             listItemCount++;
         else if (child->roleValue() == AccessibilityRole::ListItem) {
             // Rendered list items always count.
-            if (auto* childRenderer = child->renderer(); childRenderer && childRenderer->isListItem()) {
+            if (auto* childRenderer = child->renderer(); childRenderer && childRenderer->isRenderListItem()) {
                 if (!hasVisibleMarkers && (childRenderer->style().listStyleType().type != ListStyleType::Type::None || childRenderer->style().listStyleImage() || childHasPseudoVisibleListItemMarkers(childRenderer->node())))
                     hasVisibleMarkers = true;
                 listItemCount++;
-            } else if (child->node() && child->node()->hasTagName(liTag)) {
+            } else if (node && node->hasTagName(liTag)) {
                 // Inline elements that are in a list with an explicit role should also count.
                 if (m_ariaRole == AccessibilityRole::List)
                     listItemCount++;
 
-                if (childHasPseudoVisibleListItemMarkers(child->node())) {
+                if (childHasPseudoVisibleListItemMarkers(node.get())) {
                     hasVisibleMarkers = true;
                     listItemCount++;
                 }
@@ -182,7 +194,7 @@ AccessibilityRole AccessibilityList::determineAccessibilityRole()
     // <ul>, <ol> lists need to have visible markers.
     if (ariaRoleAttribute() != AccessibilityRole::Unknown) {
         if (!listItemCount)
-            role = AccessibilityRole::ApplicationGroup;
+            role = AccessibilityRole::Group;
     } else if (!hasVisibleMarkers) {
         // http://webkit.org/b/193382 lists inside of navigation hierarchies should still be considered lists.
         if (Accessibility::findAncestor<AccessibilityObject>(*this, false, [] (auto& object) { return object.roleValue() == AccessibilityRole::LandmarkNavigation; }))
@@ -192,12 +204,6 @@ AccessibilityRole AccessibilityList::determineAccessibilityRole()
     }
 
     return role;
-}
-
-AccessibilityRole AccessibilityList::roleValue() const
-{
-    ASSERT(m_role != AccessibilityRole::Unknown);
-    return m_role;
 }
 
 } // namespace WebCore

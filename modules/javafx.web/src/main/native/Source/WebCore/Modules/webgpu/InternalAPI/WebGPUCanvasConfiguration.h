@@ -25,23 +25,28 @@
 
 #pragma once
 
-#include "WebGPUCanvasCompositingAlphaMode.h"
+#include "WebGPUCanvasAlphaMode.h"
+#include "WebGPUCanvasToneMappingMode.h"
+#include "WebGPUDevice.h"
 #include "WebGPUPredefinedColorSpace.h"
 #include "WebGPUTextureFormat.h"
 #include "WebGPUTextureUsage.h"
 #include <wtf/Vector.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore::WebGPU {
 
-class Device;
-
 struct CanvasConfiguration {
-    Device& device;
+    WeakRef<Device> device;
     TextureFormat format { TextureFormat::R8unorm };
     TextureUsageFlags usage { TextureUsage::RenderAttachment };
     Vector<TextureFormat> viewFormats;
     PredefinedColorSpace colorSpace { PredefinedColorSpace::SRGB };
-    CanvasCompositingAlphaMode compositingAlphaMode { CanvasCompositingAlphaMode::Opaque };
+    CanvasToneMappingMode toneMappingMode { CanvasToneMappingMode::Standard };
+    CanvasAlphaMode compositingAlphaMode { CanvasAlphaMode::Opaque };
+    bool reportValidationErrors { true };
+
+    Ref<Device> protectedDevice() const { return device.get(); }
 };
 
 } // namespace WebCore::WebGPU

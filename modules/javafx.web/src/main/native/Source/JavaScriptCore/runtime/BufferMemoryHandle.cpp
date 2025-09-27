@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,7 +40,10 @@
 #include <wtf/Platform.h>
 #include <wtf/PrintStream.h>
 #include <wtf/SafeStrerror.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -48,9 +51,12 @@ namespace JSC {
 // FIXME: Give up some of the cached fast memories if the GC determines it's easy to get them back, and they haven't been used in a while. https://bugs.webkit.org/show_bug.cgi?id=170773
 // FIXME: Limit slow memory size. https://bugs.webkit.org/show_bug.cgi?id=170825
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BufferMemoryHandle);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BufferMemoryManager);
+
 size_t BufferMemoryHandle::fastMappedRedzoneBytes()
 {
-    return static_cast<size_t>(PageCount::pageSize) * Options::webAssemblyFastMemoryRedzonePages();
+    return static_cast<size_t>(PageCount::pageSize) * Options::wasmFastMemoryRedzonePages();
 }
 
 size_t BufferMemoryHandle::fastMappedBytes()
@@ -61,23 +67,9 @@ size_t BufferMemoryHandle::fastMappedBytes()
     return MAX_ARRAY_BUFFER_SIZE + fastMappedRedzoneBytes();
 }
 
-ASCIILiteral BufferMemoryResult::toString(Kind kind)
-{
-    switch (kind) {
-    case Success:
-        return "Success"_s;
-    case SuccessAndNotifyMemoryPressure:
-        return "SuccessAndNotifyMemoryPressure"_s;
-    case SyncTryToReclaimMemory:
-        return "SyncTryToReclaimMemory"_s;
-    }
-    RELEASE_ASSERT_NOT_REACHED();
-    return { };
-}
-
 void BufferMemoryResult::dump(PrintStream& out) const
 {
-    out.print("{basePtr = ", RawPointer(basePtr), ", kind = ", toString(kind), "}");
+    out.print("{basePtr = ", RawPointer(basePtr), ", kind = ", kind, "}");
 }
 
 BufferMemoryResult BufferMemoryManager::tryAllocateFastMemory()
@@ -98,7 +90,7 @@ BufferMemoryResult BufferMemoryManager::tryAllocateFastMemory()
             m_fastMemories.size() >= m_maxFastMemoryCount / 2 ? BufferMemoryResult::SuccessAndNotifyMemoryPressure : BufferMemoryResult::Success);
     }();
 
-    dataLogLnIf(Options::logWebAssemblyMemory(), "Allocated virtual: ", result, "; state: ", *this);
+    dataLogLnIf(Options::logWasmMemory(), "Allocated virtual: ", result, "; state: ", *this);
 
     return result;
 }
@@ -111,7 +103,7 @@ void BufferMemoryManager::freeFastMemory(void* basePtr)
         m_fastMemories.removeFirst(basePtr);
     }
 
-    dataLogLnIf(Options::logWebAssemblyMemory(), "Freed virtual; state: ", *this);
+    dataLogLnIf(Options::logWasmMemory(), "Freed virtual; state: ", *this);
 }
 
 BufferMemoryResult BufferMemoryManager::tryAllocateGrowableBoundsCheckingMemory(size_t mappedCapacity)
@@ -122,12 +114,12 @@ BufferMemoryResult BufferMemoryManager::tryAllocateGrowableBoundsCheckingMemory(
         if (!result)
             return BufferMemoryResult(nullptr, BufferMemoryResult::SyncTryToReclaimMemory);
 
-        m_growableBoundsCheckingMemories.insert(std::make_pair(bitwise_cast<uintptr_t>(result), mappedCapacity));
+        m_growableBoundsCheckingMemories.insert(std::make_pair(std::bit_cast<uintptr_t>(result), mappedCapacity));
 
         return BufferMemoryResult(result, BufferMemoryResult::Success);
     }();
 
-    dataLogLnIf(Options::logWebAssemblyMemory(), "Allocated virtual: ", result, "; state: ", *this);
+    dataLogLnIf(Options::logWasmMemory(), "Allocated virtual: ", result, "; state: ", *this);
 
     return result;
 }
@@ -137,10 +129,10 @@ void BufferMemoryManager::freeGrowableBoundsCheckingMemory(void* basePtr, size_t
     {
         Locker locker { m_lock };
         Gigacage::freeVirtualPages(Gigacage::Primitive, basePtr, mappedCapacity);
-        m_growableBoundsCheckingMemories.erase(std::make_pair(bitwise_cast<uintptr_t>(basePtr), mappedCapacity));
+        m_growableBoundsCheckingMemories.erase(std::make_pair(std::bit_cast<uintptr_t>(basePtr), mappedCapacity));
     }
 
-    dataLogLnIf(Options::logWebAssemblyMemory(), "Freed virtual; state: ", *this);
+    dataLogLnIf(Options::logWasmMemory(), "Freed virtual; state: ", *this);
 }
 
 bool BufferMemoryManager::isInGrowableOrFastMemory(void* address)
@@ -152,7 +144,7 @@ bool BufferMemoryManager::isInGrowableOrFastMemory(void* address)
         if (start <= address && address <= start + BufferMemoryHandle::fastMappedBytes())
             return true;
     }
-    uintptr_t addressValue = bitwise_cast<uintptr_t>(address);
+    uintptr_t addressValue = std::bit_cast<uintptr_t>(address);
     auto iterator = std::upper_bound(m_growableBoundsCheckingMemories.begin(), m_growableBoundsCheckingMemories.end(), std::make_pair(addressValue, 0),
         [](std::pair<uintptr_t, size_t> a, std::pair<uintptr_t, size_t> b) {
             return (a.first + a.second) < (b.first + b.second);
@@ -182,7 +174,7 @@ BufferMemoryResult::Kind BufferMemoryManager::tryAllocatePhysicalBytes(size_t by
         return BufferMemoryResult::Success;
     }();
 
-    dataLogLnIf(Options::logWebAssemblyMemory(), "Allocated physical: ", bytes, ", ", BufferMemoryResult::toString(result), "; state: ", *this);
+    dataLogLnIf(Options::logWasmMemory(), "Allocated physical: ", bytes, ", ", result, "; state: ", *this);
 
     return result;
 }
@@ -194,7 +186,7 @@ void BufferMemoryManager::freePhysicalBytes(size_t bytes)
         m_physicalBytes -= bytes;
     }
 
-    dataLogLnIf(Options::logWebAssemblyMemory(), "Freed physical: ", bytes, "; state: ", *this);
+    dataLogLnIf(Options::logWasmMemory(), "Freed physical: ", bytes, "; state: ", *this);
 }
 
 void BufferMemoryManager::dump(PrintStream& out) const
@@ -215,7 +207,7 @@ BufferMemoryManager& BufferMemoryManager::singleton()
 BufferMemoryHandle::BufferMemoryHandle(void* memory, size_t size, size_t mappedCapacity, PageCount initial, PageCount maximum, MemorySharingMode sharingMode, MemoryMode mode)
     : m_sharingMode(sharingMode)
     , m_mode(mode)
-    , m_memory(memory, mappedCapacity)
+    , m_memory(memory)
     , m_size(size)
     , m_mappedCapacity(mappedCapacity)
     , m_initial(initial)
@@ -257,14 +249,7 @@ BufferMemoryHandle::~BufferMemoryHandle()
             // nullBasePointer's zero-sized memory is not used for MemoryMode::Signaling.
             constexpr bool readable = true;
             constexpr bool writable = true;
-            if (!OSAllocator::protect(memory, BufferMemoryHandle::fastMappedBytes(), readable, writable)) {
-#if OS(WINDOWS)
-                dataLogLn("mprotect failed: ", static_cast<int>(GetLastError()));
-#else
-                dataLogLn("mprotect failed: ", safeStrerror(errno).data());
-#endif
-                RELEASE_ASSERT_NOT_REACHED();
-            }
+            OSAllocator::protect(memory, BufferMemoryHandle::fastMappedBytes(), readable, writable);
             BufferMemoryManager::singleton().freeFastMemory(memory);
             break;
         }
@@ -283,14 +268,7 @@ BufferMemoryHandle::~BufferMemoryHandle()
                 }
                 constexpr bool readable = true;
                 constexpr bool writable = true;
-                if (!OSAllocator::protect(memory, m_mappedCapacity, readable, writable)) {
-#if OS(WINDOWS)
-                    dataLogLn("mprotect failed: ", static_cast<int>(GetLastError()));
-#else
-                    dataLogLn("mprotect failed: ", safeStrerror(errno).data());
-#endif
-                    RELEASE_ASSERT_NOT_REACHED();
-                }
+                OSAllocator::protect(memory, m_mappedCapacity, readable, writable);
                 BufferMemoryManager::singleton().freeGrowableBoundsCheckingMemory(memory, m_mappedCapacity);
                 break;
             }
@@ -305,8 +283,10 @@ BufferMemoryHandle::~BufferMemoryHandle()
 // For now, putting NEVER_INLINE to suppress inlining of this.
 NEVER_INLINE void* BufferMemoryHandle::memory() const
 {
-    ASSERT(m_memory.getMayBeNull(m_mappedCapacity) == m_memory.getUnsafe());
-    return m_memory.getMayBeNull(m_mappedCapacity);
+    ASSERT(m_memory.getMayBeNull() == m_memory.getUnsafe());
+    return m_memory.getMayBeNull();
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

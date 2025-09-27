@@ -31,6 +31,7 @@
 #include "ImageBuffer.h"
 #include "PixelBuffer.h"
 #include "PixelBufferConversion.h"
+#include <wtf/text/ParsingUtilities.h>
 
 #if HAVE(ARM_NEON_INTRINSICS)
 #include <arm_neon.h>
@@ -95,10 +96,10 @@ size_t FilterImage::memoryCost() const
         memoryCost += m_imageBuffer->memoryCost();
 
     if (m_unpremultipliedPixelBuffer)
-        memoryCost += m_unpremultipliedPixelBuffer->sizeInBytes();
+        memoryCost += m_unpremultipliedPixelBuffer->bytes().size();
 
     if (m_premultipliedPixelBuffer)
-        memoryCost += m_premultipliedPixelBuffer->sizeInBytes();
+        memoryCost += m_premultipliedPixelBuffer->bytes().size();
 
 #if USE(CORE_IMAGE)
     if (m_ciImage)
@@ -122,16 +123,17 @@ ImageBuffer* FilterImage::imageBufferFromPixelBuffer()
     if (m_imageBuffer)
         return m_imageBuffer.get();
 
-    m_imageBuffer = m_allocator.createImageBuffer(m_absoluteImageRect.size(), m_colorSpace, m_renderingMode);
-    if (!m_imageBuffer)
+    RefPtr imageBuffer = m_allocator.createImageBuffer(m_absoluteImageRect.size(), m_colorSpace, m_renderingMode);
+    m_imageBuffer = imageBuffer;
+    if (!imageBuffer)
         return nullptr;
 
     auto imageBufferRect = IntRect { { }, m_absoluteImageRect.size() };
 
     if (pixelBufferSlot(AlphaPremultiplication::Premultiplied))
-        m_imageBuffer->putPixelBuffer(*pixelBufferSlot(AlphaPremultiplication::Premultiplied), imageBufferRect);
+        imageBuffer->putPixelBuffer(Ref { *pixelBufferSlot(AlphaPremultiplication::Premultiplied) }, imageBufferRect);
     else if (pixelBufferSlot(AlphaPremultiplication::Unpremultiplied))
-        m_imageBuffer->putPixelBuffer(*pixelBufferSlot(AlphaPremultiplication::Unpremultiplied), imageBufferRect);
+        imageBuffer->putPixelBuffer(Ref { *pixelBufferSlot(AlphaPremultiplication::Unpremultiplied) }, imageBufferRect);
 
     return m_imageBuffer.get();
 }
@@ -185,13 +187,15 @@ static void copyImageBytes(const PixelBuffer& sourcePixelBuffer, PixelBuffer& de
     if (UNLIKELY(size.hasOverflowed() || destinationBytesPerRow.hasOverflowed() || sourceBytesPerRow.hasOverflowed() || destinationOffset.hasOverflowed() || sourceOffset.hasOverflowed()))
         return;
 
-    uint8_t* destinationPixel = destinationPixelBuffer.bytes() + destinationOffset.value();
-    const uint8_t* sourcePixel = sourcePixelBuffer.bytes() + sourceOffset.value();
+    auto destinationPixel = destinationPixelBuffer.bytes().subspan(destinationOffset.value());
+    auto sourcePixel = sourcePixelBuffer.bytes().subspan(sourceOffset.value());
 
     for (int y = 0; y < sourceRectClipped.height(); ++y) {
-        memcpy(destinationPixel, sourcePixel, size);
-        destinationPixel += destinationBytesPerRow;
-        sourcePixel += sourceBytesPerRow;
+        if (y) {
+            skip(destinationPixel, destinationBytesPerRow);
+            skip(sourcePixel, sourceBytesPerRow);
+        }
+        memcpySpan(destinationPixel, sourcePixel.first(size));
     }
 }
 
@@ -225,7 +229,7 @@ static RefPtr<PixelBuffer> getConvertedPixelBuffer(PixelBuffer& sourcePixelBuffe
 
 bool FilterImage::requiresPixelBufferColorSpaceConversion(std::optional<DestinationColorSpace> colorSpace) const
 {
-#if USE(CG)
+#if USE(CG) || USE(SKIA)
     // This function determines whether we need the step of an extra color space conversion
     // We only need extra color conversion when 1) color space is different in the input
     // AND 2) the filter is manipulating raw pixels
@@ -250,8 +254,8 @@ PixelBuffer* FilterImage::pixelBuffer(AlphaPremultiplication alphaFormat)
 
     PixelBufferFormat format { alphaFormat, PixelFormat::RGBA8, m_colorSpace };
 
-    if (m_imageBuffer) {
-        pixelBuffer = m_imageBuffer->getPixelBuffer(format, { { }, m_absoluteImageRect.size() }, m_allocator);
+    if (RefPtr imageBuffer = m_imageBuffer) {
+        pixelBuffer = imageBuffer->getPixelBuffer(format, { { }, m_absoluteImageRect.size() }, m_allocator);
         if (!pixelBuffer)
             return nullptr;
         return pixelBuffer.get();
@@ -294,14 +298,14 @@ void FilterImage::copyPixelBuffer(PixelBuffer& destinationPixelBuffer, const Int
     auto alphaFormat = destinationPixelBuffer.format().alphaFormat;
     auto& colorSpace = destinationPixelBuffer.format().colorSpace;
 
-    auto* sourcePixelBuffer = pixelBufferSlot(alphaFormat) ? pixelBufferSlot(alphaFormat).get() : nullptr;
+    RefPtr sourcePixelBuffer = pixelBufferSlot(alphaFormat) ? pixelBufferSlot(alphaFormat).get() : nullptr;
 
     if (!sourcePixelBuffer) {
         if (requiresPixelBufferColorSpaceConversion(colorSpace)) {
             // We prefer a conversion from the image buffer.
             if (m_imageBuffer) {
                 IntRect rect { { }, m_absoluteImageRect.size() };
-                if (auto convertedPixelBuffer = getConvertedPixelBuffer(*m_imageBuffer, alphaFormat, rect, colorSpace, m_allocator))
+                if (auto convertedPixelBuffer = getConvertedPixelBuffer(Ref { *m_imageBuffer }, alphaFormat, rect, colorSpace, m_allocator))
                     copyImageBytes(*convertedPixelBuffer, destinationPixelBuffer, sourceRect);
                 return;
             }
@@ -328,52 +332,54 @@ void FilterImage::correctPremultipliedPixelBuffer()
     if (!m_premultipliedPixelBuffer || m_isValidPremultiplied)
         return;
 
-    uint8_t* pixelBytes = m_premultipliedPixelBuffer->bytes();
-    int pixelByteLength = m_premultipliedPixelBuffer->sizeInBytes();
+    auto pixelBytes = m_premultipliedPixelBuffer->bytes();
+    size_t index = 0;
 
     // We must have four bytes per pixel, and complete pixels
-    ASSERT(!(pixelByteLength % 4));
+    ASSERT(!(pixelBytes.size() % 4));
 
 #if HAVE(ARM_NEON_INTRINSICS)
-    if (pixelByteLength >= 64) {
-        uint8_t* lastPixel = pixelBytes + (pixelByteLength & ~0x3f);
+    if (pixelBytes.size() >= 64) {
+        size_t endIndex = pixelBytes.size() & ~0x3f;
         do {
             // Increments pixelBytes by 64.
-            uint8x16x4_t sixteenPixels = vld4q_u8(pixelBytes);
+            auto* currentBytes = pixelBytes.subspan(index).data();
+            uint8x16x4_t sixteenPixels = vld4q_u8(currentBytes);
             sixteenPixels.val[0] = vminq_u8(sixteenPixels.val[0], sixteenPixels.val[3]);
             sixteenPixels.val[1] = vminq_u8(sixteenPixels.val[1], sixteenPixels.val[3]);
             sixteenPixels.val[2] = vminq_u8(sixteenPixels.val[2], sixteenPixels.val[3]);
-            vst4q_u8(pixelBytes, sixteenPixels);
-            pixelBytes += 64;
-        } while (pixelBytes < lastPixel);
+            vst4q_u8(currentBytes, sixteenPixels);
+            index += 64;
+        } while (index < endIndex);
 
-        pixelByteLength &= 0x3f;
-        if (!pixelByteLength)
+        skip(pixelBytes, index);
+        index = 0;
+        if (pixelBytes.empty())
             return;
     }
 #endif
 
-    int numPixels = pixelByteLength / 4;
+    int numPixels = pixelBytes.size() / 4;
 
     // Iterate over each pixel, checking alpha and adjusting color components if necessary
     while (--numPixels >= 0) {
         // Alpha is the 4th byte in a pixel
-        uint8_t a = *(pixelBytes + 3);
+        uint8_t a = pixelBytes[index + 3];
         // Clamp each component to alpha, and increment the pixel location
         for (int i = 0; i < 3; ++i) {
-            if (*pixelBytes > a)
-                *pixelBytes = a;
-            ++pixelBytes;
+            if (pixelBytes[index] > a)
+                pixelBytes[index] = a;
+            ++index;
         }
         // Increment for alpha
-        ++pixelBytes;
+        ++index;
     }
 }
 
 void FilterImage::transformToColorSpace(const DestinationColorSpace& colorSpace)
 {
-#if USE(CG)
-    // CG handles color space adjustments internally.
+#if USE(CG) || USE(SKIA)
+    // CG and SKIA handle color space adjustments internally.
     UNUSED_PARAM(colorSpace);
 #else
     if (colorSpace == m_colorSpace)
@@ -381,7 +387,7 @@ void FilterImage::transformToColorSpace(const DestinationColorSpace& colorSpace)
 
     // FIXME: We can avoid this potentially unnecessary ImageBuffer conversion by adding
     // color space transform support for the {pre,un}multiplied arrays.
-    if (auto imageBuffer = this->imageBuffer())
+    if (RefPtr imageBuffer = this->imageBuffer())
         imageBuffer->transformToColorSpace(colorSpace);
 
     m_colorSpace = colorSpace;

@@ -35,9 +35,7 @@
 
 namespace JSC { namespace B3 { namespace Air {
 
-TmpWidth::TmpWidth()
-{
-}
+TmpWidth::TmpWidth() = default;
 
 TmpWidth::TmpWidth(Code& code)
 {
@@ -45,9 +43,7 @@ TmpWidth::TmpWidth(Code& code)
     recompute<FP>(code);
 }
 
-TmpWidth::~TmpWidth()
-{
-}
+TmpWidth::~TmpWidth() = default;
 
 template <Bank bank>
 void TmpWidth::recompute(Code& code)
@@ -174,6 +170,26 @@ void TmpWidth::recompute(Code& code)
             dataLogLn("\t", AbsoluteTmpMapper<bank>::tmpFromAbsoluteIndex(i), " : ", bankWidthsVector[i]);
     }
 }
+
+template <Bank bank>
+void TmpWidth::ensureSize(Tmp tmp)
+{
+    ASSERT(tmp.bank() == bank);
+    auto index = AbsoluteTmpMapper<bank>::absoluteIndex(tmp);
+    auto& bankWidthsVector = widthsVector(bank);
+    if (index >= bankWidthsVector.size())
+        bankWidthsVector.resize(index + 1);
+}
+
+void TmpWidth::setWidths(Tmp tmp, Width useWidth, Width defWidth)
+{
+    if (tmp.isGP())
+        ensureSize<GP>(tmp);
+    else
+        ensureSize<FP>(tmp);
+    addWidths(tmp, { useWidth, defWidth });
+}
+
 
 void TmpWidth::Widths::dump(PrintStream& out) const
 {

@@ -35,15 +35,17 @@
 #include "GeometryUtilities.h"
 #include <math.h>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 class FloatPointGraph {
     WTF_MAKE_NONCOPYABLE(FloatPointGraph);
 public:
-    FloatPointGraph() { }
+    FloatPointGraph() = default;
 
     class Node : public FloatPoint {
+        WTF_MAKE_TZONE_ALLOCATED_INLINE(Node);
         WTF_MAKE_NONCOPYABLE(Node);
     public:
         Node(FloatPoint point)
@@ -283,7 +285,7 @@ static Vector<FloatPointGraph::Polygon> polygonsForRect(const Vector<FloatRect>&
         }
 
         if (!isContained)
-            rectPolygons.uncheckedAppend(edgesForRect(rect, graph));
+            rectPolygons.append(edgesForRect(rect, graph));
     }
     return unitePolygons(rectPolygons, graph);
 }
@@ -309,9 +311,7 @@ Vector<Path> PathUtilities::pathsWithShrinkWrappedRects(const Vector<FloatRect>&
         return { WTFMove(path) };
     }
 
-    Vector<Path> paths;
-    paths.reserveInitialCapacity(polys.size());
-    for (auto& poly : polys) {
+    return WTF::map(polys, [&](auto& poly) {
         Path path;
         for (unsigned i = 0; i < poly.size(); ++i) {
             FloatPointGraph::Edge& toEdge = poly[i];
@@ -342,9 +342,8 @@ Vector<Path> PathUtilities::pathsWithShrinkWrappedRects(const Vector<FloatRect>&
             path.addArcTo(*fromEdge.second, *toEdge.first + toOffset, clampedRadius);
         }
         path.closeSubpath();
-        paths.uncheckedAppend(WTFMove(path));
-    }
-    return paths;
+        return path;
+    });
 }
 
 Path PathUtilities::pathWithShrinkWrappedRects(const Vector<FloatRect>& rects, float radius)
@@ -356,6 +355,19 @@ Path PathUtilities::pathWithShrinkWrappedRects(const Vector<FloatRect>& rects, f
         unionPath.addPath(path, AffineTransform());
 
     return unionPath;
+}
+
+Path PathUtilities::pathWithShrinkWrappedRects(const Vector<FloatRect>& rects, const FloatRoundedRect::Radii& radii)
+{
+    if (radii.isUniformCornerRadius())
+        return pathWithShrinkWrappedRects(rects, radii.topLeft().width());
+
+    // FIXME: This could potentially take non-uniform radii into account when running the
+    // shrink-wrap algorithm above, by averaging corner radii between adjacent edges.
+    Path path;
+    for (auto& rect : rects)
+        path.addRoundedRect(FloatRoundedRect { rect, radii });
+    return path;
 }
 
 static std::pair<FloatPoint, FloatPoint> startAndEndPointsForCorner(const FloatPointGraph::Edge& fromEdge, const FloatPointGraph::Edge& toEdge, const FloatSize& radius)
@@ -493,7 +505,7 @@ static std::optional<FloatRect> rectFromPolygon(const FloatPointGraph::Polygon& 
 }
 
 Path PathUtilities::pathWithShrinkWrappedRectsForOutline(const Vector<FloatRect>& rects, const BorderData& borderData,
-    float outlineOffset, TextDirection direction, WritingMode writingMode, float deviceScaleFactor)
+    float outlineOffset, WritingMode writingMode, float deviceScaleFactor)
 {
     FloatSize topLeftRadius { borderData.topLeftRadius().width.value(), borderData.topLeftRadius().height.value() };
     FloatSize topRightRadius { borderData.topRightRadius().width.value(), borderData.topRightRadius().height.value() };
@@ -527,7 +539,7 @@ Path PathUtilities::pathWithShrinkWrappedRectsForOutline(const Vector<FloatRect>
 
     Path path;
     // Multiline outline needs to match multiline border painting. Only first and last lines are getting rounded borders.
-    auto isLeftToRight = isLeftToRightDirection(direction);
+    auto isLeftToRight = writingMode.isBidiLTR();
     auto firstLineRect = isLeftToRight ? rects.at(0) : rects.at(rects.size() - 1);
     auto lastLineRect = isLeftToRight ? rects.at(rects.size() - 1) : rects.at(0);
     // Adjust radius so that it matches the box border.
@@ -540,7 +552,7 @@ Path PathUtilities::pathWithShrinkWrappedRectsForOutline(const Vector<FloatRect>
     topRightRadius = lastLineRadii.topRight();
     bottomRightRadius = lastLineRadii.bottomRight();
     // physical topLeft/topRight/bottomRight/bottomLeft
-    auto isHorizontal = isHorizontalWritingMode(writingMode);
+    auto isHorizontal = writingMode.isHorizontal();
     auto corners = Vector<FloatPoint>::from(
         firstLineRect.minXMinYCorner(),
         isHorizontal ? lastLineRect.maxXMinYCorner() : firstLineRect.maxXMinYCorner(),

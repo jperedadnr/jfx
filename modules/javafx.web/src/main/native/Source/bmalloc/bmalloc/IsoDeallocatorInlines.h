@@ -25,6 +25,8 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "BInline.h"
 #include "IsoDeallocator.h"
 #include "IsoPage.h"
@@ -49,7 +51,7 @@ IsoDeallocator<Config>::~IsoDeallocator()
 
 template<typename Config>
 template<typename Type>
-void IsoDeallocator<Config>::deallocate(api::IsoHeap<Type>& handle, void* ptr)
+void IsoDeallocator<Config>::deallocate(api::IsoHeapBase<Type>& handle, void* ptr)
 {
     static constexpr bool verbose = false;
     if (verbose)
@@ -85,3 +87,4 @@ BNO_INLINE void IsoDeallocator<Config>::scavenge()
 } // namespace bmalloc
 
 #endif
+#endif // !BUSE(TZONE)

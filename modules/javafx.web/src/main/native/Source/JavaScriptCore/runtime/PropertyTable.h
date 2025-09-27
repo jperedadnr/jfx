@@ -36,6 +36,8 @@
 
 #define PROPERTY_MAP_DELETED_ENTRY_KEY ((UniquedStringImpl*)1)
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(PropertyTable);
@@ -113,16 +115,13 @@ public:
         return &vm.propertyTableSpace();
     }
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     static void destroy(JSCell*);
     DECLARE_VISIT_CHILDREN;
 
     DECLARE_EXPORT_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(CellType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     using KeyType = UniquedStringImpl*;
     using ValueType = PropertyTableEntry;
@@ -249,19 +248,19 @@ private:
     // The table of values lies after the hash index.
     static CompactPropertyTableEntry* tableFromIndexVector(uint8_t* index, unsigned indexSize)
     {
-        return bitwise_cast<CompactPropertyTableEntry*>(index + indexSize);
+        return std::bit_cast<CompactPropertyTableEntry*>(index + indexSize);
     }
     static const CompactPropertyTableEntry* tableFromIndexVector(const uint8_t* index, unsigned indexSize)
     {
-        return bitwise_cast<const CompactPropertyTableEntry*>(index + indexSize);
+        return std::bit_cast<const CompactPropertyTableEntry*>(index + indexSize);
     }
     static PropertyTableEntry* tableFromIndexVector(uint32_t* index, unsigned indexSize)
     {
-        return bitwise_cast<PropertyTableEntry*>(index + indexSize);
+        return std::bit_cast<PropertyTableEntry*>(index + indexSize);
     }
     static const PropertyTableEntry* tableFromIndexVector(const uint32_t* index, unsigned indexSize)
     {
-        return bitwise_cast<const PropertyTableEntry*>(index + indexSize);
+        return std::bit_cast<const PropertyTableEntry*>(index + indexSize);
     }
 
     CompactPropertyTableEntry* tableFromIndexVector(uint8_t* index) { return tableFromIndexVector(index, m_indexSize); }
@@ -294,8 +293,8 @@ private:
     static ALWAYS_INLINE auto withIndexVector(uintptr_t indexVector, Func&& function) -> decltype(auto)
     {
         if (indexVector & isCompactFlag)
-            return function(bitwise_cast<uint8_t*>(indexVector & indexVectorMask));
-        return function(bitwise_cast<uint32_t*>(indexVector & indexVectorMask));
+            return function(std::bit_cast<uint8_t*>(indexVector & indexVectorMask));
+        return function(std::bit_cast<uint32_t*>(indexVector & indexVectorMask));
     }
 
     template<typename Func>
@@ -601,7 +600,7 @@ inline void PropertyTable::rehash(VM& vm, unsigned newCapacity, bool canStayComp
 
     size_t newDataSize = dataSize(this->isCompact());
     if (oldDataSize < newDataSize)
-        vm.heap.reportExtraMemoryAllocated(newDataSize - oldDataSize);
+        vm.heap.reportExtraMemoryAllocated(this, newDataSize - oldDataSize);
 }
 
 inline unsigned PropertyTable::tableCapacity() const { return m_indexSize >> 1; }
@@ -638,17 +637,17 @@ inline size_t PropertyTable::dataSize(bool isCompact)
 
 ALWAYS_INLINE uintptr_t PropertyTable::allocateIndexVector(bool isCompact, unsigned indexSize)
 {
-    return bitwise_cast<uintptr_t>(PropertyTableMalloc::malloc(PropertyTable::dataSize(isCompact, indexSize))) | (isCompact ? isCompactFlag : 0);
+    return std::bit_cast<uintptr_t>(PropertyTableMalloc::malloc(PropertyTable::dataSize(isCompact, indexSize))) | (isCompact ? isCompactFlag : 0);
 }
 
 ALWAYS_INLINE uintptr_t PropertyTable::allocateZeroedIndexVector(bool isCompact, unsigned indexSize)
 {
-    return bitwise_cast<uintptr_t>(PropertyTableMalloc::zeroedMalloc(PropertyTable::dataSize(isCompact, indexSize))) | (isCompact ? isCompactFlag : 0);
+    return std::bit_cast<uintptr_t>(PropertyTableMalloc::zeroedMalloc(PropertyTable::dataSize(isCompact, indexSize))) | (isCompact ? isCompactFlag : 0);
 }
 
 ALWAYS_INLINE void PropertyTable::destroyIndexVector(uintptr_t indexVector)
 {
-    PropertyTableMalloc::free(bitwise_cast<void*>(indexVector & indexVectorMask));
+    PropertyTableMalloc::free(std::bit_cast<void*>(indexVector & indexVectorMask));
 }
 
 inline unsigned PropertyTable::sizeForCapacity(unsigned capacity)
@@ -683,3 +682,5 @@ inline void PropertyTable::forEachProperty(const Functor& functor) const
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

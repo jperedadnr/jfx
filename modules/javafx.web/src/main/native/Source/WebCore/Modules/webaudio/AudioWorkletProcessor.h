@@ -56,7 +56,7 @@ class ScriptExecutionContext;
 class WebCoreOpaqueRoot;
 
 class AudioWorkletProcessor : public ScriptWrappable, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioWorkletProcessor> {
-    WTF_MAKE_ISO_ALLOCATED(AudioWorkletProcessor);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(AudioWorkletProcessor);
 public:
     static ExceptionOr<Ref<AudioWorkletProcessor>> create(ScriptExecutionContext&);
     ~AudioWorkletProcessor();
@@ -74,7 +74,7 @@ private:
     explicit AudioWorkletProcessor(AudioWorkletGlobalScope&, const AudioWorkletProcessorConstructionData&);
     void buildJSArguments(JSC::VM&, JSC::JSGlobalObject&, JSC::MarkedArgumentBuffer&, const Vector<RefPtr<AudioBus>>& inputs, Vector<Ref<AudioBus>>& outputs, const MemoryCompactLookupOnlyRobinHoodHashMap<String, std::unique_ptr<AudioFloatArray>>& paramValuesMap);
 
-    AudioWorkletGlobalScope& m_globalScope;
+    Ref<AudioWorkletGlobalScope> m_globalScope;
     String m_name;
     Ref<MessagePort> m_port;
     JSValueInWrappedObject m_jsInputs;

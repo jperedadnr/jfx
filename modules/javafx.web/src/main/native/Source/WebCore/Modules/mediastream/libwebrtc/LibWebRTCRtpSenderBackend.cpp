@@ -37,8 +37,11 @@
 #include "RTCRtpSender.h"
 #include "RTCRtpTransformBackend.h"
 #include "ScriptExecutionContext.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LibWebRTCRtpSenderBackend);
 
 LibWebRTCRtpSenderBackend::LibWebRTCRtpSenderBackend(LibWebRTCPeerConnectionBackend& backend, rtc::scoped_refptr<webrtc::RtpSenderInterface>&& rtcSender)
     : m_peerConnectionBackend(backend)
@@ -110,8 +113,13 @@ bool LibWebRTCRtpSenderBackend::replaceTrack(RTCRtpSender& sender, MediaStreamTr
         });
     }
 
-    m_peerConnectionBackend->setSenderSourceFromTrack(*this, *track);
+    protectedPeerConnectionBackend()->setSenderSourceFromTrack(*this, *track);
     return true;
+}
+
+RefPtr<LibWebRTCPeerConnectionBackend> LibWebRTCRtpSenderBackend::protectedPeerConnectionBackend() const
+{
+    return m_peerConnectionBackend.get();
 }
 
 RTCRtpSendParameters LibWebRTCRtpSenderBackend::getParameters() const
@@ -175,17 +183,17 @@ static bool validateModifiedParameters(const RTCRtpSendParameters& newParameters
 void LibWebRTCRtpSenderBackend::setParameters(const RTCRtpSendParameters& parameters, DOMPromiseDeferred<void>&& promise)
 {
     if (!m_rtcSender) {
-        promise.reject(NotSupportedError);
+        promise.reject(ExceptionCode::NotSupportedError);
         return;
     }
 
     if (!m_currentParameters) {
-        promise.reject(Exception { InvalidStateError, "getParameters must be called before setParameters"_s });
+        promise.reject(Exception { ExceptionCode::InvalidStateError, "getParameters must be called before setParameters"_s });
         return;
     }
 
     if (!validateModifiedParameters(parameters, toRTCRtpSendParameters(*m_currentParameters))) {
-        promise.reject(InvalidModificationError, "parameters are not valid"_s);
+        promise.reject(ExceptionCode::InvalidModificationError, "parameters are not valid"_s);
         return;
     }
 

@@ -25,10 +25,9 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "ServiceWorkerTypes.h"
 #include "ServiceWorkerUpdateViaCache.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -40,7 +39,7 @@ class SWScriptStorage;
 struct ServiceWorkerContextData;
 
 class SWRegistrationDatabase {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(SWRegistrationDatabase, WEBCORE_EXPORT);
 public:
     static constexpr uint64_t schemaVersion = 8;
 
@@ -79,5 +78,3 @@ struct ImportedScriptAttributes {
 };
 
 }
-
-#endif // ENABLE(SERVICE_WORKER)

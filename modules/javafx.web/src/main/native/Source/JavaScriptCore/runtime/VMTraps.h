@@ -33,6 +33,7 @@
 #include <wtf/Locker.h>
 #include <wtf/RefPtr.h>
 #include <wtf/StackBounds.h>
+#include <wtf/WorkQueue.h>
 
 namespace JSC {
 
@@ -205,6 +206,7 @@ public:
     // Designed to be a fast check to rule out if we might need handling, and we need to ensure needHandling on the slow path.
     ALWAYS_INLINE bool maybeNeedHandling() const { return m_trapBits.loadRelaxed(); }
     void* trapBitsAddress() { return &m_trapBits; }
+    static constexpr ptrdiff_t offsetOfTrapsBits() { return OBJECT_OFFSETOF(VMTraps, m_trapBits); }
 
     enum class DeferAction {
         DeferForAWhile,
@@ -245,6 +247,8 @@ public:
     void tryInstallTrapBreakpoints(struct VMTraps::SignalContext&, StackBounds);
 #endif
 
+    static WorkQueue& queue();
+
 private:
     VM& vm() const;
 
@@ -270,7 +274,7 @@ private:
     static constexpr BitField NeedExceptionHandlingMask = ~(1 << NeedExceptionHandling);
 
     Box<Lock> m_lock;
-    Ref<AutomaticThreadCondition> m_condition;
+    Box<Condition> m_condition;
     Atomic<BitField> m_trapBits { 0 };
     bool m_needToInvalidatedCodeBlocks { false };
     bool m_isShuttingDown { false };

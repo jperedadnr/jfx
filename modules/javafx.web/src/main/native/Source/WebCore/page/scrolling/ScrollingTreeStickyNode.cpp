@@ -38,30 +38,29 @@
 #include "ScrollingTreeFrameScrollingNode.h"
 #include "ScrollingTreeOverflowScrollProxyNode.h"
 #include "ScrollingTreeOverflowScrollingNode.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScrollingTreeStickyNode);
+
 ScrollingTreeStickyNode::ScrollingTreeStickyNode(ScrollingTree& scrollingTree, ScrollingNodeID nodeID)
     : ScrollingTreeNode(scrollingTree, ScrollingNodeType::Sticky, nodeID)
 {
-    scrollingTree.fixedOrStickyNodeAdded();
+    scrollingTree.fixedOrStickyNodeAdded(*this);
 }
 
-ScrollingTreeStickyNode::~ScrollingTreeStickyNode()
-{
-    scrollingTree().fixedOrStickyNodeRemoved();
-}
+ScrollingTreeStickyNode::~ScrollingTreeStickyNode() = default;
 
 bool ScrollingTreeStickyNode::commitStateBeforeChildren(const ScrollingStateNode& stateNode)
 {
-    if (!is<ScrollingStateStickyNode>(stateNode))
+    auto* stickyStateNode = dynamicDowncast<ScrollingStateStickyNode>(stateNode);
+    if (!stickyStateNode)
         return false;
 
-    const auto& stickyStateNode = downcast<ScrollingStateStickyNode>(stateNode);
-
-    if (stickyStateNode.hasChangedProperty(ScrollingStateNode::Property::ViewportConstraints))
-        m_constraints = stickyStateNode.viewportConstraints();
+    if (stickyStateNode->hasChangedProperty(ScrollingStateNode::Property::ViewportConstraints))
+        m_constraints = stickyStateNode->viewportConstraints();
 
     return true;
 }
@@ -80,22 +79,19 @@ FloatPoint ScrollingTreeStickyNode::computeLayerPosition() const
     FloatSize offsetFromStickyAncestors;
     auto computeLayerPositionForScrollingNode = [&](ScrollingTreeNode& scrollingNode) {
         FloatRect constrainingRect;
-        if (is<ScrollingTreeFrameScrollingNode>(scrollingNode)) {
-            auto& frameScrollingNode = downcast<ScrollingTreeFrameScrollingNode>(scrollingNode);
-            constrainingRect = frameScrollingNode.layoutViewport();
-        } else {
-            auto& overflowScrollingNode = downcast<ScrollingTreeOverflowScrollingNode>(scrollingNode);
+        if (auto* frameScrollingNode = dynamicDowncast<ScrollingTreeFrameScrollingNode>(scrollingNode))
+            constrainingRect = frameScrollingNode->layoutViewport();
+        else if (auto* overflowScrollingNode = dynamicDowncast<ScrollingTreeOverflowScrollingNode>(scrollingNode)) {
             constrainingRect = m_constraints.constrainingRectAtLastLayout();
-            constrainingRect.move(overflowScrollingNode.scrollDeltaSinceLastCommit());
+            constrainingRect.move(overflowScrollingNode->scrollDeltaSinceLastCommit());
         }
         constrainingRect.move(-offsetFromStickyAncestors);
         return m_constraints.layerPositionForConstrainingRect(constrainingRect);
     };
 
     for (RefPtr ancestor = parent(); ancestor; ancestor = ancestor->parent()) {
-        if (is<ScrollingTreeOverflowScrollProxyNode>(*ancestor)) {
-            auto& overflowProxyNode = downcast<ScrollingTreeOverflowScrollProxyNode>(*ancestor);
-            auto overflowNode = scrollingTree().nodeForID(overflowProxyNode.overflowScrollingNodeID());
+        if (auto* overflowProxyNode = dynamicDowncast<ScrollingTreeOverflowScrollProxyNode>(*ancestor)) {
+            auto overflowNode = scrollingTree()->nodeForID(overflowProxyNode->overflowScrollingNodeID());
             if (!overflowNode)
                 break;
 
@@ -105,8 +101,8 @@ FloatPoint ScrollingTreeStickyNode::computeLayerPosition() const
         if (is<ScrollingTreeScrollingNode>(*ancestor))
             return computeLayerPositionForScrollingNode(*ancestor);
 
-        if (is<ScrollingTreeStickyNode>(*ancestor))
-            offsetFromStickyAncestors += downcast<ScrollingTreeStickyNode>(*ancestor).scrollDeltaSinceLastCommit();
+        if (auto* stickyNode = dynamicDowncast<ScrollingTreeStickyNode>(*ancestor))
+            offsetFromStickyAncestors += stickyNode->scrollDeltaSinceLastCommit();
 
         if (is<ScrollingTreeFixedNode>(*ancestor)) {
             // FIXME: Do we need scrolling tree nodes at all for nested cases?
@@ -125,4 +121,4 @@ FloatSize ScrollingTreeStickyNode::scrollDeltaSinceLastCommit() const
 
 } // namespace WebCore
 
-#endif // ENABLE(ASYNC_SCROLLING) && USE(NICOSIA)
+#endif // ENABLE(ASYNC_SCROLLING)

@@ -27,19 +27,18 @@
 #include "CSSImageSetOptionValue.h"
 
 #include "CSSImageValue.h"
-#include "CSSPrimitiveValue.h"
 
 namespace WebCore {
 
 CSSImageSetOptionValue::CSSImageSetOptionValue(Ref<CSSValue>&& image, Ref<CSSPrimitiveValue>&& resolution)
-    : CSSValue(ImageSetOptionClass)
+    : CSSValue(ClassType::ImageSetOption)
     , m_image(WTFMove(image))
     , m_resolution(WTFMove(resolution))
 {
 }
 
 CSSImageSetOptionValue::CSSImageSetOptionValue(Ref<CSSValue>&& image, Ref<CSSPrimitiveValue>&& resolution, String&& type)
-    : CSSValue(ImageSetOptionClass)
+    : CSSValue(ClassType::ImageSetOption)
     , m_image(WTFMove(image))
     , m_resolution(WTFMove(resolution))
     , m_mimeType(WTFMove(type))
@@ -78,11 +77,11 @@ bool CSSImageSetOptionValue::equals(const CSSImageSetOptionValue& other) const
     return true;
 }
 
-String CSSImageSetOptionValue::customCSSText() const
+String CSSImageSetOptionValue::customCSSText(const CSS::SerializationContext& context) const
 {
     StringBuilder result;
-    result.append(m_image->cssText());
-    result.append(' ', m_resolution->cssText());
+    result.append(m_image->cssText(context));
+    result.append(' ', m_resolution->cssText(context));
     if (!m_mimeType.isNull())
         result.append(" type(\""_s, m_mimeType, "\")"_s);
 
@@ -97,6 +96,11 @@ void CSSImageSetOptionValue::setResolution(Ref<CSSPrimitiveValue>&& resolution)
 void CSSImageSetOptionValue::setType(String type)
 {
     m_mimeType = WTFMove(type);
+}
+
+bool CSSImageSetOptionValue::customTraverseSubresources(NOESCAPE const Function<bool(const CachedResource&)>& handler) const
+{
+    return m_resolution->traverseSubresources(handler) || m_image->traverseSubresources(handler);
 }
 
 } // namespace WebCore

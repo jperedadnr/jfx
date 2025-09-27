@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -49,7 +49,9 @@
 
 #pragma once
 
+#include "CachedCall.h"
 #include "Error.h"
+#include "InterpreterInlines.h"
 #include "JSArrayBufferViewInlines.h"
 #include "JSCBuiltins.h"
 #include "JSCJSValueInlines.h"
@@ -57,14 +59,18 @@
 #include "JSGenericTypedArrayViewInlines.h"
 #include "JSGenericTypedArrayViewPrototypeInlines.h"
 #include "JSStringJoiner.h"
+#include "StableSort.h"
 #include "StructureInlines.h"
 #include "TypedArrayAdaptors.h"
 #include "TypedArrayController.h"
+#include "VMEntryScopeInlines.h"
 #include <wtf/StdLibExtras.h>
 
 #if OS(DARWIN)
 #include <strings.h>
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -299,28 +305,28 @@ static ALWAYS_INLINE size_t typedArrayIndexOfImpl(typename ViewClass::ElementTyp
 
     if constexpr (ViewClass::Adaptor::isInteger) {
         if constexpr (ViewClass::elementSize == 1) {
-            auto* result = bitwise_cast<typename ViewClass::ElementType*>(WTF::find8(bitwise_cast<const uint8_t*>(array + index), target, length - index));
+            auto* result = std::bit_cast<typename ViewClass::ElementType*>(WTF::find8(std::bit_cast<const uint8_t*>(array + index), target, length - index));
             if (result)
                 return result - array;
             return WTF::notFound;
         }
 
         if constexpr (ViewClass::elementSize == 2) {
-            auto* result = bitwise_cast<typename ViewClass::ElementType*>(WTF::find16(bitwise_cast<const uint16_t*>(array + index), target, length - index));
+            auto* result = std::bit_cast<typename ViewClass::ElementType*>(WTF::find16(std::bit_cast<const uint16_t*>(array + index), target, length - index));
             if (result)
                 return result - array;
             return WTF::notFound;
         }
 
         if constexpr (ViewClass::elementSize == 4) {
-            auto* result = bitwise_cast<typename ViewClass::ElementType*>(WTF::find32(bitwise_cast<const uint32_t*>(array + index), target, length - index));
+            auto* result = std::bit_cast<typename ViewClass::ElementType*>(WTF::find32(std::bit_cast<const uint32_t*>(array + index), target, length - index));
             if (result)
                 return result - array;
             return WTF::notFound;
         }
 
         if constexpr (ViewClass::elementSize == 8) {
-            auto* result = bitwise_cast<typename ViewClass::ElementType*>(WTF::find64(bitwise_cast<const uint64_t*>(array + index), target, length - index));
+            auto* result = std::bit_cast<typename ViewClass::ElementType*>(WTF::find64(std::bit_cast<const uint64_t*>(array + index), target, length - index));
             if (result)
                 return result - array;
             return WTF::notFound;
@@ -328,15 +334,22 @@ static ALWAYS_INLINE size_t typedArrayIndexOfImpl(typename ViewClass::ElementTyp
     }
 
     if constexpr (ViewClass::Adaptor::isFloat) {
+        if constexpr (ViewClass::elementSize == 2) {
+            auto* result = std::bit_cast<typename ViewClass::ElementType*>(WTF::findFloat16(std::bit_cast<const Float16*>(array + index), target, length - index));
+            if (result)
+                return result - array;
+            return WTF::notFound;
+        }
+
         if constexpr (ViewClass::elementSize == 4) {
-            auto* result = bitwise_cast<typename ViewClass::ElementType*>(WTF::findFloat(bitwise_cast<const float*>(array + index), target, length - index));
+            auto* result = std::bit_cast<typename ViewClass::ElementType*>(WTF::findFloat(std::bit_cast<const float*>(array + index), target, length - index));
             if (result)
                 return result - array;
             return WTF::notFound;
         }
 
         if constexpr (ViewClass::elementSize == 8) {
-            auto* result = bitwise_cast<typename ViewClass::ElementType*>(WTF::findDouble(bitwise_cast<const double*>(array + index), target, length - index));
+            auto* result = std::bit_cast<typename ViewClass::ElementType*>(WTF::findDouble(std::bit_cast<const double*>(array + index), target, length - index));
             if (result)
                 return result - array;
             return WTF::notFound;
@@ -389,6 +402,15 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
 
     size_t searchLength = std::min<size_t>(length, updatedLength);
     if constexpr (ViewClass::Adaptor::isFloat) {
+        if constexpr (ViewClass::elementSize == 2) {
+            if (std::isnan(*targetOption)) {
+                for (; index < searchLength; ++index) {
+                    if (std::isnan(array[index]))
+                        return JSValue::encode(jsBoolean(true));
+                }
+                return JSValue::encode(jsBoolean(false));
+            }
+        } else {
         if (std::isnan(static_cast<double>(*targetOption))) {
             for (; index < searchLength; ++index) {
                 if (std::isnan(static_cast<double>(array[index])))
@@ -396,6 +418,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
             }
             return JSValue::encode(jsBoolean(false));
         }
+    }
     }
 
     size_t result = typedArrayIndexOfImpl<ViewClass>(array, searchLength, targetOption.value(), index);
@@ -501,9 +524,9 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncJoin(VM& vm, JSGlobal
     JSString* separatorString = separatorValue.toString(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
 
-    auto viewWithString = separatorString->viewWithUnderlyingString(globalObject);
+    auto view = separatorString->view(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
-    return joinWithSeparator(viewWithString.view);
+    return joinWithSeparator(view);
 }
 
 template<typename ViewClass>
@@ -701,50 +724,157 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncToReversed(VM& vm, JS
     ViewClass* result = ViewClass::createUninitialized(globalObject, structure, length);
     RETURN_IF_EXCEPTION(scope, { });
 
-    const typename ViewClass::ElementType* from = thisObject->typedVector();
-    typename ViewClass::ElementType* to = result->typedVector();
+    auto from = const_cast<const ViewClass*>(thisObject)->typedSpan();
+    ASSERT(from.size() == length);
+    auto to = result->typedSpan();
+    ASSERT(to.size() == length);
 
-    memmove(to, from, length * ViewClass::elementSize);
-    std::reverse(to, to + length);
+    WTF::copyElements(to, from);
+    std::ranges::reverse(to);
 
     return JSValue::encode(result);
 }
 
 template<typename ViewClass>
-ALWAYS_INLINE EncodedJSValue genericTypedArrayViewPrivateFuncClone(VM& vm, JSGlobalObject* globalObject, CallFrame* callFrame)
+static ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncSortImpl(VM& vm, JSGlobalObject* globalObject, ViewClass* thisObject, JSValue comparatorValue)
 {
     auto scope = DECLARE_THROW_SCOPE(vm);
+
+    // https://tc39.es/ecma262/#sec-%typedarray%.prototype.sort
+    if (comparatorValue.isUndefined()) {
+        auto sortResult = thisObject->sort();
+        if (UNLIKELY(sortResult != ViewClass::SortResult::Success)) {
+            if (sortResult == ViewClass::SortResult::Failed)
+                return throwVMTypeError(globalObject, scope, typedArrayBufferHasBeenDetachedErrorMessage);
+
+            ASSERT(sortResult == ViewClass::SortResult::OutOfMemory);
+            throwOutOfMemoryError(globalObject, scope);
+            return { };
+        }
+        return JSValue::encode(thisObject);
+    }
+
+    auto callData = JSC::getCallData(comparatorValue);
+
+    size_t length = thisObject->length();
+    if (length < 2)
+        return JSValue::encode(thisObject);
+
+    auto originalSpan = thisObject->typedSpan();
+
+    Vector<typename ViewClass::ElementType, 256> vector;
+    auto totalSize = CheckedSize { length } * 2U;
+    if (UNLIKELY(totalSize.hasOverflowed() || !vector.tryGrow(totalSize.value()))) {
+        throwOutOfMemoryError(globalObject, scope);
+        return { };
+    }
+
+    auto src = vector.mutableSpan().first(length);
+    auto dst = vector.mutableSpan().subspan(length);
+    ASSERT(dst.size() == length);
+    ASSERT(originalSpan.size() == length);
+    WTF::copyElements(src, spanConstCast<const typename ViewClass::ElementType>(originalSpan));
+
+    auto result = src;
+
+    if (LIKELY(callData.type == CallData::Type::JS)) {
+        CachedCall cachedCall(globalObject, jsCast<JSFunction*>(comparatorValue), 2);
+    RETURN_IF_EXCEPTION(scope, { });
+        result = arrayStableSort(vm, src, dst, [&](auto left, auto right) ALWAYS_INLINE_LAMBDA {
+            auto scope = DECLARE_THROW_SCOPE(vm);
+
+            JSValue leftValue = ViewClass::Adaptor::toJSValue(globalObject, left);
+            RETURN_IF_EXCEPTION_WITH_TRAPS_DEFERRED(scope, false);
+            JSValue rightValue = ViewClass::Adaptor::toJSValue(globalObject, right);
+            RETURN_IF_EXCEPTION_WITH_TRAPS_DEFERRED(scope, false);
+
+            JSValue jsResult = cachedCall.callWithArguments(globalObject, jsUndefined(), leftValue, rightValue);
+            RETURN_IF_EXCEPTION_WITH_TRAPS_DEFERRED(scope, false);
+
+            RELEASE_AND_RETURN(scope, coerceComparatorResultToBoolean(globalObject, jsResult));
+        });
+        RETURN_IF_EXCEPTION(scope, { });
+    } else {
+        MarkedArgumentBuffer args;
+        result = arrayStableSort(vm, src, dst, [&](auto left, auto right) ALWAYS_INLINE_LAMBDA {
+            auto scope = DECLARE_THROW_SCOPE(vm);
+
+            args.clear();
+
+            JSValue leftValue = ViewClass::Adaptor::toJSValue(globalObject, left);
+            RETURN_IF_EXCEPTION(scope, false);
+            JSValue rightValue = ViewClass::Adaptor::toJSValue(globalObject, right);
+            RETURN_IF_EXCEPTION(scope, false);
+
+            args.append(leftValue);
+            args.append(rightValue);
+            if (UNLIKELY(args.hasOverflowed())) {
+                throwOutOfMemoryError(globalObject, scope);
+                return false;
+            }
+
+            JSValue jsResult = call(globalObject, comparatorValue, callData, jsUndefined(), args);
+            RETURN_IF_EXCEPTION(scope, false);
+            RELEASE_AND_RETURN(scope, coerceComparatorResultToBoolean(globalObject, jsResult));
+        });
+        RETURN_IF_EXCEPTION(scope, { });
+    }
+
+    if (UNLIKELY(thisObject->isDetached()))
+        return JSValue::encode(thisObject);
+
+    size_t copyLength = std::min<size_t>(thisObject->length(), result.size());
+    WTF::copyElements(originalSpan, spanConstCast<const typename ViewClass::ElementType>(result.first(copyLength)));
+
+    return JSValue::encode(thisObject);
+}
+
+template<typename ViewClass>
+ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncSort(VM& vm, JSGlobalObject* globalObject, CallFrame* callFrame)
+{
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue comparatorValue = callFrame->argument(0);
+    if (!comparatorValue.isUndefined() && !comparatorValue.isCallable())
+        return throwVMTypeError(globalObject, scope, "TypedArray.prototype.sort requires the comparator argument to be a function or undefined"_s);
+
+    // https://tc39.es/ecma262/#sec-%typedarray%.prototype.sort
+    ViewClass* thisObject = jsCast<ViewClass*>(callFrame->thisValue());
+    validateTypedArray(globalObject, thisObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    RELEASE_AND_RETURN(scope, genericTypedArrayViewProtoFuncSortImpl(vm, globalObject, thisObject, comparatorValue));
+}
+
+template<typename ViewClass>
+ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncToSorted(VM& vm, JSGlobalObject* globalObject, CallFrame* callFrame)
+{
+    // https://tc39.es/proposal-change-array-by-copy/#sec-%typedarray%.prototype.toSorted
+
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue comparatorValue = callFrame->argument(0);
+    if (!comparatorValue.isUndefined() && !comparatorValue.isCallable())
+        return throwVMTypeError(globalObject, scope, "TypedArray.prototype.toSorted requires the comparator argument to be a function or undefined"_s);
 
     ViewClass* thisObject = jsCast<ViewClass*>(callFrame->thisValue());
     validateTypedArray(globalObject, thisObject);
     RETURN_IF_EXCEPTION(scope, { });
 
     size_t length = thisObject->length();
+
     bool isResizableOrGrowableShared = false;
     Structure* structure = globalObject->typedArrayStructure(ViewClass::TypedArrayStorageType, isResizableOrGrowableShared);
     ViewClass* result = ViewClass::createUninitialized(globalObject, structure, length);
     RETURN_IF_EXCEPTION(scope, { });
 
-    typename ViewClass::ElementType* from = thisObject->typedVector();
-    typename ViewClass::ElementType* to = result->typedVector();
-    memmove(to, from, length * ViewClass::elementSize);
-    return JSValue::encode(result);
-}
+    auto from = const_cast<const ViewClass*>(thisObject)->typedSpan();
+    ASSERT(from.size() == length);
+    auto to = result->typedSpan();
 
-template<typename ViewClass>
-ALWAYS_INLINE EncodedJSValue genericTypedArrayViewPrivateFuncSort(VM& vm, JSGlobalObject* globalObject, CallFrame* callFrame)
-{
-    auto scope = DECLARE_THROW_SCOPE(vm);
+    WTF::copyElements(to, from);
 
-    // 22.2.3.25
-    ViewClass* thisObject = jsCast<ViewClass*>(callFrame->argument(0));
-    validateTypedArray(globalObject, thisObject);
-    RETURN_IF_EXCEPTION(scope, { });
-
-    if (UNLIKELY(!thisObject->sort()))
-        return throwVMTypeError(globalObject, scope, typedArrayBufferHasBeenDetachedErrorMessage);
-
-    return JSValue::encode(thisObject);
+    RELEASE_AND_RETURN(scope, genericTypedArrayViewProtoFuncSortImpl(vm, globalObject, result, comparatorValue));
 }
 
 template<typename ViewClass>
@@ -909,6 +1039,10 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncSlice(VM& vm, JSGloba
         scope.release();
         jsCast<JSUint32Array*>(result)->setFromTypedArray(globalObject, 0, thisObject, begin, length, CopyType::LeftToRight);
         return JSValue::encode(result);
+    case Float16ArrayType:
+        scope.release();
+        jsCast<JSFloat16Array*>(result)->setFromTypedArray(globalObject, 0, thisObject, begin, length, CopyType::LeftToRight);
+        return JSValue::encode(result);
     case Float32ArrayType:
         scope.release();
         jsCast<JSFloat32Array*>(result)->setFromTypedArray(globalObject, 0, thisObject, begin, length, CopyType::LeftToRight);
@@ -1072,9 +1206,10 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncWith(VM& vm, JSGlobal
             result->setIndexQuicklyToNativeValue(index, fromValue);
         }
     } else {
-        typename ViewClass::ElementType* from = thisObject->typedVector();
-        typename ViewClass::ElementType* to = result->typedVector();
-        memmove(to, from, thisLength * ViewClass::elementSize);
+        auto from = const_cast<const ViewClass*>(thisObject)->typedSpan();
+        ASSERT(from.size() == thisLength);
+        auto to = result->typedSpan();
+        WTF::copyElements(to, from);
         to[replaceIndex] = nativeValue;
     }
 
@@ -1082,3 +1217,5 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncWith(VM& vm, JSGlobal
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

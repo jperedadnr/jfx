@@ -1,7 +1,7 @@
 /*
  * (C) 1999-2003 Lars Knoll (knoll@kde.org)
  * (C) 2002-2003 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2002-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2002-2024 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -28,6 +28,7 @@
 #include "CachedResourceRequest.h"
 #include "CachedResourceRequestInitiatorTypes.h"
 #include "Document.h"
+#include "DocumentInlines.h"
 #include "MediaList.h"
 #include "MediaQueryParserContext.h"
 #include "Page.h"
@@ -36,18 +37,20 @@
 #include <wtf/StdLibExtras.h>
 
 namespace WebCore {
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleRuleImport);
 
-Ref<StyleRuleImport> StyleRuleImport::create(const String& href, MQ::MediaQueryList&& mediaQueries, std::optional<CascadeLayerName>&& cascadeLayerName)
+Ref<StyleRuleImport> StyleRuleImport::create(const String& href, MQ::MediaQueryList&& mediaQueries, std::optional<CascadeLayerName>&& cascadeLayerName, SupportsCondition&& supportsCondition)
 {
-    return adoptRef(*new StyleRuleImport(href, WTFMove(mediaQueries), WTFMove(cascadeLayerName)));
+    return adoptRef(*new StyleRuleImport(href, WTFMove(mediaQueries), WTFMove(cascadeLayerName), WTFMove(supportsCondition)));
 }
 
-StyleRuleImport::StyleRuleImport(const String& href, MQ::MediaQueryList&& mediaQueries, std::optional<CascadeLayerName>&& cascadeLayerName)
+StyleRuleImport::StyleRuleImport(const String& href, MQ::MediaQueryList&& mediaQueries, std::optional<CascadeLayerName>&& cascadeLayerName, SupportsCondition&& supportsCondition)
     : StyleRuleBase(StyleRuleType::Import)
     , m_styleSheetClient(this)
     , m_strHref(href)
     , m_mediaQueries(WTFMove(mediaQueries))
     , m_cascadeLayerName(WTFMove(cascadeLayerName))
+    , m_supportsCondition(WTFMove(supportsCondition))
 {
 }
 
@@ -69,7 +72,7 @@ StyleRuleImport::~StyleRuleImport()
         m_cachedSheet->removeClient(m_styleSheetClient);
 }
 
-void StyleRuleImport::setCSSStyleSheet(const String& href, const URL& baseURL, const String& charset, const CachedCSSStyleSheet* cachedStyleSheet)
+void StyleRuleImport::setCSSStyleSheet(const String& href, const URL& baseURL, ASCIILiteral charset, const CachedCSSStyleSheet* cachedStyleSheet)
 {
     if (m_styleSheet)
         m_styleSheet->clearOwnerRule();
@@ -155,12 +158,12 @@ void StyleRuleImport::requestStyleSheet()
 
         request.setOptions(WTFMove(options));
 
-        m_cachedSheet = document->cachedResourceLoader().requestUserCSSStyleSheet(*page, WTFMove(request));
+        m_cachedSheet = document->protectedCachedResourceLoader()->requestUserCSSStyleSheet(*page, WTFMove(request));
     } else {
         auto options = request.options();
         options.loadedFromOpaqueSource = m_parentStyleSheet->isContentOpaque() ? LoadedFromOpaqueSource::Yes : LoadedFromOpaqueSource::No;
         request.setOptions(WTFMove(options));
-        m_cachedSheet = document->cachedResourceLoader().requestCSSStyleSheet(WTFMove(request)).value_or(nullptr);
+        m_cachedSheet = document->protectedCachedResourceLoader()->requestCSSStyleSheet(WTFMove(request)).value_or(nullptr);
     }
     if (m_cachedSheet) {
         // if the import rule is issued dynamically, the sheet may be

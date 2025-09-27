@@ -25,21 +25,21 @@
 
 #pragma once
 
-#include "WebGPUComputePassTimestampLocation.h"
 #include "WebGPUIntegralTypes.h"
 #include <wtf/Ref.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore::WebGPU {
 
 class QuerySet;
 
-struct ComputePassTimestampWrite {
-    QuerySet& querySet;
-    Size32 queryIndex { 0 };
-    ComputePassTimestampLocation location { ComputePassTimestampLocation::Beginning };
-};
+struct ComputePassTimestampWrites {
+    WeakPtr<QuerySet> querySet;
+    Size32 beginningOfPassWriteIndex { 0 };
+    Size32 endOfPassWriteIndex { 1 };
 
-using ComputePassTimestampWrites = Vector<ComputePassTimestampWrite>;
+    RefPtr<QuerySet> protectedQuerySet() const { return querySet.get(); }
+};
 
 } // namespace WebCore::WebGPU

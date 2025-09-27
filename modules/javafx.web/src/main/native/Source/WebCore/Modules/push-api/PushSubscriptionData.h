@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "EpochTimeStamp.h"
 #include "PushSubscriptionIdentifier.h"
 
@@ -35,7 +33,7 @@
 namespace WebCore {
 
 struct PushSubscriptionData {
-    PushSubscriptionIdentifier identifier;
+    Markable<PushSubscriptionIdentifier> identifier;
     String endpoint;
     std::optional<WebCore::EpochTimeStamp> expirationTime;
     Vector<uint8_t> serverVAPIDPublicKey;
@@ -47,5 +45,3 @@ struct PushSubscriptionData {
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

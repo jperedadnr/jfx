@@ -53,7 +53,7 @@ struct PendingDisplayNoneActions {
     Vector<uint32_t> clientLocations;
 };
 
-using PendingDisplayNoneActionsMap = HashMap<Trigger, PendingDisplayNoneActions, TriggerHash, TriggerHashTraits>;
+using PendingDisplayNoneActionsMap = UncheckedKeyHashMap<Trigger, PendingDisplayNoneActions, TriggerHash, TriggerHashTraits>;
 
 static void resolvePendingDisplayNoneActions(Vector<SerializedActionByte>& actions, Vector<uint32_t>& actionLocations, PendingDisplayNoneActionsMap& map)
 {
@@ -74,10 +74,10 @@ static Vector<unsigned> serializeActions(const Vector<ContentExtensionRule>& rul
     Vector<uint32_t> actionLocations;
 
     using ActionLocation = uint32_t;
-    using ActionMap = HashMap<ResourceFlags, ActionLocation, DefaultHash<ResourceFlags>, WTF::UnsignedWithZeroKeyHashTraits<ResourceFlags>>;
-    using StringActionMap = HashMap<std::pair<String, ResourceFlags>, ActionLocation, DefaultHash<std::pair<String, ResourceFlags>>, PairHashTraits<HashTraits<String>, WTF::UnsignedWithZeroKeyHashTraits<ResourceFlags>>>;
-    using RedirectActionMap = HashMap<std::pair<RedirectAction, ResourceFlags>, ActionLocation, DefaultHash<std::pair<RedirectAction, ResourceFlags>>, PairHashTraits<HashTraits<RedirectAction>, WTF::UnsignedWithZeroKeyHashTraits<ResourceFlags>>>;
-    using ModifyHeadersActionMap = HashMap<std::pair<ModifyHeadersAction, ResourceFlags>, ActionLocation, DefaultHash<std::pair<ModifyHeadersAction, ResourceFlags>>, PairHashTraits<HashTraits<ModifyHeadersAction>, WTF::UnsignedWithZeroKeyHashTraits<ResourceFlags>>>;
+    using ActionMap = UncheckedKeyHashMap<ResourceFlags, ActionLocation, DefaultHash<ResourceFlags>, WTF::UnsignedWithZeroKeyHashTraits<ResourceFlags>>;
+    using StringActionMap = UncheckedKeyHashMap<std::pair<String, ResourceFlags>, ActionLocation, DefaultHash<std::pair<String, ResourceFlags>>, PairHashTraits<HashTraits<String>, WTF::UnsignedWithZeroKeyHashTraits<ResourceFlags>>>;
+    using RedirectActionMap = UncheckedKeyHashMap<std::pair<RedirectAction, ResourceFlags>, ActionLocation, DefaultHash<std::pair<RedirectAction, ResourceFlags>>, PairHashTraits<HashTraits<RedirectAction>, WTF::UnsignedWithZeroKeyHashTraits<ResourceFlags>>>;
+    using ModifyHeadersActionMap = UncheckedKeyHashMap<std::pair<ModifyHeadersAction, ResourceFlags>, ActionLocation, DefaultHash<std::pair<ModifyHeadersAction, ResourceFlags>>, PairHashTraits<HashTraits<ModifyHeadersAction>, WTF::UnsignedWithZeroKeyHashTraits<ResourceFlags>>>;
     ActionMap blockLoadActionsMap;
     ActionMap blockCookiesActionsMap;
     PendingDisplayNoneActionsMap cssDisplayNoneActionsMap;
@@ -171,7 +171,7 @@ static Vector<unsigned> serializeActions(const Vector<ContentExtensionRule>& rul
     return actionLocations;
 }
 
-using UniversalActionSet = HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
+using UniversalActionSet = UncheckedKeyHashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
 
 static void addUniversalActionsToDFA(DFA& dfa, UniversalActionSet&& universalActions)
 {
@@ -182,8 +182,7 @@ static void addUniversalActionsToDFA(DFA& dfa, UniversalActionSet&& universalAct
     ASSERT(!root.actionsLength());
     unsigned actionsStart = dfa.actions.size();
     dfa.actions.reserveCapacity(dfa.actions.size() + universalActions.size());
-    for (uint64_t action : universalActions)
-        dfa.actions.uncheckedAppend(action);
+    dfa.actions.appendRange(universalActions.begin(), universalActions.end());
     unsigned actionsEnd = dfa.actions.size();
 
     unsigned actionsLength = actionsEnd - actionsStart;
@@ -307,7 +306,6 @@ std::error_code compileRuleList(ContentExtensionCompilationClient& client, Strin
         ASSERT(trigger.urlFilter.length());
 
         // High bits are used for flags. This should match how they are used in DFABytecodeCompiler::compileNode.
-        ASSERT(!trigger.flags || ActionFlagMask & (static_cast<uint64_t>(trigger.flags) << 32));
         ASSERT(!(~ActionFlagMask & (static_cast<uint64_t>(trigger.flags) << 32)));
         uint64_t actionLocationAndFlags = (static_cast<uint64_t>(trigger.flags) << 32) | static_cast<uint64_t>(actionLocations[ruleIndex]);
         URLFilterParser::ParseStatus status = URLFilterParser::Ok;
@@ -339,6 +337,7 @@ std::error_code compileRuleList(ContentExtensionCompilationClient& client, Strin
                 }
                 break;
             case ActionCondition::IfFrameURL:
+            case ActionCondition::UnlessFrameURL:
                 status = frameURLFilterParser.addPattern(condition, trigger.frameURLFilterIsCaseSensitive, actionLocationAndFlags);
                 if (status == URLFilterParser::MatchesEverything) {
                     frameURLUniversalActions.add(actionLocationAndFlags);

@@ -65,6 +65,7 @@ public:
     static constexpr bool is32Bit = false;
 #endif
     static constexpr bool isCompactedType = true;
+    static_assert(::allowCompactPointers<T*>());
 
     ALWAYS_INLINE constexpr CompactPtr() = default;
 
@@ -178,7 +179,7 @@ public:
 
     static ALWAYS_INLINE StorageType encode(T* ptr)
     {
-        uintptr_t intPtr = bitwise_cast<uintptr_t>(ptr);
+        uintptr_t intPtr = std::bit_cast<uintptr_t>(ptr);
 #if HAVE(36BIT_ADDRESS)
         static_assert(alignof(T) >= (1ULL << bitsShift));
         ASSERT(!(intPtr & alignmentMask));
@@ -194,9 +195,9 @@ public:
     {
 #if HAVE(36BIT_ADDRESS)
         static_assert(alignof(T) >= (1ULL << bitsShift));
-        return bitwise_cast<T*>(static_cast<uintptr_t>(ptr) << bitsShift);
+        return std::bit_cast<T*>(static_cast<uintptr_t>(ptr) << bitsShift);
 #else
-        return bitwise_cast<T*>(ptr);
+        return std::bit_cast<T*>(ptr);
 #endif
     }
 
@@ -236,12 +237,14 @@ inline bool operator==(T* a, const CompactPtr<U>& b)
 template <typename T>
 struct GetPtrHelper<CompactPtr<T>> {
     using PtrType = T*;
+    using UnderlyingType = T;
     static T* getPtr(const CompactPtr<T>& p) { return const_cast<T*>(p.get()); }
 };
 
 template <typename T>
 struct IsSmartPtr<CompactPtr<T>> {
     static constexpr bool value = true;
+    static constexpr bool isNullable = true;
 };
 
 template <typename T>

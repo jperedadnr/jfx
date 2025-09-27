@@ -43,8 +43,9 @@ enum CSSAtRuleID {
     CSSAtRuleMedia,
     CSSAtRuleNamespace,
     CSSAtRulePage,
+    CSSAtRulePositionTry,
     CSSAtRuleSupports,
-    CSSAtRuleViewport,
+    CSSAtRuleViewTransition,
 
     CSSAtRuleWebkitKeyframes,
     CSSAtRuleCounterStyle,
@@ -61,6 +62,8 @@ enum CSSAtRuleID {
     CSSAtRuleAnnotation,
 
     CSSAtRuleFontPaletteValues,
+    CSSAtRuleScope,
+    CSSAtRuleStartingStyle,
 };
 
 CSSAtRuleID cssAtRuleID(StringView name);

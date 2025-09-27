@@ -28,11 +28,12 @@
 
 #if ENABLE(ASYNC_SCROLLING)
 
+#include "Logging.h"
 #include "PlatformWheelEvent.h"
 #include "ScrollingTree.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
-
 
 ScrollingTreeGestureState::ScrollingTreeGestureState(ScrollingTree& scrollingTree)
     : m_scrollingTree(scrollingTree)
@@ -60,6 +61,7 @@ bool ScrollingTreeGestureState::handleGestureCancel(const PlatformWheelEvent& ev
 
 void ScrollingTreeGestureState::nodeDidHandleEvent(ScrollingNodeID nodeID, const PlatformWheelEvent& event)
 {
+    LOG_WITH_STREAM(OverlayScrollbars, stream << "ScrollingTreeGestureState::nodeDidHandleEvent " << nodeID << " " << event.phase());
     switch (event.phase()) {
     case PlatformWheelEventPhase::MayBegin:
         m_mayBeginNodeID = nodeID;
@@ -105,8 +107,8 @@ void ScrollingTreeGestureState::nodeDidHandleEvent(ScrollingNodeID nodeID, const
 
 void ScrollingTreeGestureState::clearAllNodes()
 {
-    m_mayBeginNodeID = 0;
-    m_activeNodeID = 0;
+    m_mayBeginNodeID = std::nullopt;
+    m_activeNodeID = std::nullopt;
 }
 
 };

@@ -60,6 +60,8 @@ public:
     bool allowUnsafeHashes() const { return m_allowUnsafeHashes; }
     bool shouldReportSample() const { return m_reportSample; }
 
+    HashAlgorithmSet reportHash() const { return m_reportHash; }
+
 private:
     struct Host {
         StringView value;
@@ -81,16 +83,16 @@ private:
     template<typename CharacterType> void parse(StringParsingBuffer<CharacterType>);
     template<typename CharacterType> std::optional<Source> parseSource(StringParsingBuffer<CharacterType>);
     template<typename CharacterType> StringView parseScheme(StringParsingBuffer<CharacterType>);
-    template<typename CharacterType> std::optional<Host> parseHost(StringParsingBuffer<CharacterType>);
-    template<typename CharacterType> std::optional<Port> parsePort(StringParsingBuffer<CharacterType>);
-    template<typename CharacterType> String parsePath(StringParsingBuffer<CharacterType>);
+    template<typename CharacterType> std::optional<Host> parseHost(std::span<const CharacterType>);
+    template<typename CharacterType> std::optional<Port> parsePort(std::span<const CharacterType>);
+    template<typename CharacterType> String parsePath(std::span<const CharacterType>);
     template<typename CharacterType> bool parseNonceSource(StringParsingBuffer<CharacterType>);
     template<typename CharacterType> bool parseHashSource(StringParsingBuffer<CharacterType>);
 
     const ContentSecurityPolicy& m_policy;
     Vector<ContentSecurityPolicySource> m_list;
     MemoryCompactLookupOnlyRobinHoodHashSet<String> m_nonces;
-    HashSet<ContentSecurityPolicyHash> m_hashes;
+    UncheckedKeyHashSet<ContentSecurityPolicyHash> m_hashes;
     OptionSet<ContentSecurityPolicyHashAlgorithm> m_hashAlgorithmsUsed;
     String m_directiveName;
     ContentSecurityPolicyModeForExtension m_contentSecurityPolicyModeForExtension { ContentSecurityPolicyModeForExtension::None };
@@ -103,6 +105,7 @@ private:
     bool m_allowNonParserInsertedScripts { false };
     bool m_allowUnsafeHashes { false };
     bool m_reportSample { false };
+    HashAlgorithmSet m_reportHash { 0 };
 };
 
 } // namespace WebCore

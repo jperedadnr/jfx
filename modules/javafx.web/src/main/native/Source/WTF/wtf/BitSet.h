@@ -26,8 +26,11 @@
 #include <wtf/MathExtras.h>
 #include <wtf/PrintStream.h>
 #include <wtf/StdIntExtras.h>
+#include <wtf/StdLibExtras.h>
 #include <string.h>
 #include <type_traits>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WTF {
 
@@ -78,6 +81,9 @@ public:
     // void, in which case, we'll iterate every set bit.
     template<typename Func>
     constexpr ALWAYS_INLINE void forEachSetBit(const Func&) const;
+
+    template<typename Func>
+    constexpr ALWAYS_INLINE void forEachSetBit(size_t startIndex, const Func&) const;
 
     constexpr size_t findBit(size_t startIndex, bool value) const;
 
@@ -133,10 +139,13 @@ public:
 
     void dump(PrintStream& out) const;
 
-    WordType* storage() { return bits.data(); }
-    const WordType* storage() const { return bits.data(); }
+    std::span<WordType> storage() { return bits; }
+    std::span<const WordType> storage() const { return bits; }
 
     constexpr size_t storageLengthInBytes() { return sizeof(bits); }
+
+    std::span<uint8_t> storageBytes() { return unsafeMakeSpan(reinterpret_cast<uint8_t*>(bits.data()), storageLengthInBytes()); }
+    std::span<const uint8_t> storageBytes() const { return unsafeMakeSpan(reinterpret_cast<const uint8_t*>(bits.data()), storageLengthInBytes()); }
 
 private:
     void cleanseLastWord();
@@ -204,7 +213,7 @@ ALWAYS_INLINE constexpr bool BitSet<bitSetSize, WordType>::concurrentTestAndSet(
     // transactionRelaxed() returns true if the bit was changed. If the bit was changed,
     // then the previous bit must have been false since we're trying to set it. Hence,
     // the result of transactionRelaxed() is the inverse of our expected result.
-    return !bitwise_cast<Atomic<WordType>*>(data)->transactionRelaxed(
+    return !std::bit_cast<Atomic<WordType>*>(data)->transactionRelaxed(
         [&] (WordType& value) -> bool {
             if (value & mask)
                 return false;
@@ -223,7 +232,7 @@ ALWAYS_INLINE constexpr bool BitSet<bitSetSize, WordType>::concurrentTestAndClea
     // transactionRelaxed() returns true if the bit was changed. If the bit was changed,
     // then the previous bit must have been true since we're trying to clear it. Hence,
     // the result of transactionRelaxed() matches our expected result.
-    return bitwise_cast<Atomic<WordType>*>(data)->transactionRelaxed(
+    return std::bit_cast<Atomic<WordType>*>(data)->transactionRelaxed(
         [&] (WordType& value) -> bool {
             if (!(value & mask))
                 return false;
@@ -398,38 +407,14 @@ template<size_t bitSetSize, typename WordType>
 template<typename Func>
 ALWAYS_INLINE constexpr void BitSet<bitSetSize, WordType>::forEachSetBit(const Func& func) const
 {
-    for (size_t i = 0; i < words; ++i) {
-        WordType word = bits[i];
-        if (!word)
-            continue;
-        size_t base = i * wordSize;
+    WTF::forEachSetBit(std::span { bits.data(), bits.size() }, func);
+}
 
-#if COMPILER(GCC_COMPATIBLE) && (CPU(X86_64) || CPU(ARM64))
-        // We should only use ctz() when we know that ctz() is implementated using
-        // a fast hardware instruction. Otherwise, this will actually result in
-        // worse performance.
-        while (word) {
-            size_t offset = ctz(word);
-            if constexpr (std::is_same_v<IterationStatus, decltype(func(base + offset))>) {
-                if (func(base + offset) == IterationStatus::Done)
-                    return;
-            } else
-                func(base + offset);
-            word &= ~(1ull << offset);
-        }
-#else
-        for (size_t j = 0; j < wordSize; ++j) {
-            if (word & 1) {
-                if constexpr (std::is_same_v<IterationStatus, decltype(func(base + j))>) {
-                    if (func(base + j) == IterationStatus::Done)
-                        return;
-                } else
-                    func(base + j);
-            }
-            word >>= 1;
-        }
-#endif
-    }
+template<size_t bitSetSize, typename WordType>
+template<typename Func>
+ALWAYS_INLINE constexpr void BitSet<bitSetSize, WordType>::forEachSetBit(size_t startIndex, const Func& func) const
+{
+    WTF::forEachSetBit(std::span { bits.data(), bits.size() }, startIndex, func);
 }
 
 template<size_t bitSetSize, typename WordType>
@@ -549,3 +534,5 @@ inline void BitSet<bitSetSize, WordType>::dump(PrintStream& out) const
 } // namespace WTF
 
 // We can't do "using WTF::BitSet;" here because there is a function in the macOS SDK named BitSet() already.
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -28,7 +28,8 @@
 #include "ExceptionOr.h"
 #include "JSDOMGlobalObject.h"
 #include <JavaScriptCore/Strong.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -36,23 +37,32 @@ class InternalWritableStream;
 class JSDOMGlobalObject;
 class WritableStreamSink;
 
-class WritableStream : public RefCounted<WritableStream> {
+class WritableStream : public RefCountedAndCanMakeWeakPtr<WritableStream> {
 public:
     static ExceptionOr<Ref<WritableStream>> create(JSC::JSGlobalObject&, std::optional<JSC::Strong<JSC::JSObject>>&&, std::optional<JSC::Strong<JSC::JSObject>>&&);
     static ExceptionOr<Ref<WritableStream>> create(JSDOMGlobalObject&, Ref<WritableStreamSink>&&);
     static Ref<WritableStream> create(Ref<InternalWritableStream>&&);
 
-    ~WritableStream();
+    virtual ~WritableStream();
 
     void lock();
     bool locked() const;
 
+    void closeIfPossible();
+    void errorIfPossible(Exception&&);
+
     InternalWritableStream& internalWritableStream();
+    enum class Type : bool {
+        Default,
+        FileSystem
+    };
+    virtual Type type() const { return Type::Default; }
 
-private:
+protected:
     static ExceptionOr<Ref<WritableStream>> create(JSC::JSGlobalObject&, JSC::JSValue, JSC::JSValue);
+    static ExceptionOr<Ref<InternalWritableStream>> createInternalWritableStream(JSDOMGlobalObject&, Ref<WritableStreamSink>&&);
     explicit WritableStream(Ref<InternalWritableStream>&&);
-
+private:
     Ref<InternalWritableStream> m_internalWritableStream;
 };
 

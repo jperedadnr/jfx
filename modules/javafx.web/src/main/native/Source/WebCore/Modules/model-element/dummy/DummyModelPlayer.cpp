@@ -38,6 +38,9 @@ Ref<DummyModelPlayer> DummyModelPlayer::create(ModelPlayerClient& client)
 
 DummyModelPlayer::DummyModelPlayer(ModelPlayerClient& client)
     : m_client { client }
+#if ENABLE(MODEL_PROCESS)
+    , m_id(ModelPlayerIdentifier::generate())
+#endif
 {
 }
 
@@ -52,6 +55,11 @@ void DummyModelPlayer::load(Model& model, LayoutSize)
 PlatformLayer* DummyModelPlayer::layer()
 {
     return nullptr;
+}
+
+std::optional<LayerHostingContextIdentifier> DummyModelPlayer::layerHostingContextIdentifier()
+{
+    return std::nullopt;
 }
 
 void DummyModelPlayer::sizeDidChange(LayoutSize)

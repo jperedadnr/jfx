@@ -126,6 +126,7 @@ inline CapabilityLevel canCompile(Node* node)
     case ArithTrunc:
     case ArithSqrt:
     case ArithFRound:
+    case ArithF16Round:
     case ArithNegate:
     case ArithUnary:
     case UInt32ToNumber:
@@ -140,6 +141,7 @@ inline CapabilityLevel canCompile(Node* node)
     case SkipScope:
     case GetGlobalObject:
     case GetGlobalThis:
+    case UnwrapGlobalProxy:
     case CreateActivation:
     case PushWithScope:
     case NewFunction:
@@ -158,6 +160,7 @@ inline CapabilityLevel canCompile(Node* node)
     case PutToArguments:
     case GetArgument:
     case InvalidationPoint:
+    case StringAt:
     case StringCharAt:
     case StringLocaleCompare:
     case CheckIsConstant:
@@ -198,6 +201,8 @@ inline CapabilityLevel canCompile(Node* node)
     case TailCallForwardVarargsInlinedCaller:
     case ConstructForwardVarargs:
     case CallWasm:
+    case CallCustomAccessorGetter:
+    case CallCustomAccessorSetter:
     case VarargsLength:
     case LoadVarargs:
     case ValueToInt32:
@@ -243,6 +248,7 @@ inline CapabilityLevel canCompile(Node* node)
     case NewArrayWithSize:
     case NewArrayWithConstantSize:
     case NewArrayWithSpecies:
+    case NewArrayWithSizeAndStructure:
     case TryGetById:
     case GetById:
     case GetByIdFlush:
@@ -257,22 +263,31 @@ inline CapabilityLevel canCompile(Node* node)
     case MultiDeleteByOffset:
     case ToPrimitive:
     case ToPropertyKey:
+    case ToPropertyKeyOrNumber:
     case Throw:
     case ThrowStaticError:
     case Unreachable:
     case InByVal:
     case InById:
+    case InByValMegamorphic:
+    case InByIdMegamorphic:
     case HasPrivateName:
     case HasPrivateBrand:
     case HasOwnProperty:
     case IsCellWithType:
     case MapHash:
     case NormalizeMapKey:
-    case GetMapBucket:
-    case GetMapBucketHead:
-    case GetMapBucketNext:
-    case LoadKeyFromMapBucket:
-    case LoadValueFromMapBucket:
+    case MapGet:
+    case LoadMapValue:
+    case MapIterationNext:
+    case MapIterationEntry:
+    case MapIterationEntryKey:
+    case MapIterationEntryValue:
+    case MapStorage:
+    case MapStorageOrSentinel:
+    case MapIteratorNext:
+    case MapIteratorKey:
+    case MapIteratorValue:
     case ExtractValueFromWeakMapGet:
     case SetAdd:
     case MapSet:
@@ -281,6 +296,7 @@ inline CapabilityLevel canCompile(Node* node)
     case WeakSetAdd:
     case WeakMapSet:
     case IsEmpty:
+    case IsEmptyStorage:
     case TypeOfIsUndefined:
     case TypeOfIsObject:
     case TypeOfIsFunction:
@@ -299,10 +315,12 @@ inline CapabilityLevel canCompile(Node* node)
     case HasStructureWithFlags:
     case OverridesHasInstance:
     case InstanceOf:
+    case InstanceOfMegamorphic:
     case InstanceOfCustom:
     case DoubleRep:
     case ValueRep:
     case Int52Rep:
+    case PurifyNaN:
     case DoubleConstant:
     case Int52Constant:
     case BooleanToNumber:
@@ -318,6 +336,7 @@ inline CapabilityLevel canCompile(Node* node)
     case EnumeratorPutByVal:
     case BottomValue:
     case PhantomNewObject:
+    case PhantomNewArrayWithConstantSize:
     case PhantomNewFunction:
     case PhantomNewGeneratorFunction:
     case PhantomNewAsyncGeneratorFunction:
@@ -328,6 +347,7 @@ inline CapabilityLevel canCompile(Node* node)
     case PutHint:
     case CheckStructureImmediate:
     case MaterializeNewObject:
+    case MaterializeNewArrayWithConstantSize:
     case MaterializeCreateActivation:
     case MaterializeNewInternalFieldObject:
     case PhantomDirectArguments:
@@ -363,6 +383,8 @@ inline CapabilityLevel canCompile(Node* node)
     case RegExpMatchFast:
     case RegExpMatchFastGlobal:
     case NewRegexp:
+    case NewMap:
+    case NewSet:
     case StringReplace:
     case StringReplaceRegExp:
     case StringReplaceString:
@@ -399,11 +421,14 @@ inline CapabilityLevel canCompile(Node* node)
     case CallDOM:
     case CallDOMGetter:
     case ArraySlice:
-    case ArraySpliceExtract:
+    case ArraySplice:
+    case ArrayIncludes:
     case ArrayIndexOf:
     case ArrayPop:
     case ArrayPush:
     case ParseInt:
+    case ToIntegerOrInfinity:
+    case ToLength:
     case AtomicsAdd:
     case AtomicsAnd:
     case AtomicsCompareExchange:
@@ -417,6 +442,7 @@ inline CapabilityLevel canCompile(Node* node)
     case InitializeEntrypointArguments:
     case CPUIntrinsic:
     case GetArrayLength:
+    case GetUndetachedTypeArrayLength:
     case GetTypedArrayLengthAsInt52:
     case GetVectorLength:
     case GetByVal:
@@ -479,14 +505,12 @@ inline CapabilityLevel canCompile(Node* node)
 CapabilityLevel canCompile(Graph& graph)
 {
     if (graph.m_codeBlock->bytecodeCost() > Options::maximumFTLCandidateBytecodeCost()) {
-        if (verboseCapabilities())
-            dataLog("FTL rejecting ", *graph.m_codeBlock, " because it's too big.\n");
+        dataLogLnIf(verboseCapabilities(), "FTL rejecting ", *graph.m_codeBlock, " because it's too big.");
         return CannotCompile;
     }
 
     if (UNLIKELY(graph.m_codeBlock->ownerExecutable()->neverFTLOptimize())) {
-        if (verboseCapabilities())
-            dataLog("FTL rejecting ", *graph.m_codeBlock, " because it is marked as never FTL compile.\n");
+        dataLogLnIf(verboseCapabilities(), "FTL rejecting ", *graph.m_codeBlock, " because it is marked as never FTL compile.");
         return CannotCompile;
     }
 
@@ -538,7 +562,9 @@ CapabilityLevel canCompile(Graph& graph)
                 case HeapBigIntUse:
                 case DateObjectUse:
                 case MapObjectUse:
+                case MapIteratorObjectUse:
                 case SetObjectUse:
+                case SetIteratorObjectUse:
                 case WeakMapObjectUse:
                 case WeakSetObjectUse:
                 case DataViewObjectUse:
@@ -546,6 +572,7 @@ CapabilityLevel canCompile(Graph& graph)
                 case PromiseObjectUse:
                 case RegExpObjectUse:
                 case ProxyObjectUse:
+                case GlobalProxyUse:
                 case DerivedArrayUse:
                 case NotCellUse:
                 case NotCellNorBigIntUse:
@@ -564,9 +591,11 @@ CapabilityLevel canCompile(Graph& graph)
                     break;
                 default:
                     // Don't know how to handle anything else.
-                    if (verboseCapabilities()) {
-                        dataLog("FTL rejecting node in ", *graph.m_codeBlock, " because of bad use kind: ", edge.useKind(), " in node:\n");
+                    if (UNLIKELY(verboseCapabilities())) {
+                        WTF::dataFile().atomically([&](auto&) {
+                            dataLogLn("FTL rejecting node in ", *graph.m_codeBlock, " because of bad use kind: ", edge.useKind(), " in node:");
                         graph.dump(WTF::dataFile(), "    ", node);
+                        });
                     }
                     return CannotCompile;
                 }
@@ -574,16 +603,20 @@ CapabilityLevel canCompile(Graph& graph)
 
             switch (canCompile(node)) {
             case CannotCompile:
-                if (verboseCapabilities()) {
-                    dataLog("FTL rejecting node in ", *graph.m_codeBlock, ":\n");
+                if (UNLIKELY(verboseCapabilities())) {
+                    WTF::dataFile().atomically([&](auto&) {
+                        dataLogLn("FTL rejecting node in ", *graph.m_codeBlock, ":");
                     graph.dump(WTF::dataFile(), "    ", node);
+                    });
                 }
                 return CannotCompile;
 
             case CanCompile:
-                if (result == CanCompileAndOSREnter && verboseCompilationEnabled()) {
-                    dataLog("FTL disabling OSR entry because of node:\n");
+                if (UNLIKELY(result == CanCompileAndOSREnter && verboseCompilationEnabled())) {
+                    WTF::dataFile().atomically([&](auto&) {
+                        dataLogLn("FTL disabling OSR entry because of node:");
                     graph.dump(WTF::dataFile(), "    ", node);
+                    });
                 }
                 result = CanCompile;
                 break;

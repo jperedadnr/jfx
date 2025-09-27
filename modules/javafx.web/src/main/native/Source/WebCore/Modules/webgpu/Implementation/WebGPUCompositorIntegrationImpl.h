@@ -30,9 +30,11 @@
 #include "WebGPUCompositorIntegration.h"
 
 #include "WebGPUPresentationContextImpl.h"
+#include <WebCore/IOSurface.h>
 #include <WebGPU/WebGPU.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Function.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 #if PLATFORM(COCOA)
@@ -41,12 +43,17 @@
 #include <wtf/spi/cocoa/IOSurfaceSPI.h>
 #endif
 
+namespace WebCore {
+class Device;
+class NativeImage;
+}
+
 namespace WebCore::WebGPU {
 
 class ConvertToBackingContext;
 
 class CompositorIntegrationImpl final : public CompositorIntegration {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CompositorIntegrationImpl);
 public:
     static Ref<CompositorIntegrationImpl> create(ConvertToBackingContext& convertToBackingContext)
     {
@@ -69,6 +76,9 @@ public:
         m_onSubmittedWorkScheduledCallback = WTFMove(onSubmittedWorkScheduledCallback);
     }
 
+    void withDisplayBufferAsNativeImage(uint32_t bufferIndex, Function<void(WebCore::NativeImage*)>) final;
+    void paintCompositedResultsToCanvas(WebCore::ImageBuffer&, uint32_t) final;
+
 private:
     friend class DowncastConvertToBackingContext;
 
@@ -79,12 +89,12 @@ private:
     CompositorIntegrationImpl& operator=(const CompositorIntegrationImpl&) = delete;
     CompositorIntegrationImpl& operator=(CompositorIntegrationImpl&&) = delete;
 
-    void prepareForDisplay(CompletionHandler<void()>&&) override;
+    void prepareForDisplay(uint32_t frameIndex, CompletionHandler<void()>&&) override;
 
 #if PLATFORM(COCOA)
-    Vector<MachSendRight> recreateRenderBuffers(int width, int height) override;
+    Vector<MachSendRight> recreateRenderBuffers(int width, int height, WebCore::DestinationColorSpace&&, WebCore::AlphaPremultiplication, WebCore::WebGPU::TextureFormat, Device&) override;
 
-    Vector<RetainPtr<IOSurfaceRef>> m_renderBuffers;
+    Vector<UniqueRef<WebCore::IOSurface>> m_renderBuffers;
     WTF::Function<void(CFArrayRef)> m_renderBuffersWereRecreatedCallback;
 #endif
 
@@ -92,6 +102,7 @@ private:
 
     RefPtr<PresentationContextImpl> m_presentationContext;
     Ref<ConvertToBackingContext> m_convertToBackingContext;
+    WeakPtr<Device> m_device;
 };
 
 } // namespace WebCore::WebGPU

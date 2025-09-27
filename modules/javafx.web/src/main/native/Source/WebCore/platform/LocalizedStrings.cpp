@@ -27,9 +27,11 @@
 #include "config.h"
 #include "LocalizedStrings.h"
 
+#include "DateComponents.h"
 #include "IntSize.h"
 #include "NotImplemented.h"
 #include <wtf/MathExtras.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextBreakIterator.h>
 #include <wtf/unicode/CharacterNames.h>
 
@@ -90,19 +92,17 @@ String formatLocalizedString(const char* format, ...)
 #if PLATFORM(COCOA)
 static CFBundleRef webCoreBundle()
 {
-    static NeverDestroyed<RetainPtr<CFBundleRef>> bundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebCore"));
+    static LazyNeverDestroyed<RetainPtr<CFBundleRef>> bundle;
+    static std::once_flag flag;
+    std::call_once(flag, [&] mutable {
+        bundle.construct(CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebCore")));
+    });
     ASSERT(bundle.get());
     return bundle.get().get();
 }
 
 RetainPtr<CFStringRef> copyLocalizedString(CFStringRef key)
 {
-#if !PLATFORM(IOS_FAMILY)
-    // Can be called on a dispatch queue when initializing strings on iOS.
-    // See LoadWebLocalizedStrings and <rdar://problem/7902473>.
-    ASSERT(isMainThread());
-#endif
-
     static CFStringRef notFound = CFSTR("localized string not found");
 
     auto result = adoptCF(CFBundleCopyLocalizedString(webCoreBundle(), key, notFound, nullptr));
@@ -132,13 +132,13 @@ String localizedString(const wchar_t* key)
 #else
 String localizedString(const char* key)
 {
-    return String::fromUTF8(key, strlen(key));
+    return String::fromUTF8(key);
 }
 #endif
 
-#if ENABLE(CONTEXT_MENUS) && PLATFORM(COCOA)
+#if PLATFORM(COCOA)
 
-static String truncatedStringForMenuItem(const String& original)
+String truncatedStringForMenuItem(const String& original)
 {
     // Truncate the string if it's too long. This number is roughly the same as the one used by AppKit.
     unsigned maxNumberOfGraphemeClustersInLookupMenuItem = 24;
@@ -503,27 +503,21 @@ String contextMenuItemTagTranslate(const String& selectedString)
 }
 #endif
 
-#if ENABLE(PDFJS)
-String contextMenuItemPDFAutoSize()
+#if ENABLE(WRITING_TOOLS)
+String contextMenuItemTagWritingTools()
 {
-    return WEB_UI_STRING_WITH_MNEMONIC("Automatically Resize", "_Automatically Resize", "Automatically Resize context menu item");
+    return WEB_UI_STRING("Writing Tools", "Writing Tools context menu item");
 }
+#endif
 
-String contextMenuItemPDFZoomIn()
+#if ENABLE(UNIFIED_PDF)
+String contextMenuItemPDFOpenWithPreview()
 {
-    return WEB_UI_STRING_WITH_MNEMONIC("Zoom In", "_Zoom In", "Zoom In Continuous context menu item");
+    return WEB_UI_STRING("Open with Preview", "Open with Preview context menu item");
 }
+#endif
 
-String contextMenuItemPDFZoomOut()
-{
-    return WEB_UI_STRING_WITH_MNEMONIC("Zoom Out", "_Zoom Out", "Zoom Out context menu item");
-}
-
-String contextMenuItemPDFActualSize()
-{
-    return WEB_UI_STRING_WITH_MNEMONIC("Actual Size", "_Actual Size", "Actual Size context menu item");
-}
-
+#if ENABLE(PDFJS) || ENABLE(UNIFIED_PDF)
 String contextMenuItemPDFSinglePage()
 {
     return WEB_UI_STRING_WITH_MNEMONIC("Single Page", "_Single Page", "Single Page context menu item");
@@ -544,6 +538,26 @@ String contextMenuItemPDFTwoPagesContinuous()
     return WEB_UI_STRING_WITH_MNEMONIC("Two Pages Continuous", "_Two Pages Continuous", "Two Pages Continuous context menu item");
 }
 
+String contextMenuItemPDFZoomIn()
+{
+    return WEB_UI_STRING_WITH_MNEMONIC("Zoom In", "_Zoom In", "Zoom In Continuous context menu item");
+}
+
+String contextMenuItemPDFZoomOut()
+{
+    return WEB_UI_STRING_WITH_MNEMONIC("Zoom Out", "_Zoom Out", "Zoom Out context menu item");
+}
+
+String contextMenuItemPDFActualSize()
+{
+    return WEB_UI_STRING_WITH_MNEMONIC("Actual Size", "_Actual Size", "Actual Size context menu item");
+}
+
+String contextMenuItemPDFAutoSize()
+{
+    return WEB_UI_STRING_WITH_MNEMONIC("Automatically Resize", "_Automatically Resize", "Automatically Resize context menu item");
+}
+
 String contextMenuItemPDFNextPage()
 {
     return WEB_UI_STRING_WITH_MNEMONIC("Next Page", "_Next Page", "Next Page context menu item");
@@ -554,6 +568,7 @@ String contextMenuItemPDFPreviousPage()
     return WEB_UI_STRING_WITH_MNEMONIC("Previous Page", "_Previous Page", "Previous Page context menu item");
 }
 #endif
+
 #endif // ENABLE(CONTEXT_MENUS)
 
 #if !PLATFORM(COCOA)
@@ -723,6 +738,26 @@ String AXDateFieldYearText()
     return WEB_UI_STRING("year", "accessibility label for a date field year input.");
 }
 
+String AXTimeFieldHourText()
+{
+    return WEB_UI_STRING("hour", "accessibility label for hour fields.");
+}
+
+String AXTimeFieldMinuteText()
+{
+    return WEB_UI_STRING("minutes", "accessibility label for minutes fields.");
+}
+
+String AXTimeFieldSecondText()
+{
+    return WEB_UI_STRING("seconds", "accessibility label for seconds fields.");
+}
+
+String AXTimeFieldMillisecondText()
+{
+    return WEB_UI_STRING("milliseconds", "accessibility label for milliseconds fields.");
+}
+
 String AXDateTimeFieldText()
 {
     return WEB_UI_STRING("date and time field", "accessibility role description for a date and time field.");
@@ -815,12 +850,12 @@ String AXTextFieldActionVerb()
     return WEB_UI_STRING("activate", "Verb stating the action that will occur when a text field is selected, as used by accessibility");
 }
 
-String AXCheckedCheckBoxActionVerb()
+String AXCheckedCheckboxActionVerb()
 {
     return WEB_UI_STRING("uncheck", "Verb stating the action that will occur when a checked checkbox is clicked, as used by accessibility");
 }
 
-String AXUncheckedCheckBoxActionVerb()
+String AXUncheckedCheckboxActionVerb()
 {
     return WEB_UI_STRING("check", "Verb stating the action that will occur when an unchecked checkbox is clicked, as used by accessibility");
 }
@@ -1147,7 +1182,7 @@ String validationMessageValueMissingText()
 
 String validationMessageValueMissingForCheckboxText()
 {
-    return WEB_UI_STRING("Select this checkbox", "Validation message for required checkboxes that have not be selected");
+    return WEB_UI_STRING("Select this checkbox", "Validation message for required checkboxes that have not been selected");
 }
 
 String validationMessageValueMissingForFileText()
@@ -1168,6 +1203,11 @@ String validationMessageValueMissingForRadioText()
 String validationMessageValueMissingForSelectText()
 {
     return WEB_UI_STRING("Select an item in the list", "Validation message for required menu list controls that have no selection");
+}
+
+String validationMessageValueMissingForSwitchText()
+{
+    return WEB_UI_STRING("Tap this switch", "Validation message for required switches that are not on");
 }
 
 String validationMessageTypeMismatchText()
@@ -1413,32 +1453,11 @@ String contextMenuItemTagShowMediaStats()
 
 #endif // ENABLE(VIDEO)
 
-String snapshottedPlugInLabelTitle()
-{
-    return WEB_UI_STRING("Snapshotted Plug-In", "Title of the label to show on a snapshotted plug-in");
-}
-
-String snapshottedPlugInLabelSubtitle()
-{
-    return WEB_UI_STRING("Click to restart", "Subtitle of the label to show on a snapshotted plug-in");
-}
-
-String useBlockedPlugInContextMenuTitle()
-{
-    return WEB_UI_STRING("Show in blocked plug-in", "Title of the context menu item to show when PDFPlugin was used instead of a blocked plugin");
-}
-
-#if ENABLE(WEB_CRYPTO) && PLATFORM(COCOA)
+#if PLATFORM(COCOA)
 
 String webCryptoMasterKeyKeychainLabel(const String& localizedApplicationName)
 {
-#if PLATFORM(COCOA)
     return WEB_UI_FORMAT_CFSTRING("%@ WebCrypto Master Key", "Name of application's single WebCrypto master key in Keychain", localizedApplicationName.createCFString().get());
-#elif USE(GLIB)
-    return WEB_UI_FORMAT_STRING("%s WebCrypto Master Key", "Name of application's single WebCrypto master key in Keychain", localizedApplicationName.utf8().data());
-#else
-    return makeStringByReplacingAll(WEB_UI_STRING("<application> WebCrypto Master Key", "Name of application's single WebCrypto master key in Keychain"), "<application>"_s, localizedApplicationName);
-#endif
 }
 
 String webCryptoMasterKeyKeychainComment()
@@ -1497,6 +1516,17 @@ String datePickerYearLabelTitle()
 
 #endif
 
+#if ENABLE(INPUT_TYPE_WEEK_PICKER)
+
+String inputWeekLabel(const DateComponents& dateComponents)
+{
+    int week = dateComponents.week();
+    int year = dateComponents.fullYear();
+    return WEB_UI_FORMAT_STRING("Week %1$d, %2$d", "Week of year input type label with week number and year", week, year);
+}
+
+#endif
+
 #if USE(SOUP)
 String unacceptableTLSCertificate()
 {
@@ -1522,5 +1552,37 @@ String genericTouchIDPromptTitle()
     return WEB_UI_STRING("Continue with Touch ID.", "Continue with Touch ID.");
 }
 #endif // ENABLE(WEB_AUTHN)
+
+String pdfPasswordFormTitle()
+{
+    return WEB_UI_STRING("This document is password protected.", "Title when a PDF needs a password to be unlocked");
+}
+
+String pdfPasswordFormSubtitle()
+{
+    return WEB_UI_STRING("Please enter the password below.", "Subtitle when a PDF needs a password to be unlocked");
+}
+
+String pdfPasswordFormInvalidPasswordSubtitle()
+{
+    return WEB_UI_STRING("Invalid Password", "Message when a PDF fails to unlock with the given password");
+}
+
+String contextMenuItemTagCopyLinkWithHighlight()
+{
+    return WEB_UI_STRING("Copy Link with Highlight", "Copy link with highlight context menu item");
+}
+
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+String fullscreenControllerViewSpatial()
+{
+    return WEB_UI_STRING("View Spatial", "Title for View Spatial action button while in fullscreen");
+}
+
+String fullscreenControllerViewImmersive()
+{
+    return WEB_UI_STRING("View Immersive", "Title for View Immersive action button while in fullscreen");
+}
+#endif
 
 } // namespace WebCore

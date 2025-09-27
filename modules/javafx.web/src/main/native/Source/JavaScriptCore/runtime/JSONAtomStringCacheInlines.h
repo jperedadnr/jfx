@@ -32,33 +32,36 @@
 
 namespace JSC {
 
+// FIXME: This should take in a std::span.
 template<typename CharacterType>
-ALWAYS_INLINE Ref<AtomStringImpl> JSONAtomStringCache::make(Type type, const CharacterType* characters, unsigned length)
+ALWAYS_INLINE Ref<AtomStringImpl> JSONAtomStringCache::make(std::span<const CharacterType> characters)
 {
-    if (!length)
+    if (characters.empty())
         return *static_cast<AtomStringImpl*>(StringImpl::empty());
 
-    auto firstCharacter = characters[0];
-    if (length == 1) {
+    auto firstCharacter = characters.front();
+    if (characters.size() == 1) {
         if (firstCharacter <= maxSingleCharacterString)
             return vm().smallStrings.singleCharacterStringRep(firstCharacter);
-    } else if (length > maxStringLengthForCache)
-        return AtomStringImpl::add(characters, length).releaseNonNull();
+    } else if (UNLIKELY(characters.size() > maxStringLengthForCache))
+        return AtomStringImpl::add(characters).releaseNonNull();
 
-    auto lastCharacter = characters[length - 1];
-    auto& slot = cacheSlot(type, firstCharacter, lastCharacter, length);
-    if (!equal(slot.get(), characters, length)) {
-        auto result = AtomStringImpl::add(characters, length);
-        slot = result;
+    auto lastCharacter = characters.back();
+    auto& slot = cacheSlot(firstCharacter, lastCharacter, characters.size());
+    if (UNLIKELY(slot.m_length != characters.size() || !equal(slot.m_buffer, characters))) {
+        auto result = AtomStringImpl::add(characters);
+        slot.m_impl = result;
+        slot.m_length = characters.size();
+        WTF::copyElements(std::span<UChar> { slot.m_buffer }, characters);
         return result.releaseNonNull();
     }
 
-    return *slot;
+    return *slot.m_impl;
 }
 
 ALWAYS_INLINE VM& JSONAtomStringCache::vm() const
 {
-    return *bitwise_cast<VM*>(bitwise_cast<uintptr_t>(this) - OBJECT_OFFSETOF(VM, jsonAtomStringCache));
+    return *std::bit_cast<VM*>(std::bit_cast<uintptr_t>(this) - OBJECT_OFFSETOF(VM, jsonAtomStringCache));
 }
 
 } // namespace JSC

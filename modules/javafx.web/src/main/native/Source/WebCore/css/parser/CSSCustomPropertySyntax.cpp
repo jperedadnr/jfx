@@ -28,14 +28,16 @@
 #include "CSSParserIdioms.h"
 #include "CSSParserTokenRange.h"
 #include "CSSTokenizer.h"
-#include "ParsingUtilities.h"
 #include <wtf/SortedArrayMap.h>
+#include <wtf/text/ParsingUtilities.h>
 
 namespace WebCore {
 
 template<typename CharacterType>
-auto CSSCustomPropertySyntax::parseComponent(StringParsingBuffer<CharacterType> buffer) -> std::optional<Component>
+auto CSSCustomPropertySyntax::parseComponent(std::span<const CharacterType> span) -> std::optional<Component>
 {
+    StringParsingBuffer buffer { span };
+
     auto consumeMultiplier = [&] {
         if (skipExactly(buffer, '+'))
             return Multiplier::SpaceList;
@@ -45,12 +47,12 @@ auto CSSCustomPropertySyntax::parseComponent(StringParsingBuffer<CharacterType> 
     };
 
     if (skipExactly(buffer, '<')) {
-        auto begin = buffer.position();
+        auto begin = buffer.span();
         skipUntil(buffer, '>');
-        if (buffer.position() == begin)
+        if (buffer.position() == begin.data())
             return { };
 
-        auto dataTypeName = StringView(begin, buffer.position() - begin);
+        auto dataTypeName = StringView(begin.first(buffer.position() - begin.data()));
         if (!skipExactly(buffer, '>'))
             return { };
 
@@ -70,12 +72,12 @@ auto CSSCustomPropertySyntax::parseComponent(StringParsingBuffer<CharacterType> 
         return Component { type, multiplier };
     }
 
-    auto begin = buffer.position();
+    auto begin = buffer.span();
     while (buffer.hasCharactersRemaining() && (*buffer != '+' && *buffer != '#'))
         ++buffer;
 
     auto ident = [&] {
-        auto tokenizer = CSSTokenizer::tryCreate(StringView(begin, buffer.position() - begin).toStringWithoutCopying());
+        auto tokenizer = CSSTokenizer::tryCreate(StringView(begin.first(buffer.position() - begin.data())).toStringWithoutCopying());
         if (!tokenizer)
             return nullAtom();
 
@@ -113,11 +115,11 @@ std::optional<CSSCustomPropertySyntax> CSSCustomPropertySyntax::parse(StringView
         Definition definition;
 
         while (buffer.hasCharactersRemaining()) {
-            auto begin = buffer.position();
+            auto begin = buffer.span();
 
             skipUntil(buffer, '|');
 
-            auto component = parseComponent(StringParsingBuffer { begin, buffer.position() });
+            auto component = parseComponent(begin.first(buffer.position() - begin.data()));
             if (!component)
                 return { };
 
@@ -137,20 +139,21 @@ std::optional<CSSCustomPropertySyntax> CSSCustomPropertySyntax::parse(StringView
 auto CSSCustomPropertySyntax::typeForTypeName(StringView dataTypeName) -> Type
 {
     static constexpr std::pair<ComparableASCIILiteral, Type> mappings[] = {
-        { "angle", Type::Angle },
-        { "color", Type::Color },
-        { "custom-ident", Type::CustomIdent },
-        { "image", Type::Image },
-        { "integer", Type::Integer },
-        { "length", Type::Length },
-        { "length-percentage", Type::LengthPercentage },
-        { "number", Type::Number },
-        { "percentage", Type::Percentage },
-        { "resolution", Type::Resolution },
-        { "time", Type::Time },
-        { "transform-function", Type::TransformFunction },
-        { "transform-list", Type::TransformList },
-        { "url", Type::URL },
+        { "angle"_s, Type::Angle },
+        { "color"_s, Type::Color },
+        { "custom-ident"_s, Type::CustomIdent },
+        { "image"_s, Type::Image },
+        { "integer"_s, Type::Integer },
+        { "length"_s, Type::Length },
+        { "length-percentage"_s, Type::LengthPercentage },
+        { "number"_s, Type::Number },
+        { "percentage"_s, Type::Percentage },
+        { "resolution"_s, Type::Resolution },
+        { "string"_s, Type::String },
+        { "time"_s, Type::Time },
+        { "transform-function"_s, Type::TransformFunction },
+        { "transform-list"_s, Type::TransformList },
+        { "url"_s, Type::URL },
     };
 
     static constexpr SortedArrayMap typeMap { mappings };

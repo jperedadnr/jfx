@@ -168,6 +168,7 @@ class GenerationContext:
             #include <wtf/text/AtomString.h>
             #include <string.h>
 
+            WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
             IGNORE_WARNINGS_BEGIN("implicit-fallthrough")
 
             // Older versions of gperf generate code using the `register` keyword.
@@ -183,6 +184,7 @@ class GenerationContext:
             } // namespace WebCore
 
             IGNORE_WARNINGS_END
+            WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
             """))
 
     def _generate_gperf_definition(self, *, to):
@@ -226,9 +228,9 @@ class GenerationContext:
 
     def _generate_lookup_functions(self, *, to):
         to.write(textwrap.dedent("""
-            CSSValueID findCSSValueKeyword(const char* characters, unsigned length)
+            CSSValueID findCSSValueKeyword(std::span<const char> characters)
             {
-                auto* value = CSSValueKeywordsHash::in_word_set(characters, length);
+                auto* value = CSSValueKeywordsHash::in_word_set(characters.data(), characters.size());
                 return value ? static_cast<CSSValueID>(value->id) : CSSValueInvalid;
             }
 
@@ -337,7 +339,7 @@ class GenerationContext:
 
     def _generate_css_value_keywords_h_forward_declarations(self, *, to):
         to.write(textwrap.dedent("""\
-            CSSValueID findCSSValueKeyword(const char* characters, unsigned length);
+            CSSValueID findCSSValueKeyword(std::span<const char> characters);
             ASCIILiteral nameLiteral(CSSValueID);
             ASCIILiteral nameLiteralForSerialization(CSSValueID); // Lowercase.
             WEBCORE_EXPORT const AtomString& nameString(CSSValueID);
@@ -356,8 +358,21 @@ class GenerationContext:
             };
             constexpr AllCSSValueKeywordsRange allCSSValueKeywords() { return { }; }
 
-            } // namespace WebCore
             """))
+
+    def _generate_css_value_keywords_h_constant_aliases(self, *, to):
+        to.write(f"template<CSSValueID C> struct Constant {{\n")
+        to.write(f"    static constexpr auto value = C;\n")
+        to.write(f"    constexpr bool operator==(const Constant<C>&) const = default;\n")
+        to.write(f"}};\n\n")
+
+        to.write(f"namespace CSS::Keyword {{\n\n")
+
+        for value in self.values:
+            to.write(f"using {value.id_without_prefix} = Constant<{value.id_without_scope}>;\n")
+
+        to.write(f"\n}} // namespace CSS::Keyword\n")
+        to.write(f"}} // namespace WebCore\n\n")
 
     def _generate_css_value_keywords_h_hash_traits(self, *, to):
         to.write(textwrap.dedent("""
@@ -393,6 +408,10 @@ class GenerationContext:
             )
 
             self._generate_css_value_keywords_h_forward_declarations(
+                to=output_file
+            )
+
+            self._generate_css_value_keywords_h_constant_aliases(
                 to=output_file
             )
 

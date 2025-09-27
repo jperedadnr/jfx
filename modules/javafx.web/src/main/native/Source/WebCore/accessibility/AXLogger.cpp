@@ -33,6 +33,8 @@
 #include "AXIsolatedObject.h"
 #endif
 #include "AXObjectCache.h"
+#include "AXSearchManager.h"
+#include "AXTextRun.h"
 #include "DocumentInlines.h"
 #include "LocalFrameView.h"
 #include "LogInitialization.h"
@@ -40,6 +42,7 @@
 #include <algorithm>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/OptionSet.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -54,7 +57,8 @@ bool AXLogger::shouldLog()
     // Add strings to the Vector below to just log from instances whose m_methodName includes any of the strings.
     // For instance, if you want to just log from the wrapper and the AXIsolatedTree class:
     // static NeverDestroyed nameFilter = Vector<String> { "WebAccessibilityObjectWrapper"_s, "AXIsolatedTree"_s };
-    static NeverDestroyed nameFilter = Vector<String> { };
+    // The default string "log nothing", prevents any output. An empty Vector or an empty string in the Vector will log everything.
+    static NeverDestroyed nameFilter = Vector<String> { "log nothing"_s };
 
     if (!nameFilter->isEmpty()) {
         auto it = std::find_if(nameFilter->begin(), nameFilter->end(), [this] (const auto& name) {
@@ -72,20 +76,35 @@ bool AXLogger::shouldLog()
 AXLogger::AXLogger(const String& methodName)
     : m_methodName(methodName)
 {
-    if (auto* channel = getLogChannel("Accessibility"_s))
+    auto initializeAXChannel = [] () {
+        static std::atomic<bool> initialized = false;
+        if (initialized)
+            return;
+
+        if (auto* channel = getLogChannel("Accessibility"_s)) {
+            LogAccessibility.state = WTFLogChannelState::On;
         channel->level = WTFLogLevel::Debug;
+            initialized = true;
+        }
+    };
+    initializeAXChannel();
 
     if (shouldLog()) {
         if (!m_methodName.isEmpty())
             LOG_WITH_STREAM(Accessibility, stream << m_methodName << " {");
     }
+    m_startTime = MonotonicTime::now();
 }
 
 AXLogger::~AXLogger()
 {
-    if (shouldLog()) {
-        if (!m_methodName.isEmpty())
-            LOG_WITH_STREAM(Accessibility, stream << "} " << m_methodName);
+    static const Seconds ExecutionTimeThreshold { 1_s };
+    auto elapsedTime = MonotonicTime::now() - m_startTime;
+    if (shouldLog() && !m_methodName.isEmpty()) {
+        if (elapsedTime > ExecutionTimeThreshold)
+            LOG_WITH_STREAM(Accessibility, stream << "} " << m_methodName << " exceeded ExecutionTimeThreshold " << elapsedTime);
+        else
+            LOG_WITH_STREAM(Accessibility, stream << "} " << m_methodName << " took " << elapsedTime);
     }
 }
 
@@ -120,25 +139,31 @@ void AXLogger::log(RefPtr<AXCoreObject> object)
     }
 }
 
-void AXLogger::log(const Vector<RefPtr<AXCoreObject>>& objects)
+void AXLogger::log(const Vector<Ref<AXCoreObject>>& objects)
 {
     if (shouldLog()) {
         TextStream stream(TextStream::LineMode::MultipleLine);
 
         stream << "[";
-        for (auto object : objects) {
-            if (object)
-                stream << *object;
-            else
-                stream << "null";
-        }
+        for (auto object : objects)
+            stream << object.get();
         stream << "]";
 
         LOG(Accessibility, "%s", stream.release().utf8().data());
     }
 }
 
-void AXLogger::log(const std::pair<RefPtr<AXCoreObject>, AXObjectCache::AXNotification>& notification)
+void AXLogger::log(const std::pair<Ref<AccessibilityObject>, AXNotification>& notification)
+{
+    if (shouldLog()) {
+        TextStream stream(TextStream::LineMode::MultipleLine);
+        stream << "Notification " << notification.second << " for object ";
+        stream << notification.first.get();
+        LOG(Accessibility, "%s", stream.release().utf8().data());
+    }
+}
+
+void AXLogger::log(const std::pair<RefPtr<AXCoreObject>, AXNotification>& notification)
 {
     if (shouldLog()) {
         TextStream stream(TextStream::LineMode::MultipleLine);
@@ -171,6 +196,16 @@ void AXLogger::log(AccessibilityObjectInclusion inclusion)
     LOG(Accessibility, "%s", stream.release().utf8().data());
 }
 
+void AXLogger::log(AXRelationType relationType)
+{
+    if (!shouldLog())
+        return;
+
+    TextStream stream(TextStream::LineMode::SingleLine);
+    stream.dumpProperty("RelationType", relationType);
+    LOG(Accessibility, "%s", stream.release().utf8().data());
+}
+
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 void AXLogger::log(AXIsolatedTree& tree)
 {
@@ -195,22 +230,26 @@ void AXLogger::log(const String& collectionName, const AXObjectCache::DeferredCo
 {
     unsigned size = 0;
     WTF::switchOn(collection,
-        [&size] (const HashMap<Element*, String>& typedCollection) { size = typedCollection.size(); },
+        [&size] (const UncheckedKeyHashMap<Element*, String>& typedCollection) { size = typedCollection.size(); },
         [&size] (const HashSet<AXID>& typedCollection) { size = typedCollection.size(); },
         [&size] (const ListHashSet<Node*>& typedCollection) { size = typedCollection.size(); },
-        [&size] (const ListHashSet<RefPtr<AccessibilityObject>>& typedCollection) { size = typedCollection.size(); },
+        [&size] (const ListHashSet<Ref<AccessibilityObject>>& typedCollection) { size = typedCollection.size(); },
         [&size] (const Vector<AXObjectCache::AttributeChange>& typedCollection) { size = typedCollection.size(); },
         [&size] (const Vector<std::pair<Node*, Node*>>& typedCollection) { size = typedCollection.size(); },
         [&size] (const WeakHashSet<Element, WeakPtrImplWithEventTargetData>& typedCollection) { size = typedCollection.computeSize(); },
         [&size] (const WeakHashSet<HTMLTableElement, WeakPtrImplWithEventTargetData>& typedCollection) { size = typedCollection.computeSize(); },
+        [&size] (const WeakHashSet<AccessibilityObject>& typedCollection) { size = typedCollection.computeSize(); },
         [&size] (const WeakHashSet<AccessibilityTable>& typedCollection) { size = typedCollection.computeSize(); },
+        [&size] (const WeakHashSet<AccessibilityTableCell>& typedCollection) { size = typedCollection.computeSize(); },
         [&size] (const WeakListHashSet<Node, WeakPtrImplWithEventTargetData>& typedCollection) { size = typedCollection.computeSize(); },
+        [&size] (const WeakListHashSet<Element, WeakPtrImplWithEventTargetData>& typedCollection) { size = typedCollection.computeSize(); },
+        [&size] (const WeakHashMap<Element, String, WeakPtrImplWithEventTargetData>& typedCollection) { size = typedCollection.computeSize(); },
         [] (auto&) {
             ASSERT_NOT_REACHED();
             return;
         });
     if (size)
-        log(makeString(collectionName, " size: ", size));
+        log(makeString(collectionName, " size: "_s, size));
 }
 
 #endif // !LOG_DISABLED
@@ -256,8 +295,8 @@ TextStream& operator<<(TextStream& stream, AccessibilitySearchKey searchKey)
     case AccessibilitySearchKey::Button:
         stream << "Button";
         break;
-    case AccessibilitySearchKey::CheckBox:
-        stream << "CheckBox";
+    case AccessibilitySearchKey::Checkbox:
+        stream << "Checkbox";
         break;
     case AccessibilitySearchKey::Control:
         stream << "Control";
@@ -371,7 +410,7 @@ TextStream& operator<<(TextStream& stream, const AccessibilitySearchCriteria& cr
     TextStream::GroupScope groupScope(stream);
     auto streamCriteriaObject = [&stream] (ASCIILiteral objectLabel, auto* axObject) {
         stream.startGroup();
-        stream << objectLabel.characters() << " " << axObject << ", ID " << (axObject ? axObject->objectID() : AXID());
+        stream << objectLabel.characters() << " " << axObject << ", ID " << (axObject ? axObject->objectID().toUInt64() : 0);
         stream.endGroup();
     };
 
@@ -394,6 +433,52 @@ TextStream& operator<<(TextStream& stream, const AccessibilitySearchCriteria& cr
     return stream;
 }
 
+TextStream& operator<<(TextStream& stream, AccessibilityText text)
+{
+    stream << text.textSource << ": " << text.text;
+    return stream;
+}
+
+TextStream& operator<<(TextStream& stream, AccessibilityTextSource source)
+{
+    switch (source) {
+    case AccessibilityTextSource::Alternative:
+        stream << "Alternative";
+        break;
+    case AccessibilityTextSource::Children:
+        stream << "Children";
+        break;
+    case AccessibilityTextSource::Summary:
+        stream << "Summary";
+        break;
+    case AccessibilityTextSource::Help:
+        stream << "Help";
+        break;
+    case AccessibilityTextSource::Visible:
+        stream << "Visible";
+        break;
+    case AccessibilityTextSource::TitleTag:
+        stream << "TitleTag";
+        break;
+    case AccessibilityTextSource::Placeholder:
+        stream << "Placeholder";
+        break;
+    case AccessibilityTextSource::LabelByElement:
+        stream << "LabelByElement";
+        break;
+    case AccessibilityTextSource::Title:
+        stream << "Title";
+        break;
+    case AccessibilityTextSource::Subtitle:
+        stream << "Subtitle";
+        break;
+    case AccessibilityTextSource::Action:
+        stream << "Action";
+        break;
+    }
+    return stream;
+}
+
 TextStream& operator<<(TextStream& stream, AccessibilityObjectInclusion inclusion)
 {
     switch (inclusion) {
@@ -411,250 +496,732 @@ TextStream& operator<<(TextStream& stream, AccessibilityObjectInclusion inclusio
     return stream;
 }
 
-TextStream& operator<<(TextStream& stream, AXObjectCache::AXNotification notification)
+TextStream& operator<<(TextStream& stream, AXRelationType relationType)
 {
-    switch (notification) {
-    case AXObjectCache::AXNotification::AXAccessKeyChanged:
-        stream << "AXAccessKeyChanged";
+    switch (relationType) {
+    case AXRelationType::None:
+        stream << "None";
         break;
-    case AXObjectCache::AXNotification::AXActiveDescendantChanged:
-        stream << "AXActiveDescendantChanged";
+    case AXRelationType::ActiveDescendant:
+        stream << "ActiveDescendant";
         break;
-    case AXObjectCache::AXNotification::AXAutocorrectionOccured:
-        stream << "AXAutocorrectionOccured";
+    case AXRelationType::ActiveDescendantOf:
+        stream << "ActiveDescendantOf";
         break;
-    case AXObjectCache::AXNotification::AXAutofillTypeChanged:
-        stream << "AXAutofillTypeChanged";
+    case AXRelationType::ControlledBy:
+        stream << "ControlledBy";
         break;
-    case AXObjectCache::AXNotification::AXCellSlotsChanged:
-        stream << "AXCellSlotsChanged";
+    case AXRelationType::ControllerFor:
+        stream << "ControllerFor";
         break;
-    case AXObjectCache::AXNotification::AXCheckedStateChanged:
-        stream << "AXCheckedStateChanged";
+    case AXRelationType::DescribedBy:
+        stream << "DescribedBy";
         break;
-    case AXObjectCache::AXNotification::AXChildrenChanged:
-        stream << "AXChildrenChanged";
+    case AXRelationType::DescriptionFor:
+        stream << "DescriptionFor";
         break;
-    case AXObjectCache::AXNotification::AXColumnCountChanged:
-        stream << "AXColumnCountChanged";
+    case AXRelationType::Details:
+        stream << "Details";
         break;
-    case AXObjectCache::AXNotification::AXColumnIndexChanged:
-        stream << "AXColumnIndexChanged";
+    case AXRelationType::DetailsFor:
+        stream << "DetailsFor";
         break;
-    case AXObjectCache::AXNotification::AXColumnSpanChanged:
-        stream << "AXColumnSpanChanged";
+    case AXRelationType::ErrorMessage:
+        stream << "ErrorMessage";
         break;
-    case AXObjectCache::AXNotification::AXControlledObjectsChanged:
-        stream << "AXControlledObjectsChanged";
+    case AXRelationType::ErrorMessageFor:
+        stream << "ErrorMessageFor";
         break;
-    case AXObjectCache::AXNotification::AXCurrentStateChanged:
-        stream << "AXCurrentStateChanged";
+    case AXRelationType::FlowsFrom:
+        stream << "FlowsFrom";
         break;
-    case AXObjectCache::AXNotification::AXDisabledStateChanged:
-        stream << "AXDisabledStateChanged";
+    case AXRelationType::FlowsTo:
+        stream << "FlowsTo";
         break;
-    case AXObjectCache::AXNotification::AXDescribedByChanged:
-        stream << "AXDescribedByChanged";
+    case AXRelationType::Headers:
+        stream << "Headers";
         break;
-    case AXObjectCache::AXNotification::AXDropEffectChanged:
-        stream << "AXDropEffectChanged";
+    case AXRelationType::HeaderFor:
+        stream << "HeaderFor";
         break;
-    case AXObjectCache::AXNotification::AXFlowToChanged:
-        stream << "AXFlowToChanged";
+    case AXRelationType::LabeledBy:
+        stream << "LabeledBy";
         break;
-    case AXObjectCache::AXNotification::AXFocusedUIElementChanged:
-        stream << "AXFocusedUIElementChanged";
+    case AXRelationType::LabelFor:
+        stream << "LabelFor";
         break;
-    case AXObjectCache::AXNotification::AXFrameLoadComplete:
-        stream << "AXFrameLoadComplete";
+    case AXRelationType::OwnedBy:
+        stream << "OwnedBy";
         break;
-    case AXObjectCache::AXNotification::AXGrabbedStateChanged:
-        stream << "AXGrabbedStateChanged";
-        break;
-    case AXObjectCache::AXNotification::AXHasPopupChanged:
-        stream << "AXHasPopupChanged";
-        break;
-    case AXObjectCache::AXNotification::AXIdAttributeChanged:
-        stream << "AXIdAttributeChanged";
-        break;
-    case AXObjectCache::AXNotification::AXImageOverlayChanged:
-        stream << "AXImageOverlayChanged";
-        break;
-    case AXObjectCache::AXNotification::AXIsAtomicChanged:
-        stream << "AXIsAtomicChanged";
-        break;
-    case AXObjectCache::AXNotification::AXKeyShortcutsChanged:
-        stream << "AXKeyShortcutsChanged";
-        break;
-    case AXObjectCache::AXNotification::AXLanguageChanged:
-        stream << "AXLanguageChanged";
-        break;
-    case AXObjectCache::AXNotification::AXLayoutComplete:
-        stream << "AXLayoutComplete";
-        break;
-    case AXObjectCache::AXNotification::AXLevelChanged:
-        stream << "AXLevelChanged";
-        break;
-    case AXObjectCache::AXNotification::AXLoadComplete:
-        stream << "AXLoadComplete";
-        break;
-    case AXObjectCache::AXNotification::AXPlaceholderChanged:
-        stream << "AXPlaceholderChanged";
-        break;
-    case AXObjectCache::AXNotification::AXMaximumValueChanged:
-        stream << "AXMaximumValueChanged";
-        break;
-    case AXObjectCache::AXNotification::AXMinimumValueChanged:
-        stream << "AXMinimumValueChanged";
-        break;
-    case AXObjectCache::AXNotification::AXMultiSelectableStateChanged:
-        stream << "AXMultiSelectableStateChanged";
-        break;
-    case AXObjectCache::AXNotification::AXNewDocumentLoadComplete:
-        stream << "AXNewDocumentLoadComplete";
-        break;
-    case AXObjectCache::AXNotification::AXOrientationChanged:
-        stream << "AXOrientationChanged";
-        break;
-    case AXObjectCache::AXNotification::AXPageScrolled:
-        stream << "AXPageScrolled";
-        break;
-    case AXObjectCache::AXNotification::AXPositionInSetChanged:
-        stream << "AXPositionInSetChanged";
-        break;
-    case AXObjectCache::AXNotification::AXRoleChanged:
-        stream << "AXRoleChanged";
-        break;
-    case AXObjectCache::AXNotification::AXRoleDescriptionChanged:
-        stream << "AXRoleDescriptionChanged";
-        break;
-    case AXObjectCache::AXNotification::AXRowIndexChanged:
-        stream << "AXRowIndexChanged";
-        break;
-    case AXObjectCache::AXNotification::AXRowSpanChanged:
-        stream << "AXRowSpanChanged";
-        break;
-    case AXObjectCache::AXNotification::AXSelectedChildrenChanged:
-        stream << "AXSelectedChildrenChanged";
-        break;
-    case AXObjectCache::AXNotification::AXSelectedCellsChanged:
-        stream << "AXSelectedCellsChanged";
-        break;
-    case AXObjectCache::AXNotification::AXSelectedStateChanged:
-        stream << "AXSelectedStateChanged";
-        break;
-    case AXObjectCache::AXNotification::AXSelectedTextChanged:
-        stream << "AXSelectedTextChanged";
-        break;
-    case AXObjectCache::AXNotification::AXSetSizeChanged:
-        stream << "AXSetSizeChanged";
-        break;
-    case AXObjectCache::AXNotification::AXTableHeadersChanged:
-        stream << "AXTableHeadersChanged";
-        break;
-    case AXObjectCache::AXNotification::AXURLChanged:
-        stream << "AXURLChanged";
-        break;
-    case AXObjectCache::AXNotification::AXValueChanged:
-        stream << "AXValueChanged";
-        break;
-    case AXObjectCache::AXNotification::AXScrolledToAnchor:
-        stream << "AXScrolledToAnchor";
-        break;
-    case AXObjectCache::AXNotification::AXLiveRegionCreated:
-        stream << "AXLiveRegionCreated";
-        break;
-    case AXObjectCache::AXNotification::AXLiveRegionChanged:
-        stream << "AXLiveRegionChanged";
-        break;
-    case AXObjectCache::AXNotification::AXLiveRegionRelevantChanged:
-        stream << "AXLiveRegionRelevantChanged";
-        break;
-    case AXObjectCache::AXNotification::AXLiveRegionStatusChanged:
-        stream << "AXLiveRegionStatusChanged";
-        break;
-    case AXObjectCache::AXNotification::AXMenuListItemSelected:
-        stream << "AXMenuListItemSelected";
-        break;
-    case AXObjectCache::AXNotification::AXMenuListValueChanged:
-        stream << "AXMenuListValueChanged";
-        break;
-    case AXObjectCache::AXNotification::AXMenuClosed:
-        stream << "AXMenuClosed";
-        break;
-    case AXObjectCache::AXNotification::AXMenuOpened:
-        stream << "AXMenuOpened";
-        break;
-    case AXObjectCache::AXNotification::AXRowCountChanged:
-        stream << "AXRowCountChanged";
-        break;
-    case AXObjectCache::AXNotification::AXRowCollapsed:
-        stream << "AXRowCollapsed";
-        break;
-    case AXObjectCache::AXNotification::AXRowExpanded:
-        stream << "AXRowExpanded";
-        break;
-    case AXObjectCache::AXNotification::AXExpandedChanged:
-        stream << "AXExpandedChanged";
-        break;
-    case AXObjectCache::AXNotification::AXInvalidStatusChanged:
-        stream << "AXInvalidStatusChanged";
-        break;
-    case AXObjectCache::AXNotification::AXPressDidSucceed:
-        stream << "AXPressDidSucceed";
-        break;
-    case AXObjectCache::AXNotification::AXPressDidFail:
-        stream << "AXPressDidFail";
-        break;
-    case AXObjectCache::AXNotification::AXPressedStateChanged:
-        stream << "AXPressedStateChanged";
-        break;
-    case AXObjectCache::AXNotification::AXReadOnlyStatusChanged:
-        stream << "AXReadOnlyStatusChanged";
-        break;
-    case AXObjectCache::AXNotification::AXRequiredStatusChanged:
-        stream << "AXRequiredStatusChanged";
-        break;
-    case AXObjectCache::AXNotification::AXSortDirectionChanged:
-        stream << "AXSortDirectionChanged";
-        break;
-    case AXObjectCache::AXNotification::AXTextChanged:
-        stream << "AXTextChanged";
-        break;
-    case AXObjectCache::AXNotification::AXTextCompositionChanged:
-        stream << "AXTextCompositionChanged";
-        break;
-    case AXObjectCache::AXNotification::AXTextSecurityChanged:
-        stream << "AXTextSecurityChanged";
-        break;
-    case AXObjectCache::AXNotification::AXElementBusyChanged:
-        stream << "AXElementBusyChanged";
-        break;
-    case AXObjectCache::AXNotification::AXDraggingStarted:
-        stream << "AXDraggingStarted";
-        break;
-    case AXObjectCache::AXNotification::AXDraggingEnded:
-        stream << "AXDraggingEnded";
-        break;
-    case AXObjectCache::AXNotification::AXDraggingEnteredDropZone:
-        stream << "AXDraggingEnteredDropZone";
-        break;
-    case AXObjectCache::AXNotification::AXDraggingDropped:
-        stream << "AXDraggingDropped";
-        break;
-    case AXObjectCache::AXNotification::AXDraggingExitedDropZone:
-        stream << "AXDraggingExitedDropZone";
-        break;
-    case AXObjectCache::AXNotification::AXTextCompositionBegan:
-        stream << "AXTextCompositionBegan";
-        break;
-    case AXObjectCache::AXNotification::AXTextCompositionEnded:
-        stream << "AXTextCompositionEnded";
+    case AXRelationType::OwnerFor:
+        stream << "OwnerFor";
         break;
     }
 
     return stream;
 }
+
+TextStream& operator<<(WTF::TextStream& stream, const TextUnderElementMode& mode)
+{
+    String childrenInclusion;
+    switch (mode.childrenInclusion) {
+    case TextUnderElementMode::Children::SkipIgnoredChildren:
+        childrenInclusion = "SkipIgnoredChildren"_s;
+        break;
+    case TextUnderElementMode::Children::IncludeAllChildren:
+        childrenInclusion = "IncludeAllChildren"_s;
+        break;
+    case TextUnderElementMode::Children::IncludeNameFromContentsChildren:
+        childrenInclusion = "IncludeNameFromContentsChildren"_s;
+        break;
+    default:
+        ASSERT_NOT_REACHED();
+        break;
+    }
+
+    stream << childrenInclusion;
+    // Only log non-default values to avoid noise.
+    if (mode.includeFocusableContent)
+        stream << ", includeFocusableContent: 1";
+    if (mode.inHiddenSubtree)
+        stream << ", inHiddenSubtree: 1";
+    if (!mode.considerHiddenState)
+        stream << ", considerHiddenState: 0";
+    if (mode.ignoredChildNode)
+        stream << ", ignoredChildNode: " << mode.ignoredChildNode;
+    if (mode.trimWhitespace == TrimWhitespace::No)
+        stream << ", trimWhitespace: 0";
+    return stream;
+}
+
+TextStream& operator<<(TextStream& stream, AXNotification notification)
+{
+    switch (notification) {
+#define WEBCORE_LOG_AXNOTIFICATION(name) \
+    case AXNotification::name: \
+        stream << #name; \
+        break;
+    WEBCORE_AXNOTIFICATION_KEYS(WEBCORE_LOG_AXNOTIFICATION)
+#undef WEBCORE_LOG_AXNOTIFICATION
+    }
+
+    return stream;
+}
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+WTF::TextStream& operator<<(WTF::TextStream& stream, const AXPropertyMap& map)
+{
+    stream << "{"_s;
+    for (auto iterator = map.begin(); iterator != map.end(); ++iterator) {
+        if (iterator != map.begin())
+            stream << ", ";
+        stream << iterator->key;
+    }
+    stream << "}"_s;
+    return stream;
+}
+
+TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
+{
+    switch (property) {
+#if !ENABLE(AX_THREAD_TEXT_APIS)
+    case AXProperty::AttributedText:
+        stream << "AttributedText";
+        break;
+#endif // !ENABLE(AX_THREAD_TEXT_APIS)
+    case AXProperty::AXColumnCount:
+        stream << "AXColumnCount";
+        break;
+    case AXProperty::AXColumnIndex:
+        stream << "AXColumnIndex";
+        break;
+    case AXProperty::AXRowCount:
+        stream << "AXRowCount";
+        break;
+    case AXProperty::AXRowIndex:
+        stream << "AXRowIndex";
+        break;
+    case AXProperty::AccessKey:
+        stream << "AccessKey";
+        break;
+    case AXProperty::AccessibilityText:
+        stream << "AccessibilityText";
+        break;
+    case AXProperty::ActionVerb:
+        stream << "ActionVerb";
+        break;
+    case AXProperty::AncestorFlags:
+        stream << "AncestorFlags";
+        break;
+    case AXProperty::AutoCompleteValue:
+        stream << "AutoCompleteValue";
+        break;
+    case AXProperty::BackgroundColor:
+        stream << "BackgroundColor";
+        break;
+    case AXProperty::BlockquoteLevel:
+        stream << "BlockquoteLevel";
+        break;
+    case AXProperty::BrailleLabel:
+        stream << "BrailleLabel";
+        break;
+    case AXProperty::BrailleRoleDescription:
+        stream << "BrailleRoleDescription";
+        break;
+    case AXProperty::ButtonState:
+        stream << "ButtonState";
+        break;
+    case AXProperty::CanBeMultilineTextField:
+        stream << "CanBeMultilineTextField";
+        break;
+    case AXProperty::CanSetFocusAttribute:
+        stream << "CanSetFocusAttribute";
+        break;
+    case AXProperty::CanSetSelectedAttribute:
+        stream << "CanSetSelectedAttribute";
+        break;
+    case AXProperty::CanSetValueAttribute:
+        stream << "CanSetValueAttribute";
+        break;
+#if PLATFORM(MAC)
+    case AXProperty::CaretBrowsingEnabled:
+        stream << "CaretBrowsingEnabled";
+        break;
+#endif
+    case AXProperty::Cells:
+        stream << "Cells";
+        break;
+    case AXProperty::CellScope:
+        stream << "CellScope";
+        break;
+    case AXProperty::CellSlots:
+        stream << "CellSlots";
+        break;
+    case AXProperty::ColorValue:
+        stream << "ColorValue";
+        break;
+    case AXProperty::Columns:
+        stream << "Columns";
+        break;
+    case AXProperty::ColumnIndex:
+        stream << "ColumnIndex";
+        break;
+    case AXProperty::ColumnIndexRange:
+        stream << "ColumnIndexRange";
+        break;
+    case AXProperty::CurrentState:
+        stream << "CurrentState";
+        break;
+    case AXProperty::DateTimeComponentsType:
+        stream << "DateTimeComponentsType";
+        break;
+    case AXProperty::DateTimeValue:
+        stream << "DateTimeValue";
+        break;
+    case AXProperty::DatetimeAttributeValue:
+        stream << "DatetimeAttributeValue";
+        break;
+    case AXProperty::DecrementButton:
+        stream << "DecrementButton";
+        break;
+    case AXProperty::Description:
+        stream << "Description";
+        break;
+    case AXProperty::DisclosedByRow:
+        stream << "DisclosedByRow";
+        break;
+    case AXProperty::DisclosedRows:
+        stream << "DisclosedRows";
+        break;
+    case AXProperty::DocumentEncoding:
+        stream << "DocumentEncoding";
+        break;
+    case AXProperty::DocumentLinks:
+        stream << "DocumentLinks";
+        break;
+    case AXProperty::DocumentURI:
+        stream << "DocumentURI";
+        break;
+    case AXProperty::EmbeddedImageDescription:
+        stream << "EmbeddedImageDescription";
+        break;
+    case AXProperty::EmitTextAfterBehavior:
+        stream << "EmitTextAfterBehavior";
+        break;
+    case AXProperty::ExpandedTextValue:
+        stream << "ExpandedTextValue";
+        break;
+    case AXProperty::ExtendedDescription:
+        stream << "ExtendedDescription";
+        break;
+#if PLATFORM(COCOA)
+    case AXProperty::Font:
+        stream << "Font";
+        break;
+#endif // PLATFORM(COCOA)
+    case AXProperty::TextColor:
+        stream << "TextColor";
+        break;
+    case AXProperty::HasApplePDFAnnotationAttribute:
+        stream << "HasApplePDFAnnotationAttribute";
+        break;
+    case AXProperty::HasBoldFont:
+        stream << "HasBoldFont";
+        break;
+    case AXProperty::HasClickHandler:
+        stream << "HasClickHandler";
+        break;
+    case AXProperty::HasHighlighting:
+        stream << "HasHighlighting";
+        break;
+    case AXProperty::HasItalicFont:
+        stream << "HasItalicFont";
+        break;
+    case AXProperty::HasLinethrough:
+        stream << "HasLinethrough";
+        break;
+    case AXProperty::HasPlainText:
+        stream << "HasPlainText";
+        break;
+    case AXProperty::HasRemoteFrameChild:
+        stream << "HasRemoteFrameChild";
+        break;
+    case AXProperty::IsSubscript:
+        stream << "IsSubscript";
+        break;
+    case AXProperty::IsSuperscript:
+        stream << "IsSuperscript";
+        break;
+    case AXProperty::HasTextShadow:
+        stream << "HasTextShadow";
+        break;
+    case AXProperty::HasUnderline:
+        stream << "HasUnderline";
+        break;
+    case AXProperty::HeadingLevel:
+        stream << "HeadingLevel";
+        break;
+    case AXProperty::HierarchicalLevel:
+        stream << "HierarchicalLevel";
+        break;
+    case AXProperty::HorizontalScrollBar:
+        stream << "HorizontalScrollBar";
+        break;
+    case AXProperty::IdentifierAttribute:
+        stream << "IdentifierAttribute";
+        break;
+    case AXProperty::IncrementButton:
+        stream << "IncrementButton";
+        break;
+    case AXProperty::InitialFrameRect:
+        stream << "InitialFrameRect";
+        break;
+    case AXProperty::InnerHTML:
+        stream << "InnerHTML";
+        break;
+    case AXProperty::InternalLinkElement:
+        stream << "InternalLinkElement";
+        break;
+    case AXProperty::InsideLink:
+        stream << "InsideLink";
+        break;
+    case AXProperty::InvalidStatus:
+        stream << "InvalidStatus";
+        break;
+    case AXProperty::IsGrabbed:
+        stream << "IsGrabbed";
+        break;
+    case AXProperty::IsARIATreeGridRow:
+        stream << "IsARIATreeGridRow";
+        break;
+    case AXProperty::IsAttachment:
+        stream << "IsAttachment";
+        break;
+    case AXProperty::IsBusy:
+        stream << "IsBusy";
+        break;
+    case AXProperty::IsChecked:
+        stream << "IsChecked";
+        break;
+    case AXProperty::IsColumnHeader:
+        stream << "IsColumnHeader";
+        break;
+    case AXProperty::IsEnabled:
+        stream << "IsEnabled";
+        break;
+    case AXProperty::IsExpanded:
+        stream << "IsExpanded";
+        break;
+    case AXProperty::IsExposable:
+        stream << "IsExposable";
+        break;
+    case AXProperty::IsExposedTableCell:
+        stream << "IsExposedTableCell";
+        break;
+    case AXProperty::IsFieldset:
+        stream << "IsFieldset";
+        break;
+    case AXProperty::IsFileUploadButton:
+        stream << "IsFileUploadButton";
+        break;
+    case AXProperty::IsIgnored:
+        stream << "IsIgnored";
+        break;
+    case AXProperty::IsIndeterminate:
+        stream << "IsIndeterminate";
+        break;
+    case AXProperty::IsInlineText:
+        stream << "IsInlineText";
+        break;
+    case AXProperty::IsRadioInput:
+        stream << "IsRadioInput";
+        break;
+    case AXProperty::IsInputImage:
+        stream << "IsInputImage";
+        break;
+    case AXProperty::IsKeyboardFocusable:
+        stream << "IsKeyboardFocusable";
+        break;
+    case AXProperty::IsListBox:
+        stream << "IsListBox";
+        break;
+    case AXProperty::IsMathElement:
+        stream << "IsMathElement";
+        break;
+    case AXProperty::IsMathFraction:
+        stream << "IsMathFraction";
+        break;
+    case AXProperty::IsMathFenced:
+        stream << "IsMathFenced";
+        break;
+    case AXProperty::IsMathSubscriptSuperscript:
+        stream << "IsMathSubscriptSuperscript";
+        break;
+    case AXProperty::IsMathRow:
+        stream << "IsMathRow";
+        break;
+    case AXProperty::IsMathUnderOver:
+        stream << "IsMathUnderOver";
+        break;
+    case AXProperty::IsMathRoot:
+        stream << "IsMathRoot";
+        break;
+    case AXProperty::IsMathSquareRoot:
+        stream << "IsMathSquareRoot";
+        break;
+    case AXProperty::IsMathTable:
+        stream << "IsMathTable";
+        break;
+    case AXProperty::IsMathTableRow:
+        stream << "IsMathTableRow";
+        break;
+    case AXProperty::IsMathTableCell:
+        stream << "IsMathTableCell";
+        break;
+    case AXProperty::IsMathMultiscript:
+        stream << "IsMathMultiscript";
+        break;
+    case AXProperty::IsMathToken:
+        stream << "IsMathToken";
+        break;
+    case AXProperty::IsMultiSelectable:
+        stream << "IsMultiSelectable";
+        break;
+    case AXProperty::IsNonLayerSVGObject:
+        stream << "IsNonLayerSVGObject";
+        break;
+    case AXProperty::IsPlugin:
+        stream << "IsPlugin";
+        break;
+    case AXProperty::IsPressed:
+        stream << "IsPressed";
+        break;
+    case AXProperty::IsRequired:
+        stream << "IsRequired";
+        break;
+    case AXProperty::IsRowHeader:
+        stream << "IsRowHeader";
+        break;
+    case AXProperty::IsSecureField:
+        stream << "IsSecureField";
+        break;
+    case AXProperty::IsSelected:
+        stream << "IsSelected";
+        break;
+    case AXProperty::IsSelectedOptionActive:
+        stream << "IsSelectedOptionActive";
+        break;
+    case AXProperty::IsTable:
+        stream << "IsTable";
+        break;
+    case AXProperty::IsTableRow:
+        stream << "IsTableRow";
+        break;
+    case AXProperty::IsTree:
+        stream << "IsTree";
+        break;
+    case AXProperty::IsTreeItem:
+        stream << "IsTreeItem";
+        break;
+    case AXProperty::IsValueAutofillAvailable:
+        stream << "IsValueAutofillAvailable";
+        break;
+    case AXProperty::IsVisible:
+        stream << "IsVisible";
+        break;
+    case AXProperty::IsWidget:
+        stream << "IsWidget";
+        break;
+    case AXProperty::KeyShortcuts:
+        stream << "KeyShortcuts";
+        break;
+    case AXProperty::Language:
+        stream << "Language";
+        break;
+    case AXProperty::LinethroughColor:
+        stream << "LinethroughColor";
+        break;
+#if ENABLE(AX_THREAD_TEXT_APIS)
+    case AXProperty::ListMarkerLineID:
+        stream << "ListMarkerLineID";
+        break;
+    case AXProperty::ListMarkerText:
+        stream << "ListMarkerText";
+        break;
+#endif // ENABLE(AX_THREAD_TEXT_APIS)
+    case AXProperty::LiveRegionAtomic:
+        stream << "LiveRegionAtomic";
+        break;
+    case AXProperty::LiveRegionRelevant:
+        stream << "LiveRegionRelevant";
+        break;
+    case AXProperty::LiveRegionStatus:
+        stream << "LiveRegionStatus";
+        break;
+    case AXProperty::LocalizedActionVerb:
+        stream << "LocalizedActionVerb";
+        break;
+    case AXProperty::MathFencedOpenString:
+        stream << "MathFencedOpenString";
+        break;
+    case AXProperty::MathFencedCloseString:
+        stream << "MathFencedCloseString";
+        break;
+    case AXProperty::MathLineThickness:
+        stream << "MathLineThickness";
+        break;
+    case AXProperty::MathPrescripts:
+        stream << "MathPrescripts";
+        break;
+    case AXProperty::MathPostscripts:
+        stream << "MathPostscripts";
+        break;
+    case AXProperty::MathRadicand:
+        stream << "MathRadicand";
+        break;
+    case AXProperty::MathRootIndexObject:
+        stream << "MathRootIndexObject";
+        break;
+    case AXProperty::MathUnderObject:
+        stream << "MathUnderObject";
+        break;
+    case AXProperty::MathOverObject:
+        stream << "MathOverObject";
+        break;
+    case AXProperty::MathNumeratorObject:
+        stream << "MathNumeratorObject";
+        break;
+    case AXProperty::MathDenominatorObject:
+        stream << "MathDenominatorObject";
+        break;
+    case AXProperty::MathBaseObject:
+        stream << "MathBaseObject";
+        break;
+    case AXProperty::MathSubscriptObject:
+        stream << "MathSubscriptObject";
+        break;
+    case AXProperty::MathSuperscriptObject:
+        stream << "MathSuperscriptObject";
+        break;
+    case AXProperty::MaxValueForRange:
+        stream << "MaxValueForRange";
+        break;
+    case AXProperty::MinValueForRange:
+        stream << "MinValueForRange";
+        break;
+    case AXProperty::NameAttribute:
+        stream << "NameAttribute";
+        break;
+    case AXProperty::Orientation:
+        stream << "Orientation";
+        break;
+    case AXProperty::OuterHTML:
+        stream << "OuterHTML";
+        break;
+    case AXProperty::Path:
+        stream << "Path";
+        break;
+    case AXProperty::PlaceholderValue:
+        stream << "PlaceholderValue";
+        break;
+    case AXProperty::PopupValue:
+        stream << "PopupValue";
+        break;
+    case AXProperty::PosInSet:
+        stream << "PosInSet";
+        break;
+    case AXProperty::PreventKeyboardDOMEventDispatch:
+        stream << "PreventKeyboardDOMEventDispatch";
+        break;
+    case AXProperty::RadioButtonGroup:
+        stream << "RadioButtonGroup";
+        break;
+    case AXProperty::RelativeFrame:
+        stream << "RelativeFrame";
+        break;
+    case AXProperty::RemoteFrameOffset:
+        stream << "RemoteFrameOffset";
+        break;
+    case AXProperty::RemoteFramePlatformElement:
+        stream << "RemoteFramePlatformElement";
+        break;
+    case AXProperty::RolePlatformString:
+        stream << "RolePlatformString";
+        break;
+    case AXProperty::RoleDescription:
+        stream << "RoleDescription";
+        break;
+    case AXProperty::Rows:
+        stream << "Rows";
+        break;
+    case AXProperty::RowGroupAncestorID:
+        stream << "RowGroupAncestorID";
+        break;
+    case AXProperty::RowHeader:
+        stream << "RowHeader";
+        break;
+    case AXProperty::RowHeaders:
+        stream << "RowHeaders";
+        break;
+    case AXProperty::RowIndex:
+        stream << "RowIndex";
+        break;
+    case AXProperty::RowIndexRange:
+        stream << "RowIndexRange";
+        break;
+    case AXProperty::ScreenRelativePosition:
+        stream << "ScreenRelativePosition";
+        break;
+    case AXProperty::SelectedTextRange:
+        stream << "SelectedTextRange";
+        break;
+    case AXProperty::SetSize:
+        stream << "SetSize";
+        break;
+    case AXProperty::SortDirection:
+        stream << "SortDirection";
+        break;
+    case AXProperty::SpeechHint:
+        stream << "SpeechHint";
+        break;
+    case AXProperty::StringValue:
+        stream << "StringValue";
+        break;
+    case AXProperty::SubrolePlatformString:
+        stream << "SubrolePlatformString";
+        break;
+    case AXProperty::SupportsDragging:
+        stream << "SupportsDragging";
+        break;
+    case AXProperty::SupportsDropping:
+        stream << "SupportsDropping";
+        break;
+    case AXProperty::SupportsARIAOwns:
+        stream << "SupportsARIAOwns";
+        break;
+    case AXProperty::SupportsCheckedState:
+        stream << "SupportsCheckedState";
+        break;
+    case AXProperty::SupportsCurrent:
+        stream << "SupportsCurrent";
+        break;
+    case AXProperty::SupportsDatetimeAttribute:
+        stream << "SupportsDatetimeAttribute";
+        break;
+    case AXProperty::SupportsExpanded:
+        stream << "SupportsExpanded";
+        break;
+    case AXProperty::SupportsExpandedTextValue:
+        stream << "SupportsExpandedTextValue";
+        break;
+    case AXProperty::SupportsKeyShortcuts:
+        stream << "SupportsKeyShortcuts";
+        break;
+    case AXProperty::SupportsPath:
+        stream << "SupportsPath";
+        break;
+    case AXProperty::SupportsPosInSet:
+        stream << "SupportsPosInSet";
+        break;
+    case AXProperty::SupportsRangeValue:
+        stream << "SupportsRangeValue";
+        break;
+    case AXProperty::SupportsSetSize:
+        stream << "SupportsSetSize";
+        break;
+    case AXProperty::TagName:
+        stream << "TagName";
+        break;
+    case AXProperty::TextContentPrefixFromListMarker:
+        stream << "TextContentPrefixFromListMarker";
+        break;
+#if !ENABLE(AX_THREAD_TEXT_APIS)
+    case AXProperty::TextContent:
+        stream << "TextContent";
+        break;
+#endif // !ENABLE(AX_THREAD_TEXT_APIS)
+    case AXProperty::TextInputMarkedTextMarkerRange:
+        stream << "TextInputMarkedTextMarkerRange";
+        break;
+#if ENABLE(AX_THREAD_TEXT_APIS)
+    case AXProperty::TextRuns:
+        stream << "TextRuns";
+        break;
+#endif
+    case AXProperty::Title:
+        stream << "Title";
+        break;
+    case AXProperty::TitleAttributeValue:
+        stream << "TitleAttributeValue";
+        break;
+    case AXProperty::URL:
+        stream << "URL";
+        break;
+    case AXProperty::UnderlineColor:
+        stream << "UnderlineColor";
+        break;
+    case AXProperty::ValueAutofillButtonType:
+        stream << "ValueAutofillButtonType";
+        break;
+    case AXProperty::ValueDescription:
+        stream << "ValueDescription";
+        break;
+    case AXProperty::ValueForRange:
+        stream << "ValueForRange";
+        break;
+    case AXProperty::VerticalScrollBar:
+        stream << "VerticalScrollBar";
+        break;
+    case AXProperty::VisibleChildren:
+        stream << "VisibleChildren";
+        break;
+    case AXProperty::VisibleRows:
+        stream << "VisibleRows";
+        break;
+    }
+    return stream;
+}
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
 TextStream& operator<<(TextStream& stream, const AXCoreObject& object)
 {
@@ -672,7 +1239,8 @@ TextStream& operator<<(TextStream& stream, AXIsolatedTree& tree)
     stream.dumpProperty("rootNodeID", tree.rootNode()->objectID());
     stream.dumpProperty("focusedNodeID", tree.m_focusedNodeID);
     constexpr OptionSet<AXStreamOptions> options = { AXStreamOptions::ObjectID, AXStreamOptions::Role, AXStreamOptions::ParentID, AXStreamOptions::IdentifierAttribute, AXStreamOptions::OuterHTML, AXStreamOptions::DisplayContents, AXStreamOptions::Address };
-    streamSubtree(stream, tree.rootNode(), options);
+    if (RefPtr root = tree.rootNode())
+        streamSubtree(stream, root.releaseNonNull(), options);
     return stream;
 }
 
@@ -702,14 +1270,26 @@ TextStream& operator<<(TextStream& stream, AXObjectCache& axObjectCache)
     TextStream::GroupScope groupScope(stream);
     stream << "AXObjectCache " << &axObjectCache;
 
-    if (auto* root = axObjectCache.get(axObjectCache.document().view())) {
+    RefPtr document = axObjectCache.document();
+    if (!document)
+        stream << "No document!";
+    else if (RefPtr root = axObjectCache.get(document->view())) {
         constexpr OptionSet<AXStreamOptions> options = { AXStreamOptions::ObjectID, AXStreamOptions::Role, AXStreamOptions::ParentID, AXStreamOptions::IdentifierAttribute, AXStreamOptions::OuterHTML, AXStreamOptions::DisplayContents, AXStreamOptions::Address };
-        streamSubtree(stream, root, options);
+        streamSubtree(stream, root.releaseNonNull(), options);
     } else
         stream << "No root!";
 
     return stream;
 }
+
+#if ENABLE(AX_THREAD_TEXT_APIS)
+static void streamTextRuns(TextStream& stream, const AXTextRuns& runs)
+{
+    stream.dumpProperty("textRuns", makeString(interleave(runs.runs, [](auto& builder, auto& run) {
+        builder.append(run.lineIndex, ":|"_s, run.text, "|(len: "_s, run.text.length(), ')');
+    }, ", "_s)));
+}
+#endif // ENABLE(AX_THREAD_TEXT_APIS)
 
 void streamAXCoreObject(TextStream& stream, const AXCoreObject& object, const OptionSet<AXStreamOptions>& options)
 {
@@ -719,13 +1299,22 @@ void streamAXCoreObject(TextStream& stream, const AXCoreObject& object, const Op
     if (options & AXStreamOptions::Role)
         stream.dumpProperty("role", object.roleValue());
 
-    if (options & AXStreamOptions::ParentID) {
-        auto* parent = object.parentObjectUnignored();
-        stream.dumpProperty("parentObject", parent ? parent->objectID() : AXID());
+    auto* axObject = dynamicDowncast<AccessibilityObject>(object);
+    if (axObject) {
+        if (auto* renderer = axObject->renderer())
+            stream.dumpProperty("renderer", renderer->debugDescription());
+        else if (auto* node = axObject->node())
+            stream.dumpProperty("node", node->debugDescription());
     }
 
-    if (options & AXStreamOptions::IdentifierAttribute)
-        stream.dumpProperty("identifierAttribute", object.identifierAttribute());
+    if (options & AXStreamOptions::ParentID) {
+        auto* parent = object.parentObjectUnignored();
+        stream.dumpProperty("parentID", parent ? parent->objectID().toUInt64() : 0);
+    }
+
+    auto id = options & AXStreamOptions::IdentifierAttribute ? object.identifierAttribute() : emptyString();
+    if (!id.isEmpty())
+        stream.dumpProperty("identifier", WTFMove(id));
 
     if (options & AXStreamOptions::OuterHTML) {
         auto role = object.roleValue();
@@ -740,8 +1329,20 @@ void streamAXCoreObject(TextStream& stream, const AXCoreObject& object, const Op
             stream.dumpProperty("outerHTML", objectWithInterestingHTML->outerHTML().left(150));
     }
 
+#if ENABLE(AX_THREAD_TEXT_APIS)
+    if (options & AXStreamOptions::TextRuns) {
+        if (auto* isolatedObject = dynamicDowncast<AXIsolatedObject>(object)) {
+            if (auto* runs = isolatedObject->textRuns(); runs && runs->size())
+                streamTextRuns(stream, *runs);
+        } else if (axObject) {
+            if (auto runs = const_cast<AccessibilityObject*>(axObject)->textRuns(); runs.size())
+                streamTextRuns(stream, runs);
+        }
+    }
+#endif // ENABLE(AX_THREAD_TEXT_APIS)
+
     if (options & AXStreamOptions::DisplayContents) {
-        if (auto* axObject = dynamicDowncast<AccessibilityObject>(&object); axObject && axObject->hasDisplayContents())
+        if (axObject && axObject->hasDisplayContents())
             stream.dumpProperty("hasDisplayContents", true);
     }
 
@@ -751,16 +1352,13 @@ void streamAXCoreObject(TextStream& stream, const AXCoreObject& object, const Op
     }
 }
 
-void streamSubtree(TextStream& stream, const RefPtr<AXCoreObject>& object, const OptionSet<AXStreamOptions>& options)
+void streamSubtree(TextStream& stream, const Ref<AXCoreObject>& object, const OptionSet<AXStreamOptions>& options)
 {
-    if (!object)
-        return;
-
     stream.increaseIndent();
 
     TextStream::GroupScope groupScope(stream);
-    streamAXCoreObject(stream, *object, options);
-    for (auto& child : object->children(false))
+    streamAXCoreObject(stream, object, options);
+    for (auto& child : object->unignoredChildren(/* updateChildrenIfNeeded */ false))
         streamSubtree(stream, child, options);
 
     stream.decreaseIndent();

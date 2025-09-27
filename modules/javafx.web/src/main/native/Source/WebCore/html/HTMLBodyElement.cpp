@@ -38,12 +38,12 @@
 #include "MutableStyleProperties.h"
 #include "NodeName.h"
 #include "ResourceLoaderOptions.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLBodyElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLBodyElement);
 
 using namespace HTMLNames;
 
@@ -120,9 +120,6 @@ const AtomString& HTMLBodyElement::eventNameForWindowEventHandlerAttribute(const
     static NeverDestroyed map = [] {
         EventHandlerNameMap map;
         JSHTMLBodyElement::forEachWindowEventHandlerContentAttribute([&] (const AtomString& attributeName, const AtomString& eventName) {
-            // FIXME: Remove these special cases. These have has an [WindowEventHandler] line in the IDL but were not in this map before, so this preserves behavior.
-            if (attributeName == onrejectionhandledAttr.get().localName() || attributeName == onunhandledrejectionAttr.get().localName())
-                return;
             map.add(attributeName.impl(), eventName);
         });
         return map;
@@ -157,14 +154,14 @@ void HTMLBodyElement::attributeChanged(const QualifiedName& name, const AtomStri
     case AttributeNames::onselectionchangeAttr:
     // FIXME: Emit "selectionchange" event at <input> / <textarea> elements and remove this special-case.
     // https://bugs.webkit.org/show_bug.cgi?id=234348
-        document().setAttributeEventListener(eventNames().selectionchangeEvent, name, newValue, mainThreadNormalWorld());
+        document().setAttributeEventListener(eventNames().selectionchangeEvent, name, newValue, mainThreadNormalWorldSingleton());
         return;
     default:
         break;
     }
 
     if (auto& eventName = eventNameForWindowEventHandlerAttribute(name); !eventName.isNull()) {
-        document().setWindowAttributeEventListener(eventName, name, newValue, mainThreadNormalWorld());
+        document().setWindowAttributeEventListener(eventName, name, newValue, mainThreadNormalWorldSingleton());
         return;
     }
 

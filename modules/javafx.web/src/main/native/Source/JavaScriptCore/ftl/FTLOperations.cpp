@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,18 +43,22 @@
 #include "JSGeneratorFunction.h"
 #include "JSImmutableButterfly.h"
 #include "JSInternalPromise.h"
+#include "JSIteratorHelper.h"
 #include "JSLexicalEnvironment.h"
 #include "JSMapIterator.h"
 #include "JSSetIterator.h"
 #include "RegExpObject.h"
+#include "ResourceExhaustion.h"
 #include "VMTrapsInlines.h"
 #include <wtf/Assertions.h>
 
 IGNORE_WARNINGS_BEGIN("frame-address")
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace FTL {
 
-JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* globalObject, ExitTimeObjectMaterialization* materialization, EncodedJSValue* encodedValue, EncodedJSValue* values))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* globalObject, ExitTimeObjectMaterialization* materialization, EncodedJSValue* encodedValue, EncodedJSValue* values))
 {
     using namespace DFG;
     VM& vm = globalObject->vm();
@@ -69,6 +73,34 @@ JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* gl
     DeferGCForAWhile deferGC(vm);
 
     switch (materialization->type()) {
+    case PhantomNewArrayWithConstantSize: {
+        JSArray* array = jsCast<JSArray*>(JSValue::decode(*encodedValue));
+        for (unsigned i = materialization->properties().size(); i--;) {
+            const ExitPropertyValue& property = materialization->properties()[i];
+            JSValue value = JSValue::decode(values[i]);
+            unsigned index = property.location().info();
+            Butterfly* butterfly = array->butterfly();
+
+            switch (materialization->indexingType()) {
+            case ALL_DOUBLE_INDEXING_TYPES: {
+                ASSERT(value.isNumber());
+                double valueAsDouble = value.asNumber();
+                butterfly->contiguousDouble().at(array, index) = valueAsDouble;
+                break;
+            }
+            case ALL_INT32_INDEXING_TYPES:
+            case ALL_CONTIGUOUS_INDEXING_TYPES: {
+                butterfly->contiguous().at(array, index).set(vm, array, value);
+                break;
+            }
+            default:
+                RELEASE_ASSERT_NOT_REACHED();
+                break;
+            }
+        }
+        break;
+    }
+
     case PhantomNewObject: {
         JSFinalObject* object = jsCast<JSFinalObject*>(JSValue::decode(*encodedValue));
         Structure* structure = object->structure();
@@ -146,6 +178,9 @@ JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* gl
         case JSSetIteratorType:
             materialize(jsCast<JSSetIterator*>(target));
             break;
+        case JSIteratorHelperType:
+            materialize(jsCast<JSIteratorHelper*>(target));
+            break;
         case JSPromiseType:
             if (target->classInfo() == JSInternalPromise::info())
                 materialize(jsCast<JSInternalPromise*>(target));
@@ -183,7 +218,7 @@ JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* gl
 }
 
 
-JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObject* globalObject, ExitTimeObjectMaterialization* materialization, EncodedJSValue* values))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObject* globalObject, ExitTimeObjectMaterialization* materialization, EncodedJSValue* values))
 {
     using namespace DFG;
     VM& vm = globalObject->vm();
@@ -198,6 +233,20 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
     DeferGCForAWhile deferGC(vm);
 
     switch (materialization->type()) {
+    case PhantomNewArrayWithConstantSize: {
+        auto scope = DECLARE_THROW_SCOPE(vm);
+
+        size_t size = materialization->size();
+        Structure* structure = globalObject->arrayStructureForIndexingTypeDuringAllocation(materialization->indexingType());
+
+        JSArray* result = JSArray::tryCreate(vm, structure, size);
+        if (UNLIKELY(!result)) {
+            throwOutOfMemoryError(globalObject, scope);
+            OPERATION_RETURN(scope, nullptr);
+        }
+        return result;
+    }
+
     case PhantomNewObject: {
         // Figure out what the structure is
         Structure* structure = nullptr;
@@ -250,14 +299,16 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         }
         RELEASE_ASSERT(executable && activation);
 
+        CodeBlock* codeBlock = baselineCodeBlockForOriginAndBaselineCodeBlock(materialization->origin(), callFrame->codeBlock()->baselineAlternative());
+        JSGlobalObject* globalObject = codeBlock->globalObject();
         if (materialization->type() == PhantomNewFunction)
-            return JSFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+            return JSFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
         else if (materialization->type() == PhantomNewGeneratorFunction)
-            return JSGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+            return JSGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
         else if (materialization->type() == PhantomNewAsyncGeneratorFunction)
-            return JSAsyncGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+            return JSAsyncGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
         ASSERT(materialization->type() == PhantomNewAsyncFunction);
-        return JSAsyncFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+        return JSAsyncFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
     }
 
     case PhantomCreateActivation: {
@@ -357,6 +408,11 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         case JSSetIteratorType: {
             JSSetIterator* result = JSSetIterator::createWithInitialValues(vm, structure);
             RELEASE_ASSERT(materialization->properties().size() - 1 == JSSetIterator::numberOfInternalFields);
+            return result;
+        }
+        case JSIteratorHelperType: {
+            JSIteratorHelper* result = JSIteratorHelper::createWithInitialValues(vm, structure);
+            RELEASE_ASSERT(materialization->properties().size() - 1 == JSIteratorHelper::numberOfInternalFields);
             return result;
         }
         case JSPromiseType: {
@@ -469,8 +525,9 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         }
         case PhantomClonedArguments: {
             unsigned length = argumentCount - 1;
-            ClonedArguments* result = ClonedArguments::createEmpty(vm, codeBlock->globalObject()->clonedArgumentsStructure(), callee, length, nullptr);
-            RELEASE_ASSERT(result);
+            JSGlobalObject* globalObject = codeBlock->globalObject();
+            ClonedArguments* result = ClonedArguments::createEmpty(vm, nullptr, globalObject->clonedArgumentsStructure(), callee, length, nullptr);
+            RELEASE_ASSERT_RESOURCE_AVAILABLE(result, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
 
             for (unsigned i = materialization->properties().size(); i--;) {
                 const ExitPropertyValue& property = materialization->properties()[i];
@@ -580,9 +637,8 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         CodeBlock* codeBlock = baselineCodeBlockForOriginAndBaselineCodeBlock(materialization->origin(), callFrame->codeBlock()->baselineAlternative());
         const auto* currentInstruction = codeBlock->instructions().at(materialization->origin().bytecodeIndex()).ptr();
         if (!currentInstruction->is<OpNewArrayBuffer>()) {
-            // This case can happen if Object.keys, an OpCall is first converted into a NewArrayBuffer which is then converted into a PhantomNewArrayBuffer.
+            // This case can happen if Object.keys, an OpCall, and others is first converted into a NewArrayBuffer which is then converted into a PhantomNewArrayBuffer.
             // There is no need to update the array allocation profile in that case.
-            RELEASE_ASSERT(currentInstruction->is<OpCall>());
             Structure* structure = globalObject->arrayStructureForIndexingTypeDuringAllocation(immutableButterfly->indexingMode());
             return CommonSlowPaths::allocateNewArrayBuffer(vm, structure, immutableButterfly);
         }
@@ -707,21 +763,25 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
     }
 }
 
-JSC_DEFINE_JIT_OPERATION(operationSwitchStringAndGetIndex, unsigned, (JSGlobalObject* globalObject, const UnlinkedStringJumpTable* unlinkedTable, JSString* string))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationSwitchStringAndGetIndex, unsigned, (JSGlobalObject* globalObject, const UnlinkedStringJumpTable* unlinkedTable, JSString* string))
 {
     VM& vm = globalObject->vm();
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    StringImpl* strImpl = string->value(globalObject).impl();
+    unsigned length = string->length();
+    if (length < unlinkedTable->minLength() || length > unlinkedTable->maxLength())
+        return std::numeric_limits<unsigned>::max();
+
+    auto str = string->value(globalObject);
 
     RETURN_IF_EXCEPTION(throwScope, 0);
 
-    return unlinkedTable->indexForValue(strImpl, std::numeric_limits<unsigned>::max());
+    return unlinkedTable->indexForValue(str->impl(), std::numeric_limits<unsigned>::max());
 }
 
-JSC_DEFINE_JIT_OPERATION(operationTypeOfObjectAsTypeofType, int32_t, (JSGlobalObject* globalObject, JSCell* object))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationTypeOfObjectAsTypeofType, int32_t, (JSGlobalObject* globalObject, JSCell* object))
 {
     VM& vm = globalObject->vm();
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
@@ -736,7 +796,7 @@ JSC_DEFINE_JIT_OPERATION(operationTypeOfObjectAsTypeofType, int32_t, (JSGlobalOb
     return static_cast<int32_t>(TypeofType::Object);
 }
 
-JSC_DEFINE_JIT_OPERATION(operationCompileFTLLazySlowPath, void*, (CallFrame* callFrame, unsigned index))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationCompileFTLLazySlowPath, void*, (CallFrame* callFrame, unsigned index))
 {
     VM& vm = callFrame->deprecatedVM();
     // Don't need an ActiveScratchBufferScope here because we DeferGCForAWhile.
@@ -753,9 +813,9 @@ JSC_DEFINE_JIT_OPERATION(operationCompileFTLLazySlowPath, void*, (CallFrame* cal
     return lazySlowPath.stub().code().taggedPtr();
 }
 
-JSC_DEFINE_JIT_OPERATION_WITH_ATTRIBUTES(operationReportBoundsCheckEliminationErrorAndCrash, NO_RETURN_DUE_TO_CRASH, void, (intptr_t codeBlockAsIntPtr, int32_t nodeIndex, int32_t child1Index, int32_t child2Index, int32_t checkedIndex, int32_t bounds))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION_WITH_ATTRIBUTES(operationReportBoundsCheckEliminationErrorAndCrash, NO_RETURN_DUE_TO_CRASH, void, (intptr_t codeBlockAsIntPtr, int32_t nodeIndex, int32_t child1Index, int32_t child2Index, int32_t checkedIndex, int32_t bounds))
 {
-    CodeBlock* codeBlock = bitwise_cast<CodeBlock*>(codeBlockAsIntPtr);
+    CodeBlock* codeBlock = std::bit_cast<CodeBlock*>(codeBlockAsIntPtr);
     dataLogLn("Bounds Check Eimination error found @ D@", nodeIndex, ": AssertInBounds(index D@", child1Index, ": ", checkedIndex, ", bounds D@", child2Index, " ", bounds, ") in ", codeBlock);
     CRASH();
 }
@@ -764,5 +824,6 @@ JSC_DEFINE_JIT_OPERATION_WITH_ATTRIBUTES(operationReportBoundsCheckEliminationEr
 
 IGNORE_WARNINGS_END
 
-#endif // ENABLE(FTL_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
+#endif // ENABLE(FTL_JIT)

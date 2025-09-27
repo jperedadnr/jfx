@@ -59,6 +59,7 @@
 #include "LocalFrame.h"
 #include "MouseEvent.h"
 #include "Node.h"
+#include "OffscreenCanvasRenderingContext2D.h"
 #include "Page.h"
 #include "PagePasteboardContext.h"
 #include "Pasteboard.h"
@@ -76,6 +77,7 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/persistence/PersistentDecoder.h>
 #include <wtf/text/Base64.h>
+#include <wtf/text/MakeString.h>
 
 #if PLATFORM(COCOA)
 #include <wtf/spi/darwin/OSVariantSPI.h>
@@ -124,7 +126,7 @@ private:
     void contextMenuItemSelected(ContextMenuAction action, const String&) override
     {
         if (m_frontendHost) {
-            UserGestureIndicator gestureIndicator(ProcessingUserGesture, dynamicDowncast<Document>(executionContext(m_globalObject)));
+            UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, dynamicDowncast<Document>(executionContext(m_globalObject)));
             int itemNumber = action - ContextMenuItemBaseCustomTag;
 
             ScriptFunctionCall function(m_globalObject, m_frontendApiObject.get(), "contextMenuItemSelected"_s, WebCore::functionCallHandlerFromAnyThread);
@@ -179,7 +181,7 @@ void InspectorFrontendHost::addSelfToGlobalObjectInWorld(DOMWrapperWorld& world)
 {
     // FIXME: What guarantees m_frontendPage is non-null?
     // FIXME: What guarantees globalObject's return value is non-null?
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_frontendPage->mainFrame());
+    RefPtr localMainFrame = m_frontendPage->localMainFrame();
     if (!localMainFrame)
         return;
     auto& globalObject = *localMainFrame->script().globalObject(world);
@@ -270,7 +272,7 @@ void InspectorFrontendHost::inspectedURLChanged(const String& newURL)
 void InspectorFrontendHost::setZoomFactor(float zoom)
 {
     if (m_frontendPage) {
-        if (auto* localMainFrame = dynamicDowncast<LocalFrame>(m_frontendPage->mainFrame()))
+        if (RefPtr localMainFrame = m_frontendPage->localMainFrame())
             localMainFrame->setPageAndTextZoomFactors(zoom, 1);
     }
 }
@@ -278,7 +280,7 @@ void InspectorFrontendHost::setZoomFactor(float zoom)
 float InspectorFrontendHost::zoomFactor()
 {
     if (m_frontendPage) {
-        if (auto* localMainFrame = dynamicDowncast<LocalFrame>(m_frontendPage->mainFrame()))
+        if (RefPtr localMainFrame = m_frontendPage->localMainFrame())
             return localMainFrame->pageZoomFactor();
     }
 
@@ -432,8 +434,7 @@ String InspectorFrontendHost::platformVersionName() const
 
 void InspectorFrontendHost::copyText(const String& text)
 {
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_frontendPage->mainFrame());
-    auto pageID = m_frontendPage && localMainFrame ? localMainFrame->pageID() : std::nullopt;
+    auto pageID = m_frontendPage ? m_frontendPage->mainFrame().pageID() : std::nullopt;
     Pasteboard::createForCopyAndPaste(PagePasteboardContext::create(WTFMove(pageID)))->writePlainText(text, Pasteboard::CannotSmartReplace);
 }
 
@@ -442,7 +443,11 @@ void InspectorFrontendHost::killText(const String& text, bool shouldPrependToKil
     if (!m_frontendPage)
         return;
 
-    Editor& editor = m_frontendPage->focusController().focusedOrMainFrame().editor();
+    RefPtr focusedOrMainFrame = m_frontendPage->checkedFocusController()->focusedOrMainFrame();
+    if (!focusedOrMainFrame)
+        return;
+
+    Editor& editor = focusedOrMainFrame->editor();
     editor.setStartNewKillRingSequence(shouldStartNewSequence);
     Editor::KillRingInsertionMode insertionMode = shouldPrependToKillRing ? Editor::KillRingInsertionMode::PrependText : Editor::KillRingInsertionMode::AppendText;
     editor.addTextToKillRing(text, insertionMode);
@@ -489,13 +494,13 @@ bool InspectorFrontendHost::canLoad()
 void InspectorFrontendHost::load(const String& path, Ref<DeferredPromise>&& promise)
 {
     if (!m_client) {
-        promise->reject(InvalidStateError);
+        promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
 
     m_client->load(path, [promise = WTFMove(promise)](const String& content) {
         if (!content)
-            promise->reject(NotFoundError);
+            promise->reject(ExceptionCode::NotFoundError);
         else
             promise->resolve<IDLDOMString>(content);
     });
@@ -511,7 +516,7 @@ bool InspectorFrontendHost::canPickColorFromScreen()
 void InspectorFrontendHost::pickColorFromScreen(Ref<DeferredPromise>&& promise)
 {
     if (!m_client) {
-        promise->reject(InvalidStateError);
+        promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
 
@@ -547,7 +552,7 @@ static void populateContextMenu(Vector<InspectorFrontendHost::ContextMenuItem>&&
 {
     for (auto& item : items) {
         if (item.type == "separator"_s) {
-            menu.appendItem({ SeparatorType, ContextMenuItemTagNoAction, { } });
+            menu.appendItem({ ContextMenuItemType::Separator, ContextMenuItemTagNoAction, { } });
             continue;
         }
 
@@ -555,11 +560,11 @@ static void populateContextMenu(Vector<InspectorFrontendHost::ContextMenuItem>&&
             ContextMenu subMenu;
             populateContextMenu(WTFMove(*item.subItems), subMenu);
 
-            menu.appendItem({ SubmenuType, ContextMenuItemTagNoAction, item.label, &subMenu });
+            menu.appendItem({ ContextMenuItemType::Submenu, ContextMenuItemTagNoAction, item.label, &subMenu });
             continue;
         }
 
-        auto type = item.type == "checkbox"_s ? CheckableActionType : ActionType;
+        auto type = item.type == "checkbox"_s ? ContextMenuItemType::CheckableAction : ContextMenuItemType::Action;
         auto action = static_cast<ContextMenuAction>(ContextMenuItemBaseCustomTag + item.id.value_or(0));
         ContextMenuItem menuItem = { type, action, item.label };
         if (item.enabled)
@@ -577,10 +582,10 @@ void InspectorFrontendHost::showContextMenu(Event& event, Vector<ContextMenuItem
     // FIXME: What guarantees m_frontendPage is non-null?
     // FIXME: What guarantees globalObject's return value is non-null?
     ASSERT(m_frontendPage);
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_frontendPage->mainFrame());
+    RefPtr localMainFrame = m_frontendPage->localMainFrame();
     if (!localMainFrame)
         return;
-    auto& globalObject = *localMainFrame->script().globalObject(debuggerWorld());
+    auto& globalObject = *localMainFrame->script().globalObject(debuggerWorldSingleton());
     auto& vm = globalObject.vm();
     auto value = globalObject.get(&globalObject, JSC::Identifier::fromString(vm, "InspectorFrontendAPI"_s));
     ASSERT(value);
@@ -689,7 +694,7 @@ bool InspectorFrontendHost::showCertificate(const String& serializedCertificate)
     if (!data)
         return false;
 
-    WTF::Persistence::Decoder decoder({ data->data(), data->size() });
+    WTF::Persistence::Decoder decoder(data->span());
     std::optional<CertificateInfo> certificateInfo;
     decoder >> certificateInfo;
     if (!certificateInfo)
@@ -816,19 +821,20 @@ ExceptionOr<JSC::JSValue> InspectorFrontendHost::evaluateScriptInExtensionTab(HT
 {
     auto* frame = dynamicDowncast<LocalFrame>(extensionFrameElement.contentFrame());
     if (!frame)
-        return Exception { InvalidStateError, "Unable to find global object for <iframe>"_s };
+        return Exception { ExceptionCode::InvalidStateError, "Unable to find global object for <iframe>"_s };
 
     Ref protectedFrame(*frame);
 
-    JSDOMGlobalObject* frameGlobalObject = frame->script().globalObject(mainThreadNormalWorld());
+    JSDOMGlobalObject* frameGlobalObject = frame->script().globalObject(mainThreadNormalWorldSingleton());
     if (!frameGlobalObject)
-        return Exception { InvalidStateError, "Unable to find global object for <iframe>"_s };
+        return Exception { ExceptionCode::InvalidStateError, "Unable to find global object for <iframe>"_s };
+
 
     JSC::SuspendExceptionScope scope(frameGlobalObject->vm());
-    ValueOrException result = frame->script().evaluateInWorld(ScriptSourceCode(scriptSource), mainThreadNormalWorld());
+    ValueOrException result = frame->script().evaluateInWorld(ScriptSourceCode(scriptSource, JSC::SourceTaintedOrigin::Untainted), mainThreadNormalWorldSingleton());
 
     if (!result)
-        return Exception { InvalidStateError, result.error().message };
+        return Exception { ExceptionCode::InvalidStateError, result.error().message };
 
     return WTFMove(result.value());
 }
@@ -859,5 +865,29 @@ void InspectorFrontendHost::setPath(CanvasRenderingContext2D& context, Path2D& p
 {
     context.setPath(path);
 }
+
+#if ENABLE(OFFSCREEN_CANVAS)
+
+float InspectorFrontendHost::getCurrentX(const OffscreenCanvasRenderingContext2D& context) const
+{
+    return context.currentX();
+}
+
+float InspectorFrontendHost::getCurrentY(const OffscreenCanvasRenderingContext2D& context) const
+{
+    return context.currentY();
+}
+
+Ref<Path2D> InspectorFrontendHost::getPath(const OffscreenCanvasRenderingContext2D& context) const
+{
+    return context.getPath();
+}
+
+void InspectorFrontendHost::setPath(OffscreenCanvasRenderingContext2D& context, Path2D& path) const
+{
+    context.setPath(path);
+}
+
+#endif // ENABLE(OFFSCREEN_CANVAS)
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 #include "VM.h"
 #include <mutex>
 #include <wtf/NoTailCalls.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if USE(GLIB_EVENT_LOOP)
 #include <glib.h>
@@ -38,13 +39,15 @@
 
 namespace JSC {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(JSRunLoopTimer::Manager);
+
 JSRunLoopTimer::Manager::PerVMData::PerVMData(Manager& manager, RunLoop& runLoop)
     : runLoop(runLoop)
     , timer(makeUnique<RunLoop::Timer>(runLoop, &manager, &JSRunLoopTimer::Manager::timerDidFireCallback))
 {
 #if USE(GLIB_EVENT_LOOP)
     timer->setPriority(RunLoopSourcePriority::JavascriptTimer);
-    timer->setName("[JavaScriptCore] JSRunLoopTimer");
+    timer->setName("[JavaScriptCore] JSRunLoopTimer"_s);
 #endif
 }
 
@@ -106,7 +109,7 @@ void JSRunLoopTimer::Manager::timerDidFire()
         timer->timerDidFire();
 }
 
-JSRunLoopTimer::Manager& JSRunLoopTimer::Manager::shared()
+JSRunLoopTimer::Manager& JSRunLoopTimer::Manager::singleton()
 {
     static Manager* manager;
     static std::once_flag once;
@@ -238,13 +241,11 @@ JSRunLoopTimer::JSRunLoopTimer(VM& vm)
 {
 }
 
-JSRunLoopTimer::~JSRunLoopTimer()
-{
-}
+JSRunLoopTimer::~JSRunLoopTimer() = default;
 
 std::optional<Seconds> JSRunLoopTimer::timeUntilFire()
 {
-    return Manager::shared().timeUntilFire(*this);
+    return Manager::singleton().timeUntilFire(*this);
 }
 
 void JSRunLoopTimer::setTimeUntilFire(Seconds intervalInSeconds)
@@ -252,7 +253,7 @@ void JSRunLoopTimer::setTimeUntilFire(Seconds intervalInSeconds)
     {
         Locker locker { m_lock };
         m_isScheduled = true;
-        Manager::shared().scheduleTimer(*this, intervalInSeconds);
+        Manager::singleton().scheduleTimer(*this, intervalInSeconds);
     }
 
     Locker locker { m_timerCallbacksLock };
@@ -264,7 +265,7 @@ void JSRunLoopTimer::cancelTimer()
 {
     Locker locker { m_lock };
     m_isScheduled = false;
-    Manager::shared().cancelTimer(*this);
+    Manager::singleton().cancelTimer(*this);
 }
 
 void JSRunLoopTimer::addTimerSetNotification(TimerNotificationCallback callback)

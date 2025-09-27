@@ -31,6 +31,7 @@
 #include "ExceptionHelpers.h"
 #include "GetVM.h"
 #include "JSGlobalObject.h"
+#include "ObjectPrototype.h"
 
 namespace JSC {
 
@@ -40,16 +41,44 @@ enum class SpeciesConstructResult : uint8_t {
     CreatedObject
 };
 
-ALWAYS_INLINE bool arraySpeciesWatchpointIsValid(JSObject* thisObject)
+ALWAYS_INLINE bool arraySpeciesWatchpointIsValid(VM& vm, JSObject* thisObject)
 {
     JSGlobalObject* globalObject = thisObject->globalObject();
     ArrayPrototype* arrayPrototype = globalObject->arrayPrototype();
 
     ASSERT(globalObject->arraySpeciesWatchpointSet().state() != ClearWatchpoint);
+    if (arrayPrototype != thisObject->getPrototypeDirect())
+        return false;
 
-    return !thisObject->hasCustomProperties()
-        && arrayPrototype == thisObject->getPrototypeDirect()
-        && globalObject->arraySpeciesWatchpointSet().state() == IsWatched;
+    if (globalObject->arraySpeciesWatchpointSet().state() != IsWatched)
+        return false;
+
+    if (!thisObject->hasCustomProperties())
+        return true;
+
+    return thisObject->getDirectOffset(vm, vm.propertyNames->constructor) == invalidOffset;
+}
+
+ALWAYS_INLINE bool arrayMissingIsConcatSpreadable(VM& vm, JSObject* thisObject)
+{
+    JSGlobalObject* globalObject = thisObject->globalObject();
+    ASSERT(globalObject->arrayIsConcatSpreadableWatchpointSet().state() != ClearWatchpoint);
+    if (globalObject->arrayIsConcatSpreadableWatchpointSet().state() != IsWatched)
+        return false;
+
+    if (isJSArray(thisObject)) {
+        ArrayPrototype* arrayPrototype = globalObject->arrayPrototype();
+        if (arrayPrototype != thisObject->getPrototypeDirect())
+            return false;
+    } else {
+        if (globalObject->objectPrototype() != thisObject->getPrototypeDirect())
+            return false;
+    }
+
+    if (!thisObject->hasCustomProperties())
+        return true;
+
+    return thisObject->getDirectOffset(vm, vm.propertyNames->isConcatSpreadableSymbol) == invalidOffset;
 }
 
 ALWAYS_INLINE std::pair<SpeciesConstructResult, JSObject*> speciesConstructArray(JSGlobalObject* globalObject, JSObject* thisObject, uint64_t length)
@@ -66,7 +95,7 @@ ALWAYS_INLINE std::pair<SpeciesConstructResult, JSObject*> speciesConstructArray
     if (LIKELY(thisIsArray)) {
         // Fast path in the normal case where the user has not set an own constructor and the Array.prototype.constructor is normal.
         // We need prototype check for subclasses of Array, which are Array objects but have a different prototype by default.
-        bool isValid = arraySpeciesWatchpointIsValid(thisObject);
+        bool isValid = arraySpeciesWatchpointIsValid(vm, thisObject);
         RETURN_IF_EXCEPTION(scope, exceptionResult);
         if (LIKELY(isValid))
             return std::pair { SpeciesConstructResult::FastPath, nullptr };
@@ -100,15 +129,6 @@ ALWAYS_INLINE std::pair<SpeciesConstructResult, JSObject*> speciesConstructArray
     JSObject* newObject = construct(globalObject, constructor, args, "Species construction did not get a valid constructor"_s);
     RETURN_IF_EXCEPTION(scope, exceptionResult);
     return std::pair { SpeciesConstructResult::CreatedObject, newObject };
-}
-
-ALWAYS_INLINE JSValue getProperty(JSGlobalObject* globalObject, JSObject* object, uint64_t index)
-{
-    if (JSValue result = object->tryGetIndexQuickly(index))
-        return result;
-
-    // Don't return undefined if the property is not found.
-    return object->getIfPropertyExists(globalObject, index);
 }
 
 ALWAYS_INLINE void setLength(JSGlobalObject* globalObject, VM& vm, JSObject* obj, uint64_t value)
@@ -241,6 +261,11 @@ inline void unshift(JSGlobalObject* globalObject, JSObject* thisObj, uint64_t he
             }
         }
     }
+}
+
+inline Structure* ArrayPrototype::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+{
+    return Structure::create(vm, globalObject, prototype, TypeInfo(DerivedArrayType, StructureFlags), info(), ArrayClass);
 }
 
 } // namespace JSC

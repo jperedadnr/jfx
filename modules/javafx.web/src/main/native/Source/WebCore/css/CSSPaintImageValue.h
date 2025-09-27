@@ -26,8 +26,6 @@
 
 #pragma once
 
-#if ENABLE(CSS_PAINTING_API)
-
 #include "CSSValue.h"
 #include <wtf/text/WTFString.h>
 
@@ -51,9 +49,9 @@ public:
     const String& name() const { return m_name; }
 
     bool equals(const CSSPaintImageValue& other) const { return m_name == other.m_name; }
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
 
-    RefPtr<StyleImage> createStyleImage(Style::BuilderState&) const;
+    RefPtr<StyleImage> createStyleImage(const Style::BuilderState&) const;
 
 private:
     explicit CSSPaintImageValue(String&&, Ref<CSSVariableData>&&);
@@ -65,5 +63,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSPaintImageValue, isPaintImageValue())
-
-#endif

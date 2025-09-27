@@ -35,7 +35,7 @@ class Exception final : public JSCell {
 public:
     using Base = JSCell;
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     template<typename CellType, SubspaceAccess mode>
     static GCClient::IsoSubspace* subspaceFor(VM& vm)
@@ -55,7 +55,7 @@ public:
 
     DECLARE_EXPORT_INFO;
 
-    static ptrdiff_t valueOffset()
+    static constexpr ptrdiff_t valueOffset()
     {
         return OBJECT_OFFSETOF(Exception, m_value);
     }
@@ -65,6 +65,10 @@ public:
 
     bool didNotifyInspectorOfThrow() const { return m_didNotifyInspectorOfThrow; }
     void setDidNotifyInspectorOfThrow() { m_didNotifyInspectorOfThrow = true; }
+
+#if ENABLE(WEBASSEMBLY)
+    void wrapValueForJSTag(JSGlobalObject*);
+#endif
 
     ~Exception();
 

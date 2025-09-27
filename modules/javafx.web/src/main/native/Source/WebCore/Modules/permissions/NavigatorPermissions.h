@@ -26,6 +26,7 @@
 #pragma once
 
 #include "Supplementable.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -33,7 +34,7 @@ class Navigator;
 class Permissions;
 
 class NavigatorPermissions final : public Supplement<Navigator> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NavigatorPermissions);
 public:
     explicit NavigatorPermissions(Navigator&);
 
@@ -42,7 +43,7 @@ public:
 
 private:
     static NavigatorPermissions& from(Navigator&);
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
     RefPtr<Permissions> m_permissions;
     Navigator& m_navigator;

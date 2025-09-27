@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,13 +32,14 @@
 #include "DFGNode.h"
 #include "DFGNodeFlowProjection.h"
 #include "DFGPhiChildren.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/TriState.h>
 
 namespace JSC { namespace DFG {
 
 template<typename AbstractStateType>
 class AbstractInterpreter {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(AbstractInterpreter);
 public:
     AbstractInterpreter(Graph&, AbstractStateType&);
     ~AbstractInterpreter();
@@ -270,7 +271,7 @@ private:
 
     void verifyEdge(Node*, Edge);
     void verifyEdges(Node*);
-    void executeDoubleUnaryOpEffects(Node*, double(*equivalentFunction)(double));
+    void executeDoubleUnaryOpEffects(Node*, const auto& functor);
 
     bool handleConstantDivOp(Node*);
 
@@ -280,6 +281,8 @@ private:
     AbstractStateType& m_state;
     std::unique_ptr<PhiChildren> m_phiChildren;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<typename AbstractStateType>, AbstractInterpreter<AbstractStateType>);
 
 } } // namespace JSC::DFG
 

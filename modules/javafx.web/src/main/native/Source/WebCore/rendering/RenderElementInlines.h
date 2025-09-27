@@ -24,8 +24,8 @@
 
 namespace WebCore {
 
-inline Overflow RenderElement::effectiveOverflowBlockDirection() const { return style().isHorizontalWritingMode() ? effectiveOverflowY() : effectiveOverflowX(); }
-inline Overflow RenderElement::effectiveOverflowInlineDirection() const { return style().isHorizontalWritingMode() ? effectiveOverflowX() : effectiveOverflowY(); }
+inline Overflow RenderElement::effectiveOverflowBlockDirection() const { return writingMode().isHorizontal() ? effectiveOverflowY() : effectiveOverflowX(); }
+inline Overflow RenderElement::effectiveOverflowInlineDirection() const { return writingMode().isHorizontal() ? effectiveOverflowX() : effectiveOverflowY(); }
 inline bool RenderElement::hasBackdropFilter() const { return style().hasBackdropFilter(); }
 inline bool RenderElement::hasBackground() const { return style().hasBackground(); }
 inline bool RenderElement::hasBlendMode() const { return style().hasBlendMode(); }
@@ -42,85 +42,94 @@ inline float RenderElement::opacity() const { return style().opacity(); }
 inline FloatRect RenderElement::transformReferenceBoxRect() const { return transformReferenceBoxRect(style()); }
 inline FloatRect RenderElement::transformReferenceBoxRect(const RenderStyle& style) const { return referenceBoxRect(transformBoxToCSSBoxType(style.transformBox())); }
 
+#if HAVE(CORE_MATERIAL)
+inline bool RenderElement::hasAppleVisualEffect() const { return style().hasAppleVisualEffect(); }
+inline bool RenderElement::hasAppleVisualEffectRequiringBackdropFilter() const { return style().hasAppleVisualEffectRequiringBackdropFilter(); }
+#endif
+
 inline bool RenderElement::canContainAbsolutelyPositionedObjects() const
 {
     return isRenderView()
         || style().position() != PositionType::Static
         || (canEstablishContainingBlockWithTransform() && hasTransformRelatedProperty())
-        || (isRenderBlock() && style().willChange() && style().willChange()->createsContainingBlockForAbsolutelyPositioned()) // FIXME: will-change should create containing blocks on inline boxes (bug 225035)
-        || isSVGForeignObjectOrLegacySVGForeignObject()
-        || shouldApplyLayoutOrPaintContainment();
+        || (hasBackdropFilter() && !isDocumentElementRenderer())
+#if HAVE(CORE_MATERIAL)
+        || (hasAppleVisualEffectRequiringBackdropFilter() && !isDocumentElementRenderer())
+#endif
+        || (isRenderBlock() && style().willChange() && style().willChange()->createsContainingBlockForAbsolutelyPositioned(isDocumentElementRenderer()))
+        || isRenderOrLegacyRenderSVGForeignObject()
+        || shouldApplyLayoutContainment()
+        || shouldApplyPaintContainment();
 }
 
 inline bool RenderElement::canContainFixedPositionObjects() const
 {
     return isRenderView()
         || (canEstablishContainingBlockWithTransform() && hasTransformRelatedProperty())
-        || (isRenderBlock() && style().willChange() && style().willChange()->createsContainingBlockForOutOfFlowPositioned()) // FIXME: will-change should create containing blocks on inline boxes (bug 225035)
-        || isSVGForeignObjectOrLegacySVGForeignObject()
-        || shouldApplyLayoutOrPaintContainment();
+        || (hasBackdropFilter() && !isDocumentElementRenderer())
+#if HAVE(CORE_MATERIAL)
+        || (hasAppleVisualEffectRequiringBackdropFilter() && !isDocumentElementRenderer())
+#endif
+        || (isRenderBlock() && style().willChange() && style().willChange()->createsContainingBlockForOutOfFlowPositioned(isDocumentElementRenderer()))
+        || isRenderOrLegacyRenderSVGForeignObject()
+        || shouldApplyLayoutContainment()
+        || shouldApplyPaintContainment();
 }
 
 inline bool RenderElement::createsGroupForStyle(const RenderStyle& style)
 {
-    return style.hasOpacity() || style.hasMask() || style.clipPath() || style.hasFilter() || style.hasBackdropFilter() || style.hasBlendMode();
+    return style.hasOpacity()
+        || style.hasMask()
+        || style.clipPath()
+        || style.hasFilter()
+        || style.hasBackdropFilter()
+#if HAVE(CORE_MATERIAL)
+        || style.hasAppleVisualEffect()
+#endif
+        || style.hasBlendMode();
 }
 
 inline bool RenderElement::shouldApplyAnyContainment() const
 {
-    return shouldApplyLayoutOrPaintContainment() || shouldApplySizeOrStyleContainment(style().containsSizeOrInlineSize() || style().containsStyle());
-}
-
-inline bool RenderElement::shouldApplyInlineSizeContainment() const
-{
-    return isSkippedContentRoot() || shouldApplySizeOrStyleContainment(style().containsInlineSize());
-}
-
-inline bool RenderElement::shouldApplyLayoutContainment() const
-{
-    return shouldApplyLayoutOrPaintContainment(style().containsLayout() || style().contentVisibility() != ContentVisibility::Visible);
-}
-
-inline bool RenderElement::shouldApplyLayoutOrPaintContainment(bool containsAccordingToStyle) const
-{
-    return containsAccordingToStyle && (!isInline() || isAtomicInlineLevelBox()) && !isRubyText() && (!isTablePart() || isRenderBlockFlow());
-}
-
-inline bool RenderElement::shouldApplyLayoutOrPaintContainment() const
-{
-    return shouldApplyLayoutOrPaintContainment(style().containsLayoutOrPaint() || style().contentVisibility() != ContentVisibility::Visible);
-}
-
-inline bool RenderElement::shouldApplyPaintContainment() const
-{
-    return shouldApplyLayoutOrPaintContainment(style().containsPaint() || style().contentVisibility() != ContentVisibility::Visible);
-}
-
-inline bool RenderElement::shouldApplySizeContainment() const
-{
-    return isSkippedContentRoot() || shouldApplySizeOrStyleContainment(style().containsSize());
+    return shouldApplyLayoutContainment() || shouldApplySizeContainment() || shouldApplyInlineSizeContainment() || shouldApplyStyleContainment() || shouldApplyPaintContainment();
 }
 
 inline bool RenderElement::shouldApplySizeOrInlineSizeContainment() const
 {
-    return isSkippedContentRoot() || shouldApplySizeOrStyleContainment(style().containsSizeOrInlineSize());
+    return shouldApplySizeContainment() || shouldApplyInlineSizeContainment();
 }
 
-inline bool RenderElement::shouldApplySizeOrStyleContainment(bool containsAccordingToStyle) const
+inline bool RenderElement::shouldApplyLayoutContainment() const
 {
-    return containsAccordingToStyle && (!isInline() || isAtomicInlineLevelBox()) && !isRubyText() && (!isTablePart() || isTableCaption()) && !isTable();
+    return element() && WebCore::shouldApplyLayoutContainment(style(), *element());
+}
+
+inline bool RenderElement::shouldApplySizeContainment() const
+{
+    return element() && WebCore::shouldApplySizeContainment(style(), *element());
+}
+
+inline bool RenderElement::shouldApplyInlineSizeContainment() const
+{
+    return element() && WebCore::shouldApplyInlineSizeContainment(style(), *element());
 }
 
 inline bool RenderElement::shouldApplyStyleContainment() const
 {
-    return shouldApplySizeOrStyleContainment(style().containsStyle() || style().contentVisibility() != ContentVisibility::Visible);
+    return element() && WebCore::shouldApplyStyleContainment(style(), *element());
+}
+
+inline bool RenderElement::shouldApplyPaintContainment() const
+{
+    return element() && WebCore::shouldApplyPaintContainment(style(), *element());
 }
 
 inline bool RenderElement::visibleToHitTesting(const std::optional<HitTestRequest>& request) const
 {
-    return style().visibility() == Visibility::Visible
+    auto visibility = !request || request->userTriggered() ? style().usedVisibility() : style().visibility();
+    return visibility == Visibility::Visible
         && !isSkippedContent()
-        && ((request && request->ignoreCSSPointerEventsProperty()) || style().effectivePointerEvents() != PointerEvents::None);
+        && ((request && request->ignoreCSSPointerEventsProperty()) || usedPointerEvents() != PointerEvents::None);
 }
 
 inline int adjustForAbsoluteZoom(int value, const RenderElement& renderer)
@@ -136,6 +145,11 @@ inline LayoutSize adjustLayoutSizeForAbsoluteZoom(LayoutSize size, const RenderE
 inline LayoutUnit adjustLayoutUnitForAbsoluteZoom(LayoutUnit value, const RenderElement& renderer)
 {
     return adjustLayoutUnitForAbsoluteZoom(value, renderer.style());
+}
+
+inline bool isSkippedContentRoot(const RenderElement& renderer)
+{
+    return renderer.element() && WebCore::isSkippedContentRoot(renderer.style(), *renderer.element());
 }
 
 } // namespace WebCore

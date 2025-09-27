@@ -44,17 +44,18 @@
 #include "ScriptElement.h"
 #include "StyleResolver.h"
 #include "Text.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLOptionElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLOptionElement);
 
 using namespace HTMLNames;
 
 HTMLOptionElement::HTMLOptionElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document, CreateHTMLOptionElement)
+    : HTMLElement(tagName, document, TypeFlag::HasCustomStyleResolveCallbacks)
 {
     ASSERT(hasTagName(optionTag));
 }
@@ -144,6 +145,12 @@ HTMLFormElement* HTMLOptionElement::form() const
     return nullptr;
 }
 
+HTMLFormElement* HTMLOptionElement::formForBindings() const
+{
+    // FIXME: The downcast should be unnecessary, but the WPT was written before https://github.com/WICG/webcomponents/issues/1072 was resolved. Update once the WPT has been updated.
+    return dynamicDowncast<HTMLFormElement>(retargetReferenceTargetForBindings(form())).get();
+}
+
 int HTMLOptionElement::index() const
 {
     // It would be faster to cache the index, but harder to get it right in all cases.
@@ -171,16 +178,16 @@ void HTMLOptionElement::attributeChanged(const QualifiedName& name, const AtomSt
     case AttributeNames::disabledAttr: {
         bool newDisabled = !newValue.isNull();
         if (m_disabled != newDisabled) {
-            Style::PseudoClassChangeInvalidation disabledInvalidation(*this, { { CSSSelector::PseudoClassType::Disabled, newDisabled },  { CSSSelector::PseudoClassType::Enabled, !newDisabled } });
+            Style::PseudoClassChangeInvalidation disabledInvalidation(*this, { { CSSSelector::PseudoClass::Disabled, newDisabled },  { CSSSelector::PseudoClass::Enabled, !newDisabled } });
             m_disabled = newDisabled;
-            if (renderer() && renderer()->style().hasEffectiveAppearance())
-                renderer()->theme().stateChanged(*renderer(), ControlStates::States::Enabled);
+            if (renderer() && renderer()->style().hasUsedAppearance())
+                renderer()->repaint();
         }
         break;
     }
     case AttributeNames::selectedAttr: {
         // FIXME: Use PseudoClassChangeInvalidation in other elements that implement matchesDefaultPseudoClass().
-        Style::PseudoClassChangeInvalidation defaultInvalidation(*this, CSSSelector::PseudoClassType::Default, !newValue.isNull());
+        Style::PseudoClassChangeInvalidation defaultInvalidation(*this, CSSSelector::PseudoClass::Default, !newValue.isNull());
         m_isDefault = !newValue.isNull();
 
         // FIXME: WebKit still need to implement 'dirtiness'. See: https://bugs.webkit.org/show_bug.cgi?id=258073
@@ -194,12 +201,10 @@ void HTMLOptionElement::attributeChanged(const QualifiedName& name, const AtomSt
             select->optionElementChildrenChanged();
         break;
     }
-#if ENABLE(DATALIST_ELEMENT)
     case AttributeNames::valueAttr:
         for (auto& dataList : ancestorsOfType<HTMLDataListElement>(*this))
             dataList.optionElementChildrenChanged();
         break;
-#endif
     default:
         HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
         break;
@@ -244,23 +249,21 @@ void HTMLOptionElement::setSelectedState(bool selected, AllowStyleInvalidation a
 
     std::optional<Style::PseudoClassChangeInvalidation> checkedInvalidation;
     if (allowStyleInvalidation == AllowStyleInvalidation::Yes)
-        emplace(checkedInvalidation, *this, { { CSSSelector::PseudoClassType::Checked, selected } });
+        emplace(checkedInvalidation, *this, { { CSSSelector::PseudoClass::Checked, selected } });
 
     m_isSelected = selected;
 
-    if (auto* cache = document().existingAXObjectCache())
-        cache->onSelectedChanged(this);
+    if (CheckedPtr cache = document().existingAXObjectCache())
+        cache->onSelectedChanged(*this);
 }
 
 void HTMLOptionElement::childrenChanged(const ChildChange& change)
 {
-#if ENABLE(DATALIST_ELEMENT)
     Vector<Ref<HTMLDataListElement>> ancestors;
     for (auto& dataList : ancestorsOfType<HTMLDataListElement>(*this))
         ancestors.append(dataList);
     for (auto& dataList : ancestors)
         dataList->optionElementChildrenChanged();
-#endif
     if (change.source != ChildChange::Source::Clone) {
     if (RefPtr select = ownerSelectElement())
         select->optionElementChildrenChanged();
@@ -271,10 +274,10 @@ void HTMLOptionElement::childrenChanged(const ChildChange& change)
 HTMLSelectElement* HTMLOptionElement::ownerSelectElement() const
 {
     if (auto* parent = parentElement()) {
-        if (is<HTMLSelectElement>(*parent))
-            return downcast<HTMLSelectElement>(parent);
-        if (is<HTMLOptGroupElement>(*parent))
-            return downcast<HTMLOptGroupElement>(*parent).ownerSelectElement();
+        if (auto* select = dynamicDowncast<HTMLSelectElement>(*parent))
+            return select;
+        if (auto* optGroup = dynamicDowncast<HTMLOptGroupElement>(*parent))
+            return optGroup->ownerSelectElement();
     }
     return nullptr;
 }
@@ -314,7 +317,7 @@ String HTMLOptionElement::textIndentedToRespectGroupLabel() const
 {
     RefPtr parent = parentNode();
     if (is<HTMLOptGroupElement>(parent))
-        return "    " + displayLabel();
+        return makeString("    "_s, displayLabel());
     return displayLabel();
 }
 
@@ -323,20 +326,18 @@ bool HTMLOptionElement::isDisabledFormControl() const
     if (ownElementDisabled())
         return true;
 
-    if (!is<HTMLOptGroupElement>(parentNode()))
-        return false;
-
-    return downcast<HTMLOptGroupElement>(*parentNode()).isDisabledFormControl();
+    auto* parentOptGroup = dynamicDowncast<HTMLOptGroupElement>(parentNode());
+    return parentOptGroup && parentOptGroup->isDisabledFormControl();
 }
 
 String HTMLOptionElement::collectOptionInnerText() const
 {
     StringBuilder text;
     for (RefPtr node = firstChild(); node; ) {
-        if (is<Text>(*node))
-            text.append(node->nodeValue());
+        if (auto* textNode = dynamicDowncast<Text>(*node))
+            text.append(textNode->data());
         // Text nodes inside script elements are not part of the option text.
-        if (is<Element>(*node) && isScriptElement(downcast<Element>(*node)))
+        if (auto* element = dynamicDowncast<Element>(*node); element && isScriptElement(*element))
             node = NodeTraversal::nextSkippingChildren(*node, this);
         else
             node = NodeTraversal::next(*node, this);

@@ -32,19 +32,16 @@
 
 namespace WebCore {
 
-enum WindowIdentifierType { };
+enum class WindowIdentifierType { };
 using WindowIdentifier = ObjectIdentifier<WindowIdentifierType>;
 
 // Window identifier that is unique across all WebContent processes.
 struct GlobalWindowIdentifier {
     ProcessIdentifier processIdentifier;
     WindowIdentifier windowIdentifier;
-};
 
-inline bool operator==(const GlobalWindowIdentifier& a, const GlobalWindowIdentifier& b)
-{
-    return a.processIdentifier == b.processIdentifier &&  a.windowIdentifier == b.windowIdentifier;
-}
+    friend bool operator==(const GlobalWindowIdentifier&, const GlobalWindowIdentifier&) = default;
+};
 
 inline void add(Hasher& hasher, const GlobalWindowIdentifier& identifier)
 {
@@ -62,7 +59,8 @@ struct GlobalWindowIdentifierHash {
 };
 
 template<> struct HashTraits<WebCore::GlobalWindowIdentifier> : GenericHashTraits<WebCore::GlobalWindowIdentifier> {
-    static WebCore::GlobalWindowIdentifier emptyValue() { return { }; }
+    static WebCore::GlobalWindowIdentifier emptyValue() { return { HashTraits<WebCore::ProcessIdentifier>::emptyValue(), HashTraits<WebCore::WindowIdentifier>::emptyValue() }; }
+    static bool isEmptyValue(const WebCore::GlobalWindowIdentifier& value) { return value.windowIdentifier.isHashTableEmptyValue(); }
 
     static void constructDeletedValue(WebCore::GlobalWindowIdentifier& slot)
     {

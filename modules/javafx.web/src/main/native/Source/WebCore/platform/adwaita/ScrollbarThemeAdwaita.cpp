@@ -36,9 +36,12 @@
 #include "Scrollbar.h"
 #include "ThemeAdwaita.h"
 
+#if PLATFORM(GTK) || PLATFORM(WPE)
+#include "SystemSettings.h"
+#endif
+
 #if PLATFORM(GTK)
 #include "GtkUtilities.h"
-#include <gtk/gtk.h>
 #endif
 
 namespace WebCore {
@@ -55,7 +58,6 @@ static const unsigned vertThumbMargin = 7;
 static constexpr auto scrollbarBackgroundColorLight = Color::white;
 static constexpr auto scrollbarBorderColorLight = Color::black.colorWithAlphaByte(38);
 static constexpr auto overlayThumbBorderColorLight = Color::white.colorWithAlphaByte(102);
-static constexpr auto overlayTroughBorderColorLight = Color::white.colorWithAlphaByte(89);
 static constexpr auto overlayTroughColorLight = Color::black.colorWithAlphaByte(25);
 static constexpr auto thumbHoveredColorLight = Color::black.colorWithAlphaByte(102);
 static constexpr auto thumbPressedColorLight = Color::black.colorWithAlphaByte(153);
@@ -64,7 +66,6 @@ static constexpr auto thumbColorLight = Color::black.colorWithAlphaByte(51);
 static constexpr auto scrollbarBackgroundColorDark = SRGBA<uint8_t> { 30, 30, 30 };
 static constexpr auto scrollbarBorderColorDark = Color::white.colorWithAlphaByte(38);
 static constexpr auto overlayThumbBorderColorDark = Color::black.colorWithAlphaByte(51);
-static constexpr auto overlayTroughBorderColorDark = Color::black.colorWithAlphaByte(44);
 static constexpr auto overlayTroughColorDark = Color::white.colorWithAlphaByte(25);
 static constexpr auto thumbHoveredColorDark = Color::white.colorWithAlphaByte(102);
 static constexpr auto thumbPressedColorDark = Color::white.colorWithAlphaByte(153);
@@ -77,16 +78,20 @@ void ScrollbarThemeAdwaita::updateScrollbarOverlayStyle(Scrollbar& scrollbar)
 
 bool ScrollbarThemeAdwaita::usesOverlayScrollbars() const
 {
-#if PLATFORM(GTK)
-    return shouldUseOverlayScrollbars();
+#if PLATFORM(GTK) && !USE(GTK4)
+    if (!g_strcmp0(g_getenv("GTK_OVERLAY_SCROLLING"), "0"))
+        return false;
+#endif
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    return SystemSettings::singleton().overlayScrolling().value_or(true);
 #else
     return true;
 #endif
 }
 
-int ScrollbarThemeAdwaita::scrollbarThickness(ScrollbarWidth scrollbarWidth, ScrollbarExpansionState)
+int ScrollbarThemeAdwaita::scrollbarThickness(ScrollbarWidth scrollbarWidth, ScrollbarExpansionState, OverlayScrollbarSizeRelevancy overlayRelevancy)
 {
-    if (scrollbarWidth == ScrollbarWidth::None)
+    if (scrollbarWidth == ScrollbarWidth::None || (usesOverlayScrollbars() && overlayRelevancy == OverlayScrollbarSizeRelevancy::IgnoreOverlayScrollbarSize))
         return 0;
     return scrollbarSize;
 }
@@ -325,23 +330,17 @@ ScrollbarButtonPressAction ScrollbarThemeAdwaita::handleMousePressEvent(Scrollba
     switch (pressedPart) {
     case BackTrackPart:
     case ForwardTrackPart:
-#if PLATFORM(GTK)
-        warpSlider = [] {
-            gboolean gtkWarpsSlader = FALSE;
-        g_object_get(gtk_settings_get_default(),
-            "gtk-primary-button-warps-slider",
-                &gtkWarpsSlader, nullptr);
-            return gtkWarpsSlader;
-        }();
+#if PLATFORM(GTK) || PLATFORM(WPE)
+        warpSlider = SystemSettings::singleton().primaryButtonWarpsSlider().value_or(true);
 #endif
         // The shift key or middle/right button reverses the sense.
-        if (event.shiftKey() || event.button() != LeftButton)
+        if (event.shiftKey() || event.button() != MouseButton::Left)
             warpSlider = !warpSlider;
         return warpSlider ?
             ScrollbarButtonPressAction::CenterOnThumb:
             ScrollbarButtonPressAction::Scroll;
     case ThumbPart:
-        if (event.button() != RightButton)
+        if (event.button() != MouseButton::Right)
             return ScrollbarButtonPressAction::StartDrag;
         break;
     case BackButtonStartPart:
@@ -356,7 +355,7 @@ ScrollbarButtonPressAction ScrollbarThemeAdwaita::handleMousePressEvent(Scrollba
     return ScrollbarButtonPressAction::None;
 }
 
-#if !PLATFORM(GTK) || USE(GTK4)
+#if !PLATFORM(GTK) || USE(GTK4) || USE(SKIA)
 ScrollbarTheme& ScrollbarTheme::nativeTheme()
 {
     static ScrollbarThemeAdwaita theme;

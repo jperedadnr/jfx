@@ -28,12 +28,15 @@
 #include "SVGElementTypeHelpers.h"
 #include "SVGUseElement.h"
 #include "XLinkNames.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGURIReference);
+
 SVGURIReference::SVGURIReference(SVGElement* contextElement)
-    : m_href(SVGAnimatedString::create(contextElement))
+    : m_href(SVGAnimatedString::create(contextElement, IsHrefProperty::Yes))
 {
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
@@ -91,12 +94,18 @@ auto SVGURIReference::targetElementFromIRIString(const String& iri, const TreeSc
     if (id.isEmpty())
         return { };
 
-    auto& document = treeScope.documentScope();
-    auto url = document.completeURL(iri);
+    Ref document = treeScope.documentScope();
+    auto url = document->completeURL(iri);
     if (externalDocument) {
         // Enforce that the referenced url matches the url of the document that we've loaded for it!
         ASSERT(equalIgnoringFragmentIdentifier(url, externalDocument->url()));
         return { externalDocument->getElementById(id), WTFMove(id) };
+    }
+
+    if (url.protocolIsData()) {
+        // FIXME: We need to load the data url in a Document to be able to get the target element.
+        if (!equalIgnoringFragmentIdentifier(url, document->url()))
+            return { nullptr, WTFMove(id) };
     }
 
     // Exit early if the referenced url is external, and we have no externalDocument given.
@@ -112,7 +121,11 @@ auto SVGURIReference::targetElementFromIRIString(const String& iri, const TreeSc
 
 bool SVGURIReference::haveLoadedRequiredResources() const
 {
-    if (href().isEmpty() || !isExternalURIReference(href(), contextElement().document()))
+    if (href().isEmpty())
+        return true;
+    if (contextElement().protectedDocument()->completeURL(href()).protocolIsData())
+        return true;
+    if (!isExternalURIReference(href(), contextElement().protectedDocument()))
         return true;
     return errorOccurred() || haveFiredLoadEvent();
 }

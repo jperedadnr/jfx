@@ -26,13 +26,15 @@
 #include "config.h"
 #include "ServiceWorkerRegistrationPushAPI.h"
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "PushManager.h"
+#include "ScriptExecutionContext.h"
 #include "ServiceWorkerRegistration.h"
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ServiceWorkerRegistrationPushAPI);
 
 ServiceWorkerRegistrationPushAPI::ServiceWorkerRegistrationPushAPI(ServiceWorkerRegistration& serviceWorkerRegistration)
     : m_serviceWorkerRegistration(serviceWorkerRegistration)
@@ -65,11 +67,9 @@ ServiceWorkerRegistrationPushAPI* ServiceWorkerRegistrationPushAPI::from(Service
     return supplement;
 }
 
-const char* ServiceWorkerRegistrationPushAPI::supplementName()
+ASCIILiteral ServiceWorkerRegistrationPushAPI::supplementName()
 {
-    return "ServiceWorkerRegistrationPushAPI";
+    return "ServiceWorkerRegistrationPushAPI"_s;
 }
 
 }
-
-#endif // ENABLE(SERVICE_WORKER)

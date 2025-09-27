@@ -25,9 +25,12 @@
 
 #pragma once
 
+#include <concepts>
 #include <type_traits>
 #include <wtf/StdLibExtras.h>
 #include <wtf/Vector.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WTF {
 
@@ -79,6 +82,33 @@ protected:
         VectorTypeOperations<T>::initializeWithArgs(begin(), end(), std::forward<Args>(args)...);
     }
 
+    // This constructor, which is used via the `Failable` token, will attempt
+    // to initialize the array from the generator. The generator returns
+    // `std::optional` values, and if one is `nullopt`, that indicates a failure.
+    // The constructor sets `m_size` to the index of the most recently successful
+    // item to be added in order for the destructor to destroy the right number
+    // of elements.
+    //
+    // It is the responsibility of the caller to check that `size()` is equal
+    // to the `size` the caller passed in. If it is not, that is failure, and
+    // should be used as appropriate.
+    struct Failable { };
+    template<std::invocable<size_t> Generator>
+    explicit TrailingArray(Failable, unsigned size, NOESCAPE Generator&& generator)
+        : m_size(size)
+    {
+        static_assert(std::is_final_v<Derived>);
+
+        for (size_t i = 0; i < m_size; ++i) {
+            if (auto value = generator(i))
+                new (NotNull, std::addressof(begin()[i])) T(WTFMove(*value));
+            else {
+                m_size = i;
+                return;
+            }
+        }
+    }
+
     ~TrailingArray()
     {
         VectorTypeOperations<T>::destruct(begin(), end());
@@ -94,49 +124,51 @@ public:
     bool isEmpty() const { return !size(); }
     unsigned byteSize() const { return size() * sizeof(T); }
 
-    pointer data() { return bitwise_cast<T*>(bitwise_cast<uint8_t*>(static_cast<Derived*>(this)) + offsetOfData()); }
-    const_pointer data() const { return bitwise_cast<const T*>(bitwise_cast<const uint8_t*>(static_cast<const Derived*>(this)) + offsetOfData()); }
+    pointer data() LIFETIME_BOUND { return std::bit_cast<T*>(std::bit_cast<uint8_t*>(static_cast<Derived*>(this)) + offsetOfData()); }
+    const_pointer data() const LIFETIME_BOUND { return std::bit_cast<const T*>(std::bit_cast<const uint8_t*>(static_cast<const Derived*>(this)) + offsetOfData()); }
+    std::span<T> span() LIFETIME_BOUND { return { data(), size() }; }
+    std::span<const T> span() const LIFETIME_BOUND { return { data(), size() }; }
 
-    iterator begin() { return data(); }
-    iterator end() { return data() + size(); }
-    const_iterator begin() const { return cbegin(); }
-    const_iterator end() const { return cend(); }
-    const_iterator cbegin() const { return data(); }
-    const_iterator cend() const { return data() + size(); }
+    iterator begin() LIFETIME_BOUND { return data(); }
+    iterator end() LIFETIME_BOUND { return data() + size(); }
+    const_iterator begin() const LIFETIME_BOUND { return cbegin(); }
+    const_iterator end() const LIFETIME_BOUND { return cend(); }
+    const_iterator cbegin() const LIFETIME_BOUND { return data(); }
+    const_iterator cend() const LIFETIME_BOUND { return data() + size(); }
 
-    reverse_iterator rbegin() { return reverse_iterator(end()); }
-    reverse_iterator rend() { return reverse_iterator(begin()); }
-    const_reverse_iterator rbegin() const { return crbegin(); }
-    const_reverse_iterator rend() const { return crend(); }
-    const_reverse_iterator crbegin() const { return const_reverse_iterator(end()); }
-    const_reverse_iterator crend() const { return const_reverse_iterator(begin()); }
+    reverse_iterator rbegin() LIFETIME_BOUND { return reverse_iterator(end()); }
+    reverse_iterator rend() LIFETIME_BOUND { return reverse_iterator(begin()); }
+    const_reverse_iterator rbegin() const LIFETIME_BOUND { return crbegin(); }
+    const_reverse_iterator rend() const LIFETIME_BOUND { return crend(); }
+    const_reverse_iterator crbegin() const LIFETIME_BOUND { return const_reverse_iterator(end()); }
+    const_reverse_iterator crend() const LIFETIME_BOUND { return const_reverse_iterator(begin()); }
 
-    reference at(unsigned i)
+    reference at(unsigned i) LIFETIME_BOUND
     {
-        ASSERT(i < size());
+        RELEASE_ASSERT(i < size());
         return begin()[i];
     }
 
-    const_reference at(unsigned i) const
+    const_reference at(unsigned i) const LIFETIME_BOUND
     {
-        ASSERT(i < size());
+        RELEASE_ASSERT(i < size());
         return begin()[i];
     }
 
-    reference operator[](unsigned i) { return at(i); }
-    const_reference operator[](unsigned i) const { return at(i); }
+    reference operator[](unsigned i) LIFETIME_BOUND { return at(i); }
+    const_reference operator[](unsigned i) const LIFETIME_BOUND { return at(i); }
 
-    T& first() { return (*this)[0]; }
-    const T& first() const { return (*this)[0]; }
-    T& last() { return (*this)[size() - 1]; }
-    const T& last() const { return (*this)[size() - 1]; }
+    T& first() LIFETIME_BOUND { return (*this)[0]; }
+    const T& first() const LIFETIME_BOUND { return (*this)[0]; }
+    T& last() LIFETIME_BOUND { return (*this)[size() - 1]; }
+    const T& last() const LIFETIME_BOUND { return (*this)[size() - 1]; }
 
     void fill(const T& val)
     {
         std::fill(begin(), end(), val);
     }
 
-    static ptrdiff_t offsetOfSize() { return OBJECT_OFFSETOF(Derived, m_size); }
+    static constexpr ptrdiff_t offsetOfSize() { return OBJECT_OFFSETOF(Derived, m_size); }
     static constexpr ptrdiff_t offsetOfData()
     {
         return WTF::roundUpToMultipleOf<alignof(T)>(sizeof(Derived));
@@ -149,3 +181,5 @@ protected:
 } // namespace WTF
 
 using WTF::TrailingArray;
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

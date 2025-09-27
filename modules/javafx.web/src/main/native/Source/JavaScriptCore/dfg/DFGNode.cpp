@@ -34,6 +34,8 @@
 #include "DOMJITSignature.h"
 #include "JSImmutableButterfly.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace DFG {
 
 const char Node::HashSetTemplateInstantiationString[] = "::JSC::DFG::Node*";
@@ -274,6 +276,18 @@ void Node::convertToNewArrayWithConstantSize(Graph&, uint32_t size)
     m_opInfo2 = size;
 }
 
+void Node::convertToNewArrayWithSizeAndStructure(Graph& graph, RegisteredStructure structure)
+{
+    ASSERT(op() == Construct);
+    Node* node = graph.child(this, 2).node();
+    setOpAndDefaultFlags(NewArrayWithSizeAndStructure);
+    children.reset();
+    children.child1() = Edge(node, Int32Use);
+    children.child2() = Edge();
+    children.child3() = Edge();
+    m_opInfo = structure;
+}
+
 void Node::convertToNewBoundFunction(FrozenValue* executable)
 {
     m_op = NewBoundFunction;
@@ -376,7 +390,8 @@ void Node::convertToGetByIdMaybeMegamorphic(Graph& graph, CacheableIdentifier id
     children.child1() = Edge(base.node(), CellUse);
     children.child2() = Edge();
     children.child3() = Edge();
-    m_opInfo = identifier;
+    auto* data = graph.m_getByIdData.add(GetByIdData { identifier, CacheType::GetByIdSelf });
+    m_opInfo = data;
 }
 
 void Node::convertToPutByIdMaybeMegamorphic(Graph& graph, CacheableIdentifier identifier)
@@ -395,6 +410,18 @@ void Node::convertToPutByIdMaybeMegamorphic(Graph& graph, CacheableIdentifier id
     children.child1() = Edge(base.node(), CellUse);
     children.child2() = Edge(value.node());
     children.child3() = Edge();
+    m_opInfo = identifier;
+}
+
+void Node::convertToInByIdMaybeMegamorphic(Graph& graph, CacheableIdentifier identifier)
+{
+    ASSERT(op() == InByVal || op() == InByValMegamorphic);
+    bool isMegamorphic = op() == InByValMegamorphic && canUseMegamorphicInById(graph.m_vm, identifier.uid());
+    Edge base = graph.child(this, 0);
+    ASSERT(base.useKind() == CellUse);
+    setOpAndDefaultFlags(isMegamorphic ? InByIdMegamorphic : InById);
+    children.setChild1(Edge(base.node(), CellUse));
+    children.setChild2(Edge());
     m_opInfo = identifier;
 }
 
@@ -453,5 +480,6 @@ void printInternal(PrintStream& out, Node* node)
 
 } // namespace WTF
 
-#endif // ENABLE(DFG_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
+#endif // ENABLE(DFG_JIT)

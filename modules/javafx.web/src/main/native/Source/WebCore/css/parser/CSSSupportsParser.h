@@ -45,17 +45,16 @@ public:
         Invalid
     };
 
-    enum SupportsParsingMode {
-        ForAtRule,
-        ForWindowCSS,
+    enum class ParsingMode : bool {
+        ForAtRuleSupports,
+        AllowBareDeclarationAndGeneralEnclosed,
     };
 
-    static SupportsResult supportsCondition(CSSParserTokenRange, CSSParserImpl&, SupportsParsingMode, CSSParserEnum::IsNestedContext);
+    static SupportsResult supportsCondition(CSSParserTokenRange, CSSParserImpl&, ParsingMode);
 
 private:
-    CSSSupportsParser(CSSParserImpl& parser, CSSParserEnum::IsNestedContext isNestedContext = CSSParserEnum::IsNestedContext::No)
+    CSSSupportsParser(CSSParserImpl& parser)
         : m_parser(parser)
-        , m_isNestedContext(isNestedContext)
     { }
 
     SupportsResult consumeCondition(CSSParserTokenRange);
@@ -74,7 +73,6 @@ private:
     SupportsResult consumeConditionInParenthesis(CSSParserTokenRange&, CSSParserTokenType);
 
     CSSParserImpl& m_parser;
-    CSSParserEnum::IsNestedContext m_isNestedContext;
 };
 
 } // namespace WebCore

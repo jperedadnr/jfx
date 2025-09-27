@@ -29,16 +29,19 @@
 
 #include "ScrollingTreeScrollingNode.h"
 
+#include <wtf/TZoneMalloc.h>
+
 namespace WebCore {
 
 class ScrollingTreeScrollingNodeDelegate {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ScrollingTreeScrollingNodeDelegate);
 public:
     WEBCORE_EXPORT explicit ScrollingTreeScrollingNodeDelegate(ScrollingTreeScrollingNode&);
     WEBCORE_EXPORT virtual ~ScrollingTreeScrollingNodeDelegate();
 
     ScrollingTreeScrollingNode& scrollingNode() { return m_scrollingNode; }
     const ScrollingTreeScrollingNode& scrollingNode() const { return m_scrollingNode; }
+    Ref<ScrollingTreeScrollingNode> protectedScrollingNode() const { return m_scrollingNode; }
 
     virtual bool startAnimatedScrollToPosition(FloatPoint) = 0;
     virtual void stopAnimatedScroll() = 0;
@@ -62,7 +65,7 @@ public:
     virtual String scrollbarStateForOrientation(ScrollbarOrientation) const { return ""_s; }
 
 protected:
-    WEBCORE_EXPORT ScrollingTree& scrollingTree() const;
+    WEBCORE_EXPORT RefPtr<ScrollingTree> scrollingTree() const;
 
     WEBCORE_EXPORT FloatPoint lastCommittedScrollPosition() const;
     WEBCORE_EXPORT FloatSize totalContentsSize();
@@ -83,7 +86,7 @@ protected:
     ScrollElasticity verticalScrollElasticity() const { return m_scrollingNode.verticalScrollElasticity(); }
 
 private:
-    ScrollingTreeScrollingNode& m_scrollingNode;
+    ScrollingTreeScrollingNode& m_scrollingNode; // FIXME : Should use a smart pointer.
 };
 
 } // namespace WebCore

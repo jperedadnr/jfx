@@ -31,19 +31,21 @@
 namespace WebCore {
 namespace MQ {
 
-class MediaQueryParser : public GenericMediaQueryParser<MediaQueryParser>  {
-public:
-    MediaQueryParser(const MediaQueryParserContext&);
+struct MediaProgressProviding;
 
+struct MediaQueryParser : public GenericMediaQueryParser<MediaQueryParser>  {
     static MediaQueryList parse(const String&, const MediaQueryParserContext&);
     static MediaQueryList parse(CSSParserTokenRange, const MediaQueryParserContext&);
     static std::optional<MediaQuery> parseCondition(CSSParserTokenRange, const MediaQueryParserContext&);
 
-    MediaQueryList consumeMediaQueryList(CSSParserTokenRange&);
-    std::optional<MediaQuery> consumeMediaQuery(CSSParserTokenRange&);
-    const FeatureSchema* schemaForFeatureName(const AtomString&) const;
+    static MediaQueryList consumeMediaQueryList(CSSParserTokenRange&, const MediaQueryParserContext&);
+    static std::optional<MediaQuery> consumeMediaQuery(CSSParserTokenRange&, const MediaQueryParserContext&);
 
+    static const FeatureSchema* schemaForFeatureName(const AtomString&, const MediaQueryParserContext&, State&);
     static Vector<const FeatureSchema*> featureSchemas();
+
+    // Accessor used by calc()'s media-progress() function to find a MediaProgressProviding by name.
+    static const MediaProgressProviding* mediaProgressProvidingSchemaForFeatureName(const AtomString&, const MediaQueryParserContext&);
 };
 
 void serialize(StringBuilder&, const MediaQueryList&);

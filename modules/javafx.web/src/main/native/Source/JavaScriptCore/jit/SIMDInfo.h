@@ -27,6 +27,8 @@
 
 #include <wtf/PrintStream.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 typedef union v128_u {
@@ -103,10 +105,7 @@ struct SIMDInfo {
 
     constexpr SIMDInfo() = default;
 
-    friend bool operator==(const SIMDInfo& lhs, const SIMDInfo& rhs)
-    {
-        return lhs.lane == rhs.lane && lhs.signMode == rhs.signMode;
-    }
+    friend bool operator==(const SIMDInfo&, const SIMDInfo&) = default;
 };
 
 constexpr uint8_t elementCount(SIMDLane lane)
@@ -222,3 +221,5 @@ JS_EXPORT_PRIVATE void printInternal(PrintStream& out, JSC::SIMDSignMode);
 JS_EXPORT_PRIVATE void printInternal(PrintStream& out, JSC::v128_t);
 
 } // namespace WTF
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

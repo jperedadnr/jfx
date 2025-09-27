@@ -29,14 +29,19 @@
 #include "CommonVM.h"
 #include "CustomElementReactionQueue.h"
 #include "Document.h"
+#include "DocumentInlines.h"
 #include "HTMLSlotElement.h"
 #include "IdleCallbackController.h"
 #include "Microtasks.h"
 #include "MutationObserver.h"
+#include "OpportunisticTaskScheduler.h"
+#include "Page.h"
 #include "SecurityOrigin.h"
 #include "ThreadGlobalData.h"
+#include "ThreadTimers.h"
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/RunLoop.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -56,7 +61,7 @@ static String agentClusterKeyOrNullIfUnique(const SecurityOrigin& origin)
         RegistrableDomain registrableDomain { origin.data() };
         if (registrableDomain.isEmpty())
             return origin.toString();
-        return makeString(origin.protocol(), "://", registrableDomain.string());
+        return makeString(origin.protocol(), "://"_s, registrableDomain.string());
     };
     auto key = computeKey();
     if (key.isEmpty() || key == "null"_s)
@@ -87,6 +92,7 @@ inline Ref<WindowEventLoop> WindowEventLoop::create(const String& agentClusterKe
 inline WindowEventLoop::WindowEventLoop(const String& agentClusterKey)
     : m_agentClusterKey(agentClusterKey)
     , m_timer(*this, &WindowEventLoop::didReachTimeToRun)
+    , m_idleTimer(*this, &WindowEventLoop::didFireIdleTimer)
     , m_perpetualTaskGroupForSimilarOriginWindowAgents(*this)
 {
 }
@@ -116,37 +122,123 @@ MicrotaskQueue& WindowEventLoop::microtaskQueue()
     return *m_microtaskQueue;
 }
 
-void WindowEventLoop::opportunisticallyRunIdleCallbacks()
+void WindowEventLoop::scheduleIdlePeriod()
+{
+    m_idleTimer.startOneShot(0_s);
+}
+
+void WindowEventLoop::opportunisticallyRunIdleCallbacks(std::optional<MonotonicTime> deadline)
 {
     if (shouldEndIdlePeriod())
+        return; // No need to schedule m_idleTimer since there is a task. didReachTimeToRun() will call this function.
+
+    auto hasPendingIdleCallbacks = findMatchingAssociatedContext([&](ScriptExecutionContext& context) {
+        if (RefPtr document = dynamicDowncast<Document>(context))
+            return document->hasPendingIdleCallback();
+        return false;
+    });
+
+    if (!hasPendingIdleCallbacks)
         return;
 
-    forEachAssociatedContext([](ScriptExecutionContext& context) {
+    auto now = MonotonicTime::now();
+    if (auto scheduledWork = nextScheduledWorkTime()) {
+        if (*scheduledWork < now + m_expectedIdleCallbackDuration) {
+            // No pending tasks. Schedule m_idleTimer after all DOM timers and rAF.
+            auto timeToScheduledWork = *scheduledWork - now;
+            if (timeToScheduledWork < 0_s) // Timer may have been scheduled to fire in the past.
+                timeToScheduledWork = 0_s;
+            decayIdleCallbackDuration();
+            m_idleTimer.startOneShot(timeToScheduledWork + 1_ms);
+            return;
+        }
+    }
+
+    if (deadline && *deadline < now + m_expectedIdleCallbackDuration) {
+        // No pending tasks. Schedule m_idleTimer immediately.
+        decayIdleCallbackDuration();
+        m_idleTimer.startOneShot(0_s);
+        return;
+    }
+
+    m_lastIdlePeriodStartTime = now;
+
+    forEachAssociatedContext([&](ScriptExecutionContext& context) {
         RefPtr document = dynamicDowncast<Document>(context);
-        if (!document)
+        if (!document || !document->hasPendingIdleCallback())
             return;
         auto* idleCallbackController = document->idleCallbackController();
         if (!idleCallbackController)
             return;
         idleCallbackController->startIdlePeriod();
     });
+
+    auto duration = MonotonicTime::now() - m_lastIdlePeriodStartTime;
+    m_expectedIdleCallbackDuration = (m_expectedIdleCallbackDuration + duration) / 2;
 }
 
 bool WindowEventLoop::shouldEndIdlePeriod()
 {
     if (hasTasksForFullyActiveDocument())
         return true;
-    if (!microtaskQueue().isEmpty())
-        return true;
-    if (m_hasARenderingOpportunity)
+    if (microtaskQueue().hasMicrotasksForFullyActiveDocument())
         return true;
     return false;
+}
+
+MonotonicTime WindowEventLoop::computeIdleDeadline()
+{
+    auto idleDeadline = m_lastIdlePeriodStartTime + 50_ms;
+
+    auto workTime = nextScheduledWorkTime();
+    if (workTime && *workTime < idleDeadline)
+        idleDeadline = *workTime;
+
+    return idleDeadline;
+}
+
+std::optional<MonotonicTime> WindowEventLoop::nextScheduledWorkTime() const
+{
+    auto timerTime = nextTimerFireTime();
+    auto renderingTime = nextRenderingTime();
+    if (!timerTime)
+        return renderingTime;
+    if (!renderingTime)
+        return timerTime;
+    return *timerTime < *renderingTime ? *timerTime : *renderingTime;
+}
+
+std::optional<MonotonicTime> WindowEventLoop::nextRenderingTime() const
+{
+    std::optional<MonotonicTime> nextRenderingTime;
+    const_cast<WindowEventLoop*>(this)->forEachAssociatedContext([&](ScriptExecutionContext& context) {
+        RefPtr document = dynamicDowncast<Document>(context);
+        if (!document)
+            return;
+        RefPtr page = document->page();
+        if (!page)
+            return;
+        auto renderingUpdateTimeForPage = page->nextRenderingUpdateTimestamp();
+        if (!renderingUpdateTimeForPage)
+            return;
+        if (!nextRenderingTime || *renderingUpdateTimeForPage < *nextRenderingTime)
+            nextRenderingTime = *renderingUpdateTimeForPage;
+    });
+    return nextRenderingTime;
 }
 
 void WindowEventLoop::didReachTimeToRun()
 {
     Ref protectedThis { *this }; // Executing tasks may remove the last reference to this WindowEventLoop.
-    run();
+    auto deadline = ApproximateTime::now() + ThreadTimers::maxDurationOfFiringTimers;
+    run(deadline);
+    opportunisticallyRunIdleCallbacks(deadline.approximateMonotonicTime());
+}
+
+void WindowEventLoop::didFireIdleTimer()
+{
+    Ref protectedThis { *this }; // Executing idle tasks may remove the last reference to this WindowEventLoop.
+    opportunisticallyRunIdleCallbacks();
 }
 
 void WindowEventLoop::queueMutationObserverCompoundMicrotask()
@@ -154,17 +246,20 @@ void WindowEventLoop::queueMutationObserverCompoundMicrotask()
     if (m_mutationObserverCompoundMicrotaskQueuedFlag)
         return;
     m_mutationObserverCompoundMicrotaskQueuedFlag = true;
-    m_perpetualTaskGroupForSimilarOriginWindowAgents.queueMicrotask([this] {
+    m_perpetualTaskGroupForSimilarOriginWindowAgents.queueMicrotask([weakThis = WeakPtr { *this }] {
         // We can't make a Ref to WindowEventLoop in the lambda capture as that would result in a reference cycle & leak.
-        Ref protectedThis { *this };
-        m_mutationObserverCompoundMicrotaskQueuedFlag = false;
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+
+        protectedThis->m_mutationObserverCompoundMicrotaskQueuedFlag = false;
 
         // FIXME: This check doesn't exist in the spec.
-        if (m_deliveringMutationRecords)
+        if (protectedThis->m_deliveringMutationRecords)
             return;
-        m_deliveringMutationRecords = true;
-        MutationObserver::notifyMutationObservers(*this);
-        m_deliveringMutationRecords = false;
+        protectedThis->m_deliveringMutationRecords = true;
+        MutationObserver::notifyMutationObservers(*protectedThis);
+        protectedThis->m_deliveringMutationRecords = false;
     });
 }
 
@@ -172,12 +267,15 @@ CustomElementQueue& WindowEventLoop::backupElementQueue()
 {
     if (!m_processingBackupElementQueue) {
         m_processingBackupElementQueue = true;
-        m_perpetualTaskGroupForSimilarOriginWindowAgents.queueMicrotask([this] {
+        m_perpetualTaskGroupForSimilarOriginWindowAgents.queueMicrotask([weakThis = WeakPtr { *this }] {
             // We can't make a Ref to WindowEventLoop in the lambda capture as that would result in a reference cycle & leak.
-            Ref protectedThis { *this };
-            m_processingBackupElementQueue = false;
-            ASSERT(m_customElementQueue);
-            CustomElementReactionQueue::processBackupQueue(*m_customElementQueue);
+            RefPtr protectedThis = weakThis.get();
+            if (!protectedThis)
+                return;
+
+            protectedThis->m_processingBackupElementQueue = false;
+            ASSERT(protectedThis->m_customElementQueue);
+            CustomElementReactionQueue::processBackupQueue(*protectedThis->m_customElementQueue);
         });
     }
     if (!m_customElementQueue)
@@ -194,7 +292,7 @@ void WindowEventLoop::breakToAllowRenderingUpdate()
     // FIXME: Also bail out from the task loop in EventLoop::run().
     threadGlobalData().threadTimers().breakFireLoopForRenderingUpdate();
 
-    RunLoop::main().suspendFunctionDispatchForCurrentCycle();
+    RunLoop::protectedMain()->suspendFunctionDispatchForCurrentCycle();
 #endif
 }
 

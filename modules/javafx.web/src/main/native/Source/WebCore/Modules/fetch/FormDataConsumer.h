@@ -28,8 +28,9 @@
 #include "ExceptionOr.h"
 #include "ScriptExecutionContextIdentifier.h"
 #include <span>
-#include <wtf/FastMalloc.h>
 #include <wtf/Function.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/WorkQueue.h>
 
@@ -39,23 +40,28 @@ class BlobLoader;
 class FormData;
 class ScriptExecutionContext;
 
-class FormDataConsumer : public CanMakeWeakPtr<FormDataConsumer> {
-    WTF_MAKE_FAST_ALLOCATED;
+class FormDataConsumer : public RefCountedAndCanMakeWeakPtr<FormDataConsumer> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(FormDataConsumer, WEBCORE_EXPORT);
 public:
-    using Callback = Function<void(ExceptionOr<std::span<const uint8_t>>)>;
-    FormDataConsumer(const FormData&, ScriptExecutionContext&, Callback&&);
+    using Callback = Function<bool(ExceptionOr<std::span<const uint8_t>>)>;
+    static Ref<FormDataConsumer> create(const FormData& formData, ScriptExecutionContext& context, Callback&& callback) { return adoptRef(*new FormDataConsumer(formData, context, WTFMove(callback))); }
     WEBCORE_EXPORT ~FormDataConsumer();
 
+    void start() { read(); }
     void cancel();
 
+    bool hasPendingActivity() const { return !!m_blobLoader || m_isReadingFile; }
+
 private:
+    FormDataConsumer(const FormData&, ScriptExecutionContext&, Callback&&);
+
     void consumeData(const Vector<uint8_t>&);
     void consumeFile(const String&);
     void consumeBlob(const URL&);
 
     void consume(std::span<const uint8_t>);
     void read();
-    void didFail(auto &&exception);
+    void didFail(Exception&&);
     bool isCancelled() { return !m_context; }
 
     Ref<FormData> m_formData;
@@ -65,6 +71,7 @@ private:
     size_t m_currentElementIndex { 0 };
     Ref<WorkQueue> m_fileQueue;
     std::unique_ptr<BlobLoader> m_blobLoader;
+    bool m_isReadingFile { false };
 };
 
 } // namespace WebCore

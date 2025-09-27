@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,17 +26,14 @@
 #include "config.h"
 #include "LLIntData.h"
 
-#include "ArithProfile.h"
-#include "CodeBlock.h"
 #include "JSCConfig.h"
 #include "LLIntCLoop.h"
-#include "LLIntPCRanges.h"
+#include "LLIntEntrypoint.h"
 #include "LLIntSlowPaths.h"
 #include "LLIntThunks.h"
 #include "Opcode.h"
-#include "WriteBarrier.h"
 
-#define STATIC_ASSERT(cond) static_assert(cond, "LLInt assumes " #cond)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -47,10 +44,10 @@ Opcode g_opcodeMapWide16[numOpcodeIDs + numWasmOpcodeIDs] = { };
 Opcode g_opcodeMapWide32[numOpcodeIDs + numWasmOpcodeIDs] = { };
 
 #if !ENABLE(C_LOOP)
-extern "C" void llint_entry(void*, void*, void*);
+extern "C" void SYSV_ABI llint_entry(void*, void*, void*);
 
 #if ENABLE(WEBASSEMBLY)
-extern "C" void wasm_entry(void*, void*, void*);
+extern "C" void SYSV_ABI wasm_entry(void*, void*, void*);
 #endif // ENABLE(WEBASSEMBLY)
 
 #endif // !ENABLE(C_LOOP)
@@ -60,13 +57,13 @@ extern "C" void vmEntryToJavaScriptTrampoline(void);
 extern "C" void tailCallJSEntryTrampoline(void);
 extern "C" void tailCallJSEntrySlowPathTrampoline(void);
 extern "C" void tailCallWithoutUntagJSEntryTrampoline(void);
-extern "C" void wasmTailCallJSEntrySlowPathTrampoline(void);
+extern "C" void wasmTailCallTrampoline(void);
 extern "C" void exceptionHandlerTrampoline(void);
 extern "C" void returnFromLLIntTrampoline(void);
 #endif
 
-#if ENABLE(CSS_SELECTOR_JIT) && CPU(ARM64E)
-extern "C" void vmEntryToCSSJITAfter(void);
+#if ENABLE(CSS_SELECTOR_JIT) && CPU(ARM64E) && !ENABLE(C_LOOP)
+extern "C" void SYSV_ABI vmEntryToCSSJITAfter(void);
 JSC_ANNOTATE_JIT_OPERATION_RETURN(vmEntryToCSSJITAfter);
 #endif
 
@@ -75,15 +72,15 @@ static void neuterOpcodeMaps()
 {
 #if CPU(ARM64E)
 #define SET_CRASH_TARGET(entry) do { \
-        void* crashTarget = bitwise_cast<void*>(llint_check_vm_entry_permission); \
-        uint64_t address = bitwise_cast<uint64_t>(&entry); \
-        uint64_t newTag = (bitwise_cast<uint64_t>(BytecodePtrTag) << 48) | address; \
+        void* crashTarget = reinterpret_cast<void*>(llint_check_vm_entry_permission); \
+        uint64_t address = std::bit_cast<uint64_t>(&entry); \
+        uint64_t newTag = (std::bit_cast<uint64_t>(BytecodePtrTag) << 48) | address; \
         void* signedTarget = ptrauth_auth_and_resign(crashTarget, ptrauth_key_function_pointer, 0, ptrauth_key_process_dependent_code, newTag); \
-        entry = bitwise_cast<Opcode>(signedTarget); \
+        entry = std::bit_cast<Opcode>(signedTarget); \
     } while (false)
 #else
 #define SET_CRASH_TARGET(entry) do { \
-        entry = bitwise_cast<Opcode>(llint_check_vm_entry_permission); \
+        entry = reinterpret_cast<Opcode>(llint_check_vm_entry_permission); \
     } while (false)
 #endif
     for (unsigned i = 0; i < numOpcodeIDs + numWasmOpcodeIDs; ++i) {
@@ -209,10 +206,18 @@ void initialize()
     {
         static LazyNeverDestroyed<MacroAssemblerCodeRef<NativeToJITGatePtrTag>> codeRef;
         if (Options::useJIT())
-            codeRef.construct(createWasmTailCallGate(JSEntrySlowPathPtrTag));
+            codeRef.construct(createWasmTailCallGate(WasmEntryPtrTag));
         else
-            codeRef.construct(MacroAssemblerCodeRef<NativeToJITGatePtrTag>::createSelfManagedCodeRef(CodePtr<NativeToJITGatePtrTag>::fromTaggedPtr(retagCodePtr<void*, CFunctionPtrTag, NativeToJITGatePtrTag>(&wasmTailCallJSEntrySlowPathTrampoline))));
-        g_jscConfig.llint.gateMap[static_cast<unsigned>(Gate::wasmTailCallJSEntrySlowPathPtrTag)]= codeRef.get().code().taggedPtr();
+            codeRef.construct(MacroAssemblerCodeRef<NativeToJITGatePtrTag>::createSelfManagedCodeRef(CodePtr<NativeToJITGatePtrTag>::fromTaggedPtr(retagCodePtr<void*, CFunctionPtrTag, NativeToJITGatePtrTag>(&wasmTailCallTrampoline))));
+        g_jscConfig.llint.gateMap[static_cast<unsigned>(Gate::wasmTailCallWasmEntryPtrTag)]= codeRef.get().code().taggedPtr();
+    }
+    {
+        static LazyNeverDestroyed<MacroAssemblerCodeRef<NativeToJITGatePtrTag>> codeRef;
+        if (Options::useJIT())
+            codeRef.construct(createWasmTailCallGate(WasmEntryPtrTag));
+        else
+            codeRef.construct(MacroAssemblerCodeRef<NativeToJITGatePtrTag>::createSelfManagedCodeRef(CodePtr<NativeToJITGatePtrTag>::fromTaggedPtr(retagCodePtr<void*, CFunctionPtrTag, NativeToJITGatePtrTag>(&wasmTailCallTrampoline))));
+        g_jscConfig.llint.gateMap[static_cast<unsigned>(Gate::wasmIPIntTailCallWasmEntryPtrTag)]= codeRef.get().code().taggedPtr();
     }
     {
         static LazyNeverDestroyed<MacroAssemblerCodeRef<NativeToJITGatePtrTag>> codeRef;
@@ -260,112 +265,13 @@ void initialize()
     INITIALIZE_TAG_AND_UNTAG_THUNKS(llint_function_for_construct_arity_check);
 #endif // CPU(ARM64E)
 #endif // ENABLE(C_LOOP)
+    g_jscConfig.defaultCallThunk = defaultCall().code().taggedPtr();
+#if ENABLE(JIT)
+    if (Options::useJIT())
+        g_jscConfig.arityFixupThunk = arityFixupThunk().code().taggedPtr();
+#endif
 }
-
-IGNORE_WARNINGS_BEGIN("missing-noreturn")
-void Data::performAssertions(VM& vm)
-{
-    UNUSED_PARAM(vm);
-
-    // Assertions to match LowLevelInterpreter.asm.  If you change any of this code, be
-    // prepared to change LowLevelInterpreter.asm as well!!
-
-#if USE(JSVALUE64)
-    const ptrdiff_t CallFrameHeaderSlots = 5;
-#else // USE(JSVALUE64) // i.e. 32-bit version
-    const ptrdiff_t CallFrameHeaderSlots = 4;
-#endif
-    const ptrdiff_t MachineRegisterSize = sizeof(CPURegister);
-    const ptrdiff_t SlotSize = 8;
-
-    STATIC_ASSERT(sizeof(Register) == SlotSize);
-    STATIC_ASSERT(CallFrame::headerSizeInRegisters == CallFrameHeaderSlots);
-
-    ASSERT(!CallFrame::callerFrameOffset());
-    STATIC_ASSERT(CallerFrameAndPC::sizeInRegisters == (MachineRegisterSize * 2) / SlotSize);
-    ASSERT(CallFrame::returnPCOffset() == CallFrame::callerFrameOffset() + MachineRegisterSize);
-    ASSERT(static_cast<std::underlying_type_t<CallFrameSlot>>(CallFrameSlot::codeBlock) * sizeof(Register) == CallFrame::returnPCOffset() + MachineRegisterSize);
-    STATIC_ASSERT(CallFrameSlot::callee * sizeof(Register) == CallFrameSlot::codeBlock * sizeof(Register) + SlotSize);
-    STATIC_ASSERT(CallFrameSlot::argumentCountIncludingThis * sizeof(Register) == CallFrameSlot::callee * sizeof(Register) + SlotSize);
-    STATIC_ASSERT(CallFrameSlot::thisArgument * sizeof(Register) == CallFrameSlot::argumentCountIncludingThis * sizeof(Register) + SlotSize);
-    STATIC_ASSERT(CallFrame::headerSizeInRegisters == CallFrameSlot::thisArgument);
-
-    ASSERT(CallFrame::argumentOffsetIncludingThis(0) == CallFrameSlot::thisArgument);
-
-#if CPU(BIG_ENDIAN)
-    STATIC_ASSERT(TagOffset == 0);
-    STATIC_ASSERT(PayloadOffset == 4);
-#else
-    STATIC_ASSERT(TagOffset == 4);
-    STATIC_ASSERT(PayloadOffset == 0);
-#endif
-
-#if ENABLE(C_LOOP)
-    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 1);
-#elif USE(JSVALUE32_64)
-    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 1);
-#elif (CPU(X86_64) && !OS(WINDOWS))  || CPU(ARM64)
-    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 4);
-#elif (CPU(X86_64) && OS(WINDOWS))
-    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 4);
-#endif
-
-    ASSERT(!(reinterpret_cast<ptrdiff_t>((reinterpret_cast<WriteBarrier<JSCell>*>(0x4000)->slot())) - 0x4000));
-
-    // FIXME: make these assertions less horrible.
-#if ASSERT_ENABLED
-    Vector<int> testVector;
-    testVector.resize(42);
-    ASSERT(bitwise_cast<uint32_t*>(&testVector)[sizeof(void*)/sizeof(uint32_t) + 1] == 42);
-    ASSERT(bitwise_cast<int**>(&testVector)[0] == testVector.begin());
-#endif
-
-    {
-        UnaryArithProfile arithProfile;
-        arithProfile.argSawInt32();
-        ASSERT(arithProfile.bits() == UnaryArithProfile::observedIntBits());
-        ASSERT(arithProfile.argObservedType().isOnlyInt32());
-    }
-    {
-        UnaryArithProfile arithProfile;
-        arithProfile.argSawNumber();
-        ASSERT(arithProfile.bits() == UnaryArithProfile::observedNumberBits());
-        ASSERT(arithProfile.argObservedType().isOnlyNumber());
-    }
-
-    {
-        BinaryArithProfile arithProfile;
-        arithProfile.lhsSawInt32();
-        arithProfile.rhsSawInt32();
-        ASSERT(arithProfile.bits() == BinaryArithProfile::observedIntIntBits());
-        ASSERT(arithProfile.lhsObservedType().isOnlyInt32());
-        ASSERT(arithProfile.rhsObservedType().isOnlyInt32());
-    }
-    {
-        BinaryArithProfile arithProfile;
-        arithProfile.lhsSawNumber();
-        arithProfile.rhsSawInt32();
-        ASSERT(arithProfile.bits() == BinaryArithProfile::observedNumberIntBits());
-        ASSERT(arithProfile.lhsObservedType().isOnlyNumber());
-        ASSERT(arithProfile.rhsObservedType().isOnlyInt32());
-    }
-    {
-        BinaryArithProfile arithProfile;
-        arithProfile.lhsSawNumber();
-        arithProfile.rhsSawNumber();
-        ASSERT(arithProfile.bits() == BinaryArithProfile::observedNumberNumberBits());
-        ASSERT(arithProfile.lhsObservedType().isOnlyNumber());
-        ASSERT(arithProfile.rhsObservedType().isOnlyNumber());
-    }
-    {
-        BinaryArithProfile arithProfile;
-        arithProfile.lhsSawInt32();
-        arithProfile.rhsSawNumber();
-        ASSERT(arithProfile.bits() == BinaryArithProfile::observedIntNumberBits());
-        ASSERT(arithProfile.lhsObservedType().isOnlyInt32());
-        ASSERT(arithProfile.rhsObservedType().isOnlyNumber());
-    }
-}
-IGNORE_WARNINGS_END
 
 } } // namespace JSC::LLInt
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

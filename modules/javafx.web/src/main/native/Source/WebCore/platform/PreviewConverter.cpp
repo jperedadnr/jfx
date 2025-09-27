@@ -32,8 +32,11 @@
 #include "PreviewConverterProvider.h"
 #include <wtf/RunLoop.h>
 #include <wtf/SetForScope.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PreviewConverter);
 
 PreviewConverter::~PreviewConverter() = default;
 
@@ -45,7 +48,7 @@ bool PreviewConverter::supportsMIMEType(const String& mimeType)
     if (equalLettersIgnoringASCIICase(mimeType, "text/html"_s) || equalLettersIgnoringASCIICase(mimeType, "text/plain"_s))
         return false;
 
-    static NeverDestroyed<HashSet<String, ASCIICaseInsensitiveHash>> supportedMIMETypes = platformSupportedMIMETypes();
+    static NeverDestroyed<UncheckedKeyHashSet<String, ASCIICaseInsensitiveHash>> supportedMIMETypes = platformSupportedMIMETypes();
     return supportedMIMETypes->contains(mimeType);
 }
 
@@ -81,7 +84,7 @@ void PreviewConverter::updateMainResource()
         return;
     }
 
-    provider->provideMainResourceForPreviewConverter(*this, [this, protectedThis = Ref { *this }](auto&& buffer) {
+    provider->provideMainResourceForPreviewConverter(*this, [this, protectedThis = Ref { *this }](Ref<FragmentedSharedBuffer>&& buffer) {
         appendFromBuffer(WTFMove(buffer));
     });
 }
@@ -171,7 +174,7 @@ void PreviewConverter::iterateClients(T&& callback)
 
 void PreviewConverter::didAddClient(PreviewConverterClient& client)
 {
-    RunLoop::current().dispatch([this, protectedThis = Ref { *this }, weakClient = WeakPtr { client }]() {
+    RunLoop::protectedCurrent()->dispatch([this, protectedThis = Ref { *this }, weakClient = WeakPtr { client }]() {
         if (auto client = weakClient.get())
             replayToClient(*client);
     });

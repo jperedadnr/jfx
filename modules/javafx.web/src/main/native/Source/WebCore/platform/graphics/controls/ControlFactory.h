@@ -25,6 +25,10 @@
 
 #pragma once
 
+#include <wtf/RefCounted.h>
+#include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+
 namespace WebCore {
 
 class ApplePayButtonPart;
@@ -42,25 +46,25 @@ class SearchFieldPart;
 class SearchFieldResultsPart;
 class SliderThumbPart;
 class SliderTrackPart;
+class SwitchThumbPart;
+class SwitchTrackPart;
 class TextAreaPart;
 class TextFieldPart;
 class ToggleButtonPart;
 
-class ControlFactory {
-    WTF_MAKE_FAST_ALLOCATED;
+class ControlFactory : public RefCounted<ControlFactory> {
+    WTF_MAKE_TZONE_ALLOCATED(ControlFactory);
 public:
     virtual ~ControlFactory() = default;
 
-    WEBCORE_EXPORT static std::unique_ptr<ControlFactory> createControlFactory();
-    static ControlFactory& sharedControlFactory();
+    WEBCORE_EXPORT static RefPtr<ControlFactory> create();
+    WEBCORE_EXPORT static ControlFactory& shared();
 
 #if ENABLE(APPLE_PAY)
     virtual std::unique_ptr<PlatformControl> createPlatformApplePayButton(ApplePayButtonPart&) = 0;
 #endif
     virtual std::unique_ptr<PlatformControl> createPlatformButton(ButtonPart&) = 0;
-#if ENABLE(INPUT_TYPE_COLOR)
     virtual std::unique_ptr<PlatformControl> createPlatformColorWell(ColorWellPart&) = 0;
-#endif
 #if ENABLE(SERVICE_CONTROLS)
     virtual std::unique_ptr<PlatformControl> createPlatformImageControlsButton(ImageControlsButtonPart&) = 0;
 #endif
@@ -74,6 +78,8 @@ public:
     virtual std::unique_ptr<PlatformControl> createPlatformSearchFieldResults(SearchFieldResultsPart&) = 0;
     virtual std::unique_ptr<PlatformControl> createPlatformSliderThumb(SliderThumbPart&) = 0;
     virtual std::unique_ptr<PlatformControl> createPlatformSliderTrack(SliderTrackPart&) = 0;
+    virtual std::unique_ptr<PlatformControl> createPlatformSwitchThumb(SwitchThumbPart&) = 0;
+    virtual std::unique_ptr<PlatformControl> createPlatformSwitchTrack(SwitchTrackPart&) = 0;
     virtual std::unique_ptr<PlatformControl> createPlatformTextArea(TextAreaPart&) = 0;
     virtual std::unique_ptr<PlatformControl> createPlatformTextField(TextFieldPart&) = 0;
     virtual std::unique_ptr<PlatformControl> createPlatformToggleButton(ToggleButtonPart&) = 0;

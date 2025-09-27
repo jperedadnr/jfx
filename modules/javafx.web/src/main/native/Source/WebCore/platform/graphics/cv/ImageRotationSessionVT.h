@@ -27,6 +27,7 @@
 
 #include "AffineTransform.h"
 #include "FloatSize.h"
+#include <wtf/TZoneMalloc.h>
 
 typedef struct OpaqueVTImageRotationSession* VTImageRotationSessionRef;
 typedef struct __CVBuffer *CVPixelBufferRef;
@@ -37,13 +38,14 @@ namespace WebCore {
 class VideoFrame;
 
 class ImageRotationSessionVT final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ImageRotationSessionVT, WEBCORE_EXPORT);
 public:
     struct RotationProperties {
         bool flipX { false };
         bool flipY { false };
         unsigned angle { 0 };
 
+        friend bool operator==(const RotationProperties&, const RotationProperties&) = default;
         bool isIdentity() const { return !flipX && !flipY && !angle; }
     };
 
@@ -75,10 +77,5 @@ private:
     RetainPtr<CVPixelBufferPoolRef> m_rotationPool;
     bool m_shouldUseIOSurface { true };
 };
-
-inline bool operator==(const ImageRotationSessionVT::RotationProperties& rotation1, const ImageRotationSessionVT::RotationProperties& rotation2)
-{
-    return rotation1.flipX == rotation2.flipX && rotation1.flipY == rotation2.flipY && rotation1.angle == rotation2.angle;
-}
 
 }

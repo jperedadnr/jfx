@@ -65,7 +65,7 @@ void StringConstructor::finishCreation(VM& vm, StringPrototype* stringPrototype)
     putDirectWithoutTransition(vm, vm.propertyNames->name, jsString(vm, vm.propertyNames->String.string()), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
 }
 
-StringConstructor* StringConstructor::create(VM& vm, Structure* structure, StringPrototype* stringPrototype, GetterSetter*)
+StringConstructor* StringConstructor::create(VM& vm, Structure* structure, StringPrototype* stringPrototype)
 {
     JSGlobalObject* globalObject = structure->globalObject();
     NativeExecutable* executable = vm.getHostFunction(callStringConstructor, ImplementationVisibility::Public, StringConstructorIntrinsic, constructWithStringConstructor, nullptr, vm.propertyNames->String.string());
@@ -89,15 +89,15 @@ JSC_DEFINE_HOST_FUNCTION(stringFromCharCode, (JSGlobalObject* globalObject, Call
         return JSValue::encode(jsSingleCharacterString(vm, code));
     }
 
-    LChar* buf8Bit;
+    std::span<LChar> buf8Bit;
     auto impl8Bit = StringImpl::createUninitialized(length, buf8Bit);
     for (unsigned i = 0; i < length; ++i) {
         UChar character = static_cast<UChar>(callFrame->uncheckedArgument(i).toUInt32(globalObject));
         RETURN_IF_EXCEPTION(scope, encodedJSValue());
         if (UNLIKELY(!isLatin1(character))) {
-            UChar* buf16Bit;
+            std::span<UChar> buf16Bit;
             auto impl16Bit = StringImpl::createUninitialized(length, buf16Bit);
-            StringImpl::copyCharacters(buf16Bit, buf8Bit, i);
+            StringImpl::copyCharacters(buf16Bit, buf8Bit.first(i));
             buf16Bit[i] = character;
             ++i;
             for (; i < length; ++i) {

@@ -30,31 +30,31 @@
 
 namespace WTF {
 
-Ref<SuspendableWorkQueue> SuspendableWorkQueue::create(const char* name, WorkQueue::QOS qos, ShouldLog shouldLog)
+Ref<SuspendableWorkQueue> SuspendableWorkQueue::create(ASCIILiteral name, WorkQueue::QOS qos, ShouldLog shouldLog)
 {
     return adoptRef(*new SuspendableWorkQueue(name, qos, shouldLog));
 }
 
-SuspendableWorkQueue::SuspendableWorkQueue(const char* name, QOS qos, ShouldLog shouldLog)
+SuspendableWorkQueue::SuspendableWorkQueue(ASCIILiteral name, QOS qos, ShouldLog shouldLog)
     : WorkQueue(name, qos)
     , m_shouldLog(shouldLog == ShouldLog::Yes)
 {
     ASSERT(isMainThread());
 }
 
-inline const char* SuspendableWorkQueue::stateString(State state)
+ASCIILiteral SuspendableWorkQueue::stateString(State state)
 {
     switch (state) {
     case State::Running:
-        return "Running";
+        return "Running"_s;
     case State::WillSuspend:
-        return "WillSuspend";
+        return "WillSuspend"_s;
     case State::Suspended:
-        return "Suspended";
+        return "Suspended"_s;
     }
 
     ASSERT_NOT_REACHED();
-    return nullptr;
+    return { };
 }
 
 void SuspendableWorkQueue::suspend(Function<void()>&& suspendFunction, CompletionHandler<void()>&& completionHandler)
@@ -62,7 +62,7 @@ void SuspendableWorkQueue::suspend(Function<void()>&& suspendFunction, Completio
     ASSERT(isMainThread());
     Locker suspensionLocker { m_suspensionLock };
 
-    RELEASE_LOG_IF(m_shouldLog, SuspendableWorkQueue, "%p - SuspendableWorkQueue::suspend current state %" PUBLIC_LOG_STRING, this, stateString(m_state));
+    RELEASE_LOG_IF(m_shouldLog, SuspendableWorkQueue, "%p - SuspendableWorkQueue::suspend current state %" PUBLIC_LOG_STRING, this, stateString(m_state).characters());
     if (m_state == State::Suspended)
         return completionHandler();
 
@@ -74,8 +74,8 @@ void SuspendableWorkQueue::suspend(Function<void()>&& suspendFunction, Completio
 
     m_state = State::WillSuspend;
     // Make sure queue will be suspended when there is no task scheduled on the queue.
-    WorkQueue::dispatch([this] {
-        suspendIfNeeded();
+    WorkQueue::dispatch([protectedThis = Ref { *this }] {
+        protectedThis->suspendIfNeeded();
     });
 }
 
@@ -84,7 +84,7 @@ void SuspendableWorkQueue::resume()
     ASSERT(isMainThread());
     Locker suspensionLocker { m_suspensionLock };
 
-    RELEASE_LOG_IF(m_shouldLog, SuspendableWorkQueue, "%p - SuspendableWorkQueue::resume current state %" PUBLIC_LOG_STRING, this, stateString(m_state));
+    RELEASE_LOG_IF(m_shouldLog, SuspendableWorkQueue, "%p - SuspendableWorkQueue::resume current state %" PUBLIC_LOG_STRING, this, stateString(m_state).characters());
     if (m_state == State::Running)
         return;
 
@@ -97,9 +97,8 @@ void SuspendableWorkQueue::resume()
 void SuspendableWorkQueue::dispatch(Function<void()>&& function)
 {
     RELEASE_ASSERT(function);
-    // WorkQueue will protect this in dispatch().
-    WorkQueue::dispatch([this, function = WTFMove(function)] {
-        suspendIfNeeded();
+    WorkQueue::dispatch([protectedThis = Ref { *this }, function = WTFMove(function)] {
+        protectedThis->suspendIfNeeded();
         function();
     });
 }
@@ -107,8 +106,8 @@ void SuspendableWorkQueue::dispatch(Function<void()>&& function)
 void SuspendableWorkQueue::dispatchAfter(Seconds seconds, Function<void()>&& function)
 {
     RELEASE_ASSERT(function);
-    WorkQueue::dispatchAfter(seconds, [this, function = WTFMove(function)] {
-        suspendIfNeeded();
+    WorkQueue::dispatchAfter(seconds, [protectedThis = Ref { *this }, function = WTFMove(function)] {
+        protectedThis->suspendIfNeeded();
         function();
     });
 }
@@ -156,7 +155,7 @@ void SuspendableWorkQueue::suspendIfNeeded()
     suspendFunction();
     invokeAllSuspensionCompletionHandlers();
 
-    while (m_state != State::Running)
+    while (m_state == State::Suspended)
         m_suspensionCondition.wait(m_suspensionLock);
 
     RELEASE_LOG_IF(m_shouldLog, SuspendableWorkQueue, "%p - SuspendableWorkQueue::suspendIfNeeded end suspension", this);

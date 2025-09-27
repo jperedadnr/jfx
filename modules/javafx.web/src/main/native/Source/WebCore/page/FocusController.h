@@ -28,10 +28,12 @@
 #include "ActivityState.h"
 #include "FocusOptions.h"
 #include "LayoutRect.h"
+#include "LocalFrame.h"
 #include "Timer.h"
 #include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -39,23 +41,27 @@ class ContainerNode;
 class Document;
 class Element;
 class FocusNavigationScope;
+class Frame;
 class IntRect;
 class KeyboardEvent;
-class LocalFrame;
 class Node;
 class Page;
 class TreeScope;
 
 struct FocusCandidate;
 
-class FocusController : public CanMakeCheckedPtr {
-    WTF_MAKE_FAST_ALLOCATED;
+class FocusController final : public CanMakeCheckedPtr<FocusController> {
+    WTF_MAKE_TZONE_ALLOCATED(FocusController);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FocusController);
 public:
     explicit FocusController(Page&, OptionSet<ActivityState>);
 
-    WEBCORE_EXPORT void setFocusedFrame(LocalFrame*);
-    LocalFrame* focusedFrame() const { return m_focusedFrame.get(); }
-    WEBCORE_EXPORT LocalFrame& focusedOrMainFrame() const;
+    enum class BroadcastFocusedFrame : bool { No, Yes };
+    WEBCORE_EXPORT void setFocusedFrame(Frame*, BroadcastFocusedFrame = BroadcastFocusedFrame::Yes);
+    Frame* focusedFrame() const { return m_focusedFrame.get(); }
+    LocalFrame* focusedLocalFrame() const { return dynamicDowncast<LocalFrame>(m_focusedFrame.get()); }
+    WEBCORE_EXPORT LocalFrame* focusedOrMainFrame() const;
+    RefPtr<LocalFrame> protectedFocusedOrMainFrame() const { return focusedOrMainFrame(); }
 
     WEBCORE_EXPORT bool setInitialFocus(FocusDirection, KeyboardEvent*);
     bool advanceFocus(FocusDirection, KeyboardEvent*, bool initialFocus = false);
@@ -117,9 +123,10 @@ private:
     void findFocusCandidateInContainer(Node& container, const LayoutRect& startingRect, FocusDirection, KeyboardEvent*, FocusCandidate& closest);
 
     void focusRepaintTimerFired();
+    Ref<Page> protectedPage() const;
 
-    Page& m_page;
-    RefPtr<LocalFrame> m_focusedFrame;
+    WeakRef<Page> m_page;
+    WeakPtr<Frame> m_focusedFrame;
     bool m_isChangingFocusedFrame;
     OptionSet<ActivityState> m_activityState;
 

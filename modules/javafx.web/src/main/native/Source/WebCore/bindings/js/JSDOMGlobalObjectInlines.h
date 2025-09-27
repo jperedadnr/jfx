@@ -32,16 +32,25 @@
 
 namespace WebCore {
 
+inline JSC::Structure* JSDOMGlobalObject::createStructure(JSC::VM& vm, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, 0, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
+}
+
 inline JSDOMStructureMap& JSDOMGlobalObject::structures(NoLockingNecessaryTag)
 {
     ASSERT(!vm().heap.mutatorShouldBeFenced());
+    IGNORE_CLANG_WARNINGS_BEGIN("thread-safety-reference-return")
     return m_structures;
+    IGNORE_CLANG_WARNINGS_END
 }
 
 inline DOMGuardedObjectSet& JSDOMGlobalObject::guardedObjects(NoLockingNecessaryTag)
 {
     ASSERT(!vm().heap.mutatorShouldBeFenced());
+    IGNORE_CLANG_WARNINGS_BEGIN("thread-safety-reference-return")
     return m_guardedObjects;
+    IGNORE_CLANG_WARNINGS_END
 }
 
 template<class ConstructorClass, DOMConstructorID constructorID>

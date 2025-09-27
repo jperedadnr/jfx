@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,20 +40,21 @@
 #include "CodeCache.h"
 #include "CommonIdentifiers.h"
 #include "ControlFlowProfiler.h"
-#include "CustomGetterSetter.h"
-#include "DOMAttributeGetterSetter.h"
+#include "CustomGetterSetterInlines.h"
+#include "DOMAttributeGetterSetterInlines.h"
 #include "Debugger.h"
 #include "DeferredWorkTimer.h"
 #include "Disassembler.h"
 #include "DoublePredictionFuzzerAgent.h"
 #include "ErrorInstance.h"
-#include "EvalCodeBlock.h"
+#include "EvalCodeBlockInlines.h"
+#include "EvalExecutableInlines.h"
 #include "Exception.h"
 #include "FTLThunks.h"
 #include "FileBasedFuzzerAgent.h"
-#include "FunctionCodeBlock.h"
-#include "FunctionExecutable.h"
-#include "GetterSetter.h"
+#include "FunctionCodeBlockInlines.h"
+#include "FunctionExecutableInlines.h"
+#include "GetterSetterInlines.h"
 #include "GigacageAlignedMemoryAllocator.h"
 #include "HasOwnPropertyCache.h"
 #include "Heap.h"
@@ -69,53 +70,66 @@
 #include "JSAPIValueWrapper.h"
 #include "JSBigInt.h"
 #include "JSGlobalObject.h"
-#include "JSImmutableButterfly.h"
+#include "JSImmutableButterflyInlines.h"
+#include "JSIterator.h"
 #include "JSLock.h"
 #include "JSMap.h"
 #include "JSMicrotask.h"
 #include "JSPromise.h"
-#include "JSPropertyNameEnumerator.h"
-#include "JSScriptFetchParameters.h"
-#include "JSScriptFetcher.h"
+#include "JSPropertyNameEnumeratorInlines.h"
+#include "JSScriptFetchParametersInlines.h"
+#include "JSScriptFetcherInlines.h"
 #include "JSSet.h"
-#include "JSSourceCode.h"
-#include "JSTemplateObjectDescriptor.h"
+#include "JSSourceCodeInlines.h"
+#include "JSTemplateObjectDescriptorInlines.h"
+#include "JSToWasm.h"
 #include "LLIntData.h"
 #include "LLIntExceptions.h"
 #include "MarkedBlockInlines.h"
 #include "MegamorphicCache.h"
 #include "MinimumReservedZoneSize.h"
-#include "ModuleProgramCodeBlock.h"
-#include "ModuleProgramExecutable.h"
+#include "ModuleProgramCodeBlockInlines.h"
+#include "ModuleProgramExecutableInlines.h"
 #include "NarrowingNumberPredictionFuzzerAgent.h"
 #include "NativeExecutable.h"
 #include "NumberObject.h"
 #include "PredictionFileCreatingFuzzerAgent.h"
 #include "ProfilerDatabase.h"
-#include "ProgramCodeBlock.h"
-#include "ProgramExecutable.h"
-#include "PropertyTable.h"
+#include "ProgramCodeBlockInlines.h"
+#include "ProgramExecutableInlines.h"
+#include "PropertyTableInlines.h"
 #include "RandomizingFuzzerAgent.h"
 #include "RegExpCache.h"
+#include "RegExpInlines.h"
 #include "ResourceExhaustion.h"
 #include "SamplingProfiler.h"
 #include "ScopedArguments.h"
 #include "ShadowChicken.h"
+#include "SharedJITStubSet.h"
+#include "SideDataRepository.h"
 #include "SimpleTypedArrayController.h"
 #include "SourceProviderCache.h"
 #include "StrongInlines.h"
-#include "StructureChain.h"
+#include "StructureChainInlines.h"
 #include "StructureInlines.h"
+#include "StructureStubInfo.h"
+#include "SubspaceInlines.h"
+#include "SymbolInlines.h"
+#include "SymbolTableInlines.h"
 #include "TestRunnerUtils.h"
 #include "ThunkGenerators.h"
 #include "TypeProfiler.h"
 #include "TypeProfilerLog.h"
+#include "UnlinkedEvalCodeBlockInlines.h"
+#include "UnlinkedFunctionCodeBlockInlines.h"
+#include "UnlinkedFunctionExecutableInlines.h"
+#include "UnlinkedModuleProgramCodeBlockInlines.h"
+#include "UnlinkedProgramCodeBlockInlines.h"
 #include "VMEntryScopeInlines.h"
 #include "VMInlines.h"
 #include "VMInspector.h"
 #include "VariableEnvironment.h"
 #include "WaiterListManager.h"
-#include "WasmInstance.h"
 #include "WasmWorklist.h"
 #include "Watchdog.h"
 #include "WeakGCMapInlines.h"
@@ -129,6 +143,7 @@
 #include <wtf/SystemTracing.h>
 #include <wtf/Threading.h>
 #include <wtf/text/AtomStringTable.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 #if ENABLE(C_LOOP)
 #include "CLoopStackInlines.h"
@@ -140,6 +155,10 @@
 
 #if ENABLE(REGEXP_TRACING)
 #include "RegExp.h"
+#endif
+
+#if ENABLE(WEBASSEMBLY)
+#include "JSWebAssemblyInstance.h"
 #endif
 
 namespace JSC {
@@ -156,8 +175,8 @@ static bool enableAssembler()
     if (!Options::useJIT())
         return false;
 
-    char* canUseJITString = getenv("JavaScriptCoreUseJIT");
-    if (canUseJITString && !atoi(canUseJITString))
+    auto canUseJITString = unsafeSpan(getenv("JavaScriptCoreUseJIT"));
+    if (canUseJITString.data() && !parseInteger<int>(canUseJITString).value_or(0))
         return false;
 
     ExecutableAllocator::initializeUnderlyingAllocator();
@@ -199,8 +218,9 @@ void VM::computeCanUseJIT()
 static bool vmCreationShouldCrash = false;
 
 VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
-    : m_identifier(VMIdentifier::generate())
-    , m_apiLock(adoptRef(new JSLock(this)))
+    : topCallFrame(CallFrame::noCaller())
+    , m_identifier(VMIdentifier::generate())
+    , m_apiLock(adoptRef(*new JSLock(this)))
     , m_runLoop(runLoop ? *runLoop : WTF::RunLoop::current())
     , m_random(Options::seedOfVMRandomForFuzzer() ? Options::seedOfVMRandomForFuzzer() : cryptographicallyRandomNumber<uint32_t>())
     , m_heapRandom(Options::seedOfVMRandomForFuzzer() ? Options::seedOfVMRandomForFuzzer() : cryptographicallyRandomNumber<uint32_t>())
@@ -208,13 +228,12 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     , heap(*this, heapType)
     , clientHeap(heap)
     , vmType(vmType)
-    , topCallFrame(CallFrame::noCaller())
     , deferredWorkTimer(DeferredWorkTimer::create(*this))
-    , m_atomStringTable(vmType == Default ? Thread::current().atomStringTable() : new AtomStringTable)
+    , m_atomStringTable(vmType == VMType::Default ? Thread::current().atomStringTable() : new AtomStringTable)
     , emptyList(new ArgList)
     , machineCodeBytesPerBytecodeWordForBaselineJIT(makeUnique<SimpleStats>())
     , symbolImplToSymbolMap(*this)
-    , m_regExpCache(new RegExpCache(this))
+    , m_regExpCache(makeUnique<RegExpCache>())
     , m_compactVariableMap(adoptRef(*new CompactTDZEnvironmentMap))
     , m_codeCache(makeUnique<CodeCache>())
     , m_intlCache(makeUnique<IntlCache>())
@@ -224,13 +243,42 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     if (UNLIKELY(vmCreationShouldCrash || g_jscConfig.vmCreationDisallowed))
         CRASH_WITH_EXTRA_SECURITY_IMPLICATION_AND_INFO(VMCreationDisallowed, "VM creation disallowed"_s, 0x4242424220202020, 0xbadbeef0badbeef, 0x1234123412341234, 0x1337133713371337);
 
-    VMInspector::instance().add(this);
+    VMInspector::singleton().add(this);
+
+    // Set up lazy initializers.
+    {
+        m_hasOwnPropertyCache.initLater([](VM&, auto& ref) {
+            ref.set(HasOwnPropertyCache::create());
+        });
+
+        m_megamorphicCache.initLater([](VM&, auto& ref) {
+            ref.set(makeUniqueRef<MegamorphicCache>());
+        });
+
+        m_shadowChicken.initLater([](VM&, auto& ref) {
+            ref.set(makeUniqueRef<ShadowChicken>());
+        });
+
+        m_heapProfiler.initLater([](VM& vm, auto& ref) {
+            ref.set(makeUniqueRef<HeapProfiler>(vm));
+        });
+
+        m_stringSearcherTables.initLater([](VM&, auto& ref) {
+            ref.set(makeUniqueRef<AdaptiveStringSearcherTables>());
+        });
+
+        m_watchdog.initLater([](VM& vm, auto& ref) {
+            ref.set(adoptRef(*new Watchdog(&vm)));
+            vm.ensureTerminationException();
+            vm.requestEntryScopeService(EntryScopeService::Watchdog);
+        });
+    }
 
     updateSoftReservedZoneSize(Options::softReservedZoneSize());
     setLastStackTop(Thread::current());
     stringSplitIndice.reserveInitialCapacity(256);
 
-    JSRunLoopTimer::Manager::shared().registerVM(*this);
+    JSRunLoopTimer::Manager::singleton().registerVM(*this);
 
     // Need to be careful to keep everything consistent here
     JSLockHolder lock(this);
@@ -258,10 +306,12 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     symbolStructure.setWithoutWriteBarrier(Symbol::createStructure(*this, nullptr, jsNull()));
     symbolTableStructure.setWithoutWriteBarrier(SymbolTable::createStructure(*this, nullptr, jsNull()));
 
-    immutableButterflyStructures[arrayIndexFromIndexingType(CopyOnWriteArrayWithInt32) - NumberOfIndexingShapes].setWithoutWriteBarrier(JSImmutableButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithInt32));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    rawImmutableButterflyStructure(CopyOnWriteArrayWithInt32).setWithoutWriteBarrier(JSImmutableButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithInt32));
     Structure* copyOnWriteArrayWithContiguousStructure = JSImmutableButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithContiguous);
-    immutableButterflyStructures[arrayIndexFromIndexingType(CopyOnWriteArrayWithDouble) - NumberOfIndexingShapes].setWithoutWriteBarrier(Options::allowDoubleShape() ? JSImmutableButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithDouble) : copyOnWriteArrayWithContiguousStructure);
-    immutableButterflyStructures[arrayIndexFromIndexingType(CopyOnWriteArrayWithContiguous) - NumberOfIndexingShapes].setWithoutWriteBarrier(copyOnWriteArrayWithContiguousStructure);
+    rawImmutableButterflyStructure(CopyOnWriteArrayWithDouble).setWithoutWriteBarrier(Options::allowDoubleShape() ? JSImmutableButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithDouble) : copyOnWriteArrayWithContiguousStructure);
+    rawImmutableButterflyStructure(CopyOnWriteArrayWithContiguous).setWithoutWriteBarrier(copyOnWriteArrayWithContiguousStructure);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     sourceCodeStructure.setWithoutWriteBarrier(JSSourceCode::createStructure(*this, nullptr, jsNull()));
     scriptFetcherStructure.setWithoutWriteBarrier(JSScriptFetcher::createStructure(*this, nullptr, jsNull()));
@@ -281,14 +331,12 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     moduleProgramCodeBlockStructure.setWithoutWriteBarrier(ModuleProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
     evalCodeBlockStructure.setWithoutWriteBarrier(EvalCodeBlock::createStructure(*this, nullptr, jsNull()));
     functionCodeBlockStructure.setWithoutWriteBarrier(FunctionCodeBlock::createStructure(*this, nullptr, jsNull()));
-    hashMapBucketSetStructure.setWithoutWriteBarrier(HashMapBucket<HashMapBucketDataKey>::createStructure(*this, nullptr, jsNull()));
-    hashMapBucketMapStructure.setWithoutWriteBarrier(HashMapBucket<HashMapBucketDataKeyValue>::createStructure(*this, nullptr, jsNull()));
     bigIntStructure.setWithoutWriteBarrier(JSBigInt::createStructure(*this, nullptr, jsNull()));
 
     // Eagerly initialize constant cells since the concurrent compiler can access them.
     if (Options::useJIT()) {
-        sentinelMapBucket();
-        sentinelSetBucket();
+        orderedHashTableDeletedValue();
+        orderedHashTableSentinel();
         emptyPropertyNameEnumerator();
         ensureMegamorphicCache();
     }
@@ -309,8 +357,6 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     Gigacage::addPrimitiveDisableCallback(primitiveGigacageDisabledCallback, this);
 
     heap.notifyIsSafeToCollect();
-
-    LLInt::Data::performAssertions(*this);
 
     if (UNLIKELY(Options::useProfiler())) {
         m_perBytecodeProfiler = makeUnique<Profiler::Database>(*this);
@@ -364,8 +410,8 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
         setShouldBuildPCToCodeOriginMapping();
 
     if (Options::watchdog()) {
-        Watchdog& watchdog = ensureWatchdog();
-        watchdog.setTimeLimit(Seconds::fromMilliseconds(Options::watchdog()));
+        Ref watchdog = ensureWatchdog();
+        watchdog->setTimeLimit(Seconds::fromMilliseconds(Options::watchdog()));
     }
 
     if (Options::useTracePoints())
@@ -375,11 +421,10 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     // Make sure that any stubs that the JIT is going to use are initialized in non-compilation threads.
     if (Options::useJIT()) {
         jitStubs = makeUnique<JITThunks>();
+        jitStubs->initialize(*this);
 #if ENABLE(FTL_JIT)
         ftlThunks = makeUnique<FTL::Thunks>();
 #endif // ENABLE(FTL_JIT)
-        getCTIInternalFunctionTrampolineFor(CodeForCall);
-        getCTIInternalFunctionTrampolineFor(CodeForConstruct);
         m_sharedJITStubs = makeUnique<SharedJITStubSet>();
         getBoundFunction(/* isJSFunction */ true);
     }
@@ -393,8 +438,7 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
         jitSizeStatistics = makeUnique<JITSizeStatistics>();
 #endif
 
-    if (!g_jscConfig.disabledFreezingForTesting)
-        Config::permanentlyFreeze();
+    Config::finalize();
 
     // We must set this at the end only after the VM is fully initialized.
     WTF::storeStoreFence();
@@ -412,8 +456,8 @@ VM::~VM()
 {
     Locker destructionLocker { s_destructionLock.read() };
 
-    if (Options::useAtomicsWaitAsync() && vmType == Default)
-        WaiterListManager::singleton().unregisterVM(this);
+    if (vmType == VMType::Default)
+        WaiterListManager::singleton().unregister(this);
 
     Gigacage::removePrimitiveDisableCallback(primitiveGigacageDisabledCallback, this);
     deferredWorkTimer->stopRunningTasks();
@@ -421,11 +465,14 @@ VM::~VM()
     if (Wasm::Worklist* worklist = Wasm::existingWorklistOrNull())
         worklist->stopAllPlansForContext(*this);
 #endif
-    if (UNLIKELY(m_watchdog))
-        m_watchdog->willDestroyVM(this);
+    if (RefPtr watchdog = this->watchdog(); UNLIKELY(watchdog))
+        watchdog->willDestroyVM(this);
     m_traps.willDestroyVM();
     m_isInService = false;
     WTF::storeStoreFence();
+
+    if (m_hasSideData)
+        sideDataRepository().deleteAll(this);
 
     // Never GC, ever again.
     heap.incrementDeferralDepth();
@@ -452,18 +499,18 @@ VM::~VM()
     smallStrings.setIsInitialized(false);
     heap.lastChanceToFinalize();
 
-    JSRunLoopTimer::Manager::shared().unregisterVM(*this);
+    JSRunLoopTimer::Manager::singleton().unregisterVM(*this);
 
-    VMInspector::instance().remove(this);
+    VMInspector::singleton().remove(this);
 
     delete emptyList;
 
     delete propertyNames;
-    if (vmType != Default)
+    if (vmType != VMType::Default)
         delete m_atomStringTable;
 
     delete clientData;
-    delete m_regExpCache;
+    m_regExpCache.reset();
 
 #if ENABLE(DFG_JIT)
     for (unsigned i = 0; i < m_scratchBuffers.size(); ++i)
@@ -501,18 +548,18 @@ void VM::setLastStackTop(const Thread& thread)
 
 Ref<VM> VM::createContextGroup(HeapType heapType)
 {
-    return adoptRef(*new VM(APIContextGroup, heapType));
+    return adoptRef(*new VM(VMType::APIContextGroup, heapType));
 }
 
 Ref<VM> VM::create(HeapType heapType, WTF::RunLoop* runLoop)
 {
-    return adoptRef(*new VM(Default, heapType, runLoop));
+    return adoptRef(*new VM(VMType::Default, heapType, runLoop));
 }
 
 RefPtr<VM> VM::tryCreate(HeapType heapType, WTF::RunLoop* runLoop)
 {
     bool success = true;
-    RefPtr<VM> vm = adoptRef(new VM(Default, heapType, runLoop, &success));
+    RefPtr<VM> vm = adoptRef(new VM(VMType::Default, heapType, runLoop, &success));
     if (!success) {
         // Here, we're destructing a partially constructed VM and we know that
         // no one else can be using it at the same time. So, acquiring the lock
@@ -531,48 +578,11 @@ RefPtr<VM> VM::tryCreate(HeapType heapType, WTF::RunLoop* runLoop)
     return vm;
 }
 
-bool VM::sharedInstanceExists()
-{
-    return sharedInstanceInternal();
-}
-
-VM& VM::sharedInstance()
-{
-    GlobalJSLock globalLock;
-    VM*& instance = sharedInstanceInternal();
-    if (!instance)
-        instance = adoptRef(new VM(APIShared, HeapType::Small)).leakRef();
-    return *instance;
-}
-
-VM*& VM::sharedInstanceInternal()
-{
-    static VM* sharedInstance;
-    return sharedInstance;
-}
-
-Watchdog& VM::ensureWatchdog()
-{
-    if (!m_watchdog) {
-        m_watchdog = adoptRef(new Watchdog(this));
-        ensureTerminationException();
-        requestEntryScopeService(EntryScopeService::Watchdog);
-    }
-    return *m_watchdog;
-}
-
-HeapProfiler& VM::ensureHeapProfiler()
-{
-    if (!m_heapProfiler)
-        m_heapProfiler = makeUnique<HeapProfiler>(*this);
-    return *m_heapProfiler;
-}
-
 #if ENABLE(SAMPLING_PROFILER)
 SamplingProfiler& VM::ensureSamplingProfiler(Ref<Stopwatch>&& stopwatch)
 {
     if (!m_samplingProfiler) {
-        m_samplingProfiler = adoptRef(new SamplingProfiler(*this, WTFMove(stopwatch)));
+        lazyInitialize(m_samplingProfiler, adoptRef(*new SamplingProfiler(*this, WTFMove(stopwatch))));
         requestEntryScopeService(EntryScopeService::SamplingProfiler);
     }
     return *m_samplingProfiler;
@@ -580,7 +590,7 @@ SamplingProfiler& VM::ensureSamplingProfiler(Ref<Stopwatch>&& stopwatch)
 
 void VM::enableSamplingProfiler()
 {
-    SamplingProfiler* profiler = samplingProfiler();
+    RefPtr profiler = samplingProfiler();
     if (!profiler)
         profiler = &ensureSamplingProfiler(Stopwatch::create());
     profiler->start();
@@ -588,7 +598,7 @@ void VM::enableSamplingProfiler()
 
 void VM::disableSamplingProfiler()
 {
-    SamplingProfiler* profiler = samplingProfiler();
+    RefPtr profiler = samplingProfiler();
     if (!profiler)
         profiler = &ensureSamplingProfiler(Stopwatch::create());
     {
@@ -599,10 +609,8 @@ void VM::disableSamplingProfiler()
 
 RefPtr<JSON::Value> VM::takeSamplingProfilerSamplesAsJSON()
 {
-    SamplingProfiler* profiler = samplingProfiler();
-    if (!profiler)
-        return nullptr;
-    return profiler->stackTracesAsJSON();
+    RefPtr profiler = samplingProfiler();
+    return profiler ? RefPtr { profiler->stackTracesAsJSON() } : nullptr;
 }
 
 #endif // ENABLE(SAMPLING_PROFILER)
@@ -655,6 +663,10 @@ static ThunkGenerator thunkGeneratorForIntrinsic(Intrinsic intrinsic)
         return imulThunkGenerator;
     case RandomIntrinsic:
         return randomThunkGenerator;
+#if USE(JSVALUE64)
+    case ObjectIsIntrinsic:
+        return objectIsThunkGenerator;
+#endif
     case BoundFunctionCallIntrinsic:
         return boundFunctionCallGenerator;
     case RemoteFunctionCallIntrinsic:
@@ -663,6 +675,16 @@ static ThunkGenerator thunkGeneratorForIntrinsic(Intrinsic intrinsic)
         return numberConstructorCallThunkGenerator;
     case StringConstructorIntrinsic:
         return stringConstructorCallThunkGenerator;
+    case ToIntegerOrInfinityIntrinsic:
+        return toIntegerOrInfinityThunkGenerator;
+    case ToLengthIntrinsic:
+        return toLengthThunkGenerator;
+    case WasmFunctionIntrinsic:
+#if ENABLE(WEBASSEMBLY) && ENABLE(JIT)
+        return Wasm::wasmFunctionThunkGenerator;
+#else
+        return nullptr;
+#endif
     default:
         return nullptr;
     }
@@ -673,6 +695,11 @@ MacroAssemblerCodeRef<JITThunkPtrTag> VM::getCTIStub(ThunkGenerator generator)
     return jitStubs->ctiStub(*this, generator);
 }
 
+MacroAssemblerCodeRef<JITThunkPtrTag> VM::getCTIStub(CommonJITThunkID thunkID)
+{
+    return jitStubs->ctiStub(thunkID);
+}
+
 #endif // ENABLE(JIT)
 
 NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVisibility implementationVisibility, NativeFunction constructor, const String& name)
@@ -680,24 +707,38 @@ NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVis
     return getHostFunction(function, implementationVisibility, NoIntrinsic, constructor, nullptr, name);
 }
 
-static Ref<NativeJITCode> jitCodeForCallTrampoline()
+static Ref<NativeJITCode> jitCodeForCallTrampoline(Intrinsic intrinsic)
 {
-    static NativeJITCode* result;
+    switch (intrinsic) {
+#if ENABLE(WEBASSEMBLY)
+    case WasmFunctionIntrinsic: {
+        static LazyNeverDestroyed<Ref<NativeJITCode>> result;
     static std::once_flag onceKey;
     std::call_once(onceKey, [&] {
-        result = new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(llint_native_call_trampoline), JITType::HostCallThunk, NoIntrinsic);
+            result.construct(adoptRef(*new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(js_to_wasm_wrapper_entry), JITType::HostCallThunk, intrinsic)));
     });
-    return *result;
+        return result.get();
+    }
+#endif
+    default: {
+        static LazyNeverDestroyed<Ref<NativeJITCode>> result;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+            result.construct(adoptRef(*new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(llint_native_call_trampoline), JITType::HostCallThunk, NoIntrinsic)));
+    });
+        return result.get();
+    }
+    }
 }
 
 static Ref<NativeJITCode> jitCodeForConstructTrampoline()
 {
-    static NativeJITCode* result;
+    static LazyNeverDestroyed<Ref<NativeJITCode>> result;
     static std::once_flag onceKey;
     std::call_once(onceKey, [&] {
-        result = new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(llint_native_construct_trampoline), JITType::HostCallThunk, NoIntrinsic);
+        result.construct(adoptRef(*new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(llint_native_construct_trampoline), JITType::HostCallThunk, NoIntrinsic)));
     });
-    return *result;
+    return result.get();
 }
 
 NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVisibility implementationVisibility, Intrinsic intrinsic, NativeFunction constructor, const DOMJIT::Signature* signature, const String& name)
@@ -712,7 +753,7 @@ NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVis
 #endif // ENABLE(JIT)
     UNUSED_PARAM(intrinsic);
     UNUSED_PARAM(signature);
-    return NativeExecutable::create(*this, jitCodeForCallTrampoline(), toTagged(function), jitCodeForConstructTrampoline(), toTagged(constructor), implementationVisibility, name);
+    return NativeExecutable::create(*this, jitCodeForCallTrampoline(intrinsic), toTagged(function), jitCodeForConstructTrampoline(), toTagged(constructor), implementationVisibility, name);
 }
 
 NativeExecutable* VM::getBoundFunction(bool isJSFunction)
@@ -744,11 +785,8 @@ NativeExecutable* VM::getRemoteFunction(bool isJSFunction)
             return cached;
 
         Intrinsic intrinsic = NoIntrinsic;
-        if (!slowCase) {
-#if !(OS(WINDOWS) && CPU(X86_64))
+        if (!slowCase)
             intrinsic = RemoteFunctionCallIntrinsic;
-#endif
-        }
 
         NativeExecutable* result = getHostFunction(
             slowCase ? remoteFunctionCallGeneric : remoteFunctionCallForJSFunction,
@@ -777,20 +815,11 @@ CodePtr<JSEntryPtrTag> VM::getCTIInternalFunctionTrampolineFor(CodeSpecializatio
     return LLInt::getCodePtr<JSEntryPtrTag>(llint_internal_function_construct_trampoline);
 }
 
-MacroAssemblerCodeRef<JSEntryPtrTag> VM::getCTILinkCall()
-{
-#if ENABLE(JIT)
-    if (Options::useJIT())
-        return getCTIStub(linkCallThunkGenerator).template retagged<JSEntryPtrTag>();
-#endif
-    return LLInt::getCodeRef<JSEntryPtrTag>(llint_link_call_trampoline);
-}
-
 MacroAssemblerCodeRef<JSEntryPtrTag> VM::getCTIThrowExceptionFromCallSlowPath()
 {
 #if ENABLE(JIT)
     if (Options::useJIT())
-        return getCTIStub(throwExceptionFromCallSlowPathGenerator).template retagged<JSEntryPtrTag>();
+        return getCTIStub(CommonJITThunkID::ThrowExceptionFromCallSlowPath).template retagged<JSEntryPtrTag>();
 #endif
     return LLInt::callToThrow(*this).template retagged<JSEntryPtrTag>();
 }
@@ -798,8 +827,17 @@ MacroAssemblerCodeRef<JSEntryPtrTag> VM::getCTIThrowExceptionFromCallSlowPath()
 MacroAssemblerCodeRef<JITStubRoutinePtrTag> VM::getCTIVirtualCall(CallMode callMode)
 {
 #if ENABLE(JIT)
-    if (Options::useJIT())
-        return virtualThunkFor(*this, callMode);
+    if (Options::useJIT()) {
+        switch (callMode) {
+        case CallMode::Regular:
+            return getCTIStub(CommonJITThunkID::VirtualThunkForRegularCall).template retagged<JITStubRoutinePtrTag>();
+        case CallMode::Tail:
+            return getCTIStub(CommonJITThunkID::VirtualThunkForTailCall).template retagged<JITStubRoutinePtrTag>();
+        case CallMode::Construct:
+            return getCTIStub(CommonJITThunkID::VirtualThunkForConstruct).template retagged<JITStubRoutinePtrTag>();
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+    }
 #endif
     switch (callMode) {
     case CallMode::Regular:
@@ -824,15 +862,16 @@ void VM::whenIdle(Function<void()>&& callback)
 
 void VM::deleteAllLinkedCode(DeleteAllCodeEffort effort)
 {
-    whenIdle([=] () {
+    whenIdle([=, this] () {
         heap.deleteAllCodeBlocks(effort);
     });
 }
 
 void VM::deleteAllCode(DeleteAllCodeEffort effort)
 {
-    whenIdle([=] () {
+    whenIdle([=, this] () {
         m_codeCache->clear();
+        m_builtinExecutables->clear();
         m_regExpCache->deleteAllCode();
         heap.deleteAllCodeBlocks(effort);
         heap.deleteAllUnlinkedCodeBlocks(effort);
@@ -842,7 +881,7 @@ void VM::deleteAllCode(DeleteAllCodeEffort effort)
 
 void VM::shrinkFootprintWhenIdle()
 {
-    whenIdle([=] () {
+    whenIdle([=, this] () {
         sanitizeStackForVM(*this);
         deleteAllCode(DeleteAllCodeIfNotCollecting);
         heap.collectNow(Synchronousness::Sync, CollectionScope::Full);
@@ -921,7 +960,7 @@ Exception* VM::throwException(JSGlobalObject* globalObject, Exception* exception
 
     CallFrame* throwOriginFrame = topJSCallFrame();
     if (UNLIKELY(Options::breakOnThrow())) {
-        CodeBlock* codeBlock = throwOriginFrame && !throwOriginFrame->isWasmFrame() ? throwOriginFrame->codeBlock() : nullptr;
+        CodeBlock* codeBlock = throwOriginFrame && !throwOriginFrame->isNativeCalleeFrame() ? throwOriginFrame->codeBlock() : nullptr;
         dataLog("Throwing exception in call frame ", RawPointer(throwOriginFrame), " for code block ", codeBlock, "\n");
         WTFBreakpointTrap();
     }
@@ -1029,13 +1068,20 @@ void VM::updateStackLimits()
         preCommitStackMemory(m_softStackLimit);
 #endif
 #if ENABLE(WEBASSEMBLY)
-        for (auto& instance : m_wasmInstances.values())
-            instance->updateSoftStackLimit(m_softStackLimit);
+        // PreciseAllocations are always eagerly swept so we don't have to worry about handling instances pending destruction thus need a HeapIterationScope
+        if (heap.m_webAssemblyInstanceSpace) {
+            heap.m_webAssemblyInstanceSpace->forEachLiveCell([&] (HeapCell* cell, HeapCell::Kind kind) {
+                ASSERT_UNUSED(kind, kind == HeapCell::JSCell);
+                SUPPRESS_MEMORY_UNSAFE_CAST static_cast<JSWebAssemblyInstance*>(cell)->updateSoftStackLimit(m_softStackLimit);
+            });
+        }
 #endif
     }
 }
 
 #if ENABLE(DFG_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 void VM::gatherScratchBufferRoots(ConservativeRoots& conservativeRoots)
 {
     Locker locker { m_scratchBufferLock };
@@ -1055,7 +1101,9 @@ void VM::scanSideState(ConservativeRoots& roots) const
         roots.add(sideState->tmps, sideState->tmps + maxNumCheckpointTmps);
     }
 }
-#endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+#endif // ENABLE(DFG_JIT)
 
 void VM::pushCheckpointOSRSideState(std::unique_ptr<CheckpointOSRExitSideState>&& payload)
 {
@@ -1138,14 +1186,14 @@ void VM::addRegExpToTrace(RegExp* regExp)
 
 void VM::dumpRegExpTrace()
 {
+    if (m_rtTraceList.size() <= 1)
+        return;
+
     // The first RegExp object is ignored. It is created by the RegExpPrototype ctor and not used.
     RTTraceList::iterator iter = ++m_rtTraceList.begin();
 
     if (iter != m_rtTraceList.end()) {
-        dataLogF("\nRegExp Tracing\n");
-        dataLogF("Regular Expression                              8 Bit          16 Bit        match()    Matches    Average\n");
-        dataLogF(" <Match only / Match>                         JIT Addr      JIT Address       calls      found   String len\n");
-        dataLogF("----------------------------------------+----------------+----------------+----------+----------+-----------\n");
+        RegExp::printTraceHeader();
 
         unsigned reCount = 0;
 
@@ -1321,8 +1369,8 @@ void VM::drainMicrotasks()
 
 void sanitizeStackForVM(VM& vm)
 {
-    auto& thread = Thread::current();
-    auto& stack = thread.stack();
+    Ref thread = Thread::current();
+    auto& stack = thread->stack();
     if (!vm.currentThreadIsHoldingAPILock())
         return; // vm.lastStackTop() may not be set up correctly if JSLock is not held.
 
@@ -1342,8 +1390,8 @@ size_t VM::committedStackByteCount()
 #if !ENABLE(C_LOOP)
     // When using the C stack, we don't know how many stack pages are actually
     // committed. So, we use the current stack usage as an estimate.
-    uint8_t* current = bitwise_cast<uint8_t*>(currentStackPointer());
-    uint8_t* high = bitwise_cast<uint8_t*>(Thread::current().stack().origin());
+    uint8_t* current = std::bit_cast<uint8_t*>(currentStackPointer());
+    uint8_t* high = std::bit_cast<uint8_t*>(Thread::current().stack().origin());
     return high - current;
 #else
     return CLoopStack::committedByteCount();
@@ -1444,30 +1492,22 @@ bool VM::isScratchBuffer(void* ptr)
 
 Ref<Waiter> VM::syncWaiter()
 {
-    m_syncWaiter->setVM(this);
     return m_syncWaiter;
 }
 
-void VM::ensureShadowChicken()
+JSCell* VM::orderedHashTableDeletedValueSlow()
 {
-    if (m_shadowChicken)
-        return;
-    m_shadowChicken = makeUnique<ShadowChicken>();
+    ASSERT(!m_orderedHashTableDeletedValue);
+    Symbol* deleted = OrderedHashMap::createDeletedValue(*this);
+    m_orderedHashTableDeletedValue.setWithoutWriteBarrier(deleted);
+    return deleted;
 }
 
-JSCell* VM::sentinelSetBucketSlow()
+JSCell* VM::orderedHashTableSentinelSlow()
 {
-    ASSERT(!m_sentinelSetBucket);
-    auto* sentinel = JSSet::BucketType::createSentinel(*this);
-    m_sentinelSetBucket.setWithoutWriteBarrier(sentinel);
-    return sentinel;
-}
-
-JSCell* VM::sentinelMapBucketSlow()
-{
-    ASSERT(!m_sentinelMapBucket);
-    auto* sentinel = JSMap::BucketType::createSentinel(*this);
-    m_sentinelMapBucket.setWithoutWriteBarrier(sentinel);
+    ASSERT(!m_orderedHashTableSentinel);
+    JSCell* sentinel = OrderedHashMap::createSentinel(*this);
+    m_orderedHashTableSentinel.setWithoutWriteBarrier(sentinel);
     return sentinel;
 }
 
@@ -1491,12 +1531,12 @@ void VM::executeEntryScopeServicesOnEntry()
     // observe time zone changes.
     dateCache.resetIfNecessary();
 
-    auto* watchdog = this->watchdog();
+    RefPtr watchdog = this->watchdog();
     if (UNLIKELY(watchdog))
         watchdog->enteredVM();
 
 #if ENABLE(SAMPLING_PROFILER)
-    auto* samplingProfiler = this->samplingProfiler();
+    RefPtr samplingProfiler = this->samplingProfiler();
     if (UNLIKELY(samplingProfiler))
         samplingProfiler->noticeVMEntry();
 #endif
@@ -1510,7 +1550,7 @@ void VM::executeEntryScopeServicesOnExit()
     if (UNLIKELY(Options::useTracePoints()))
         tracePoint(VMEntryScopeEnd);
 
-    auto* watchdog = this->watchdog();
+    RefPtr watchdog = this->watchdog();
     if (UNLIKELY(watchdog))
         watchdog->exitedVM();
 
@@ -1579,15 +1619,7 @@ void VM::removeLoopHintExecutionCounter(const JSInstruction* instruction)
     if (!iter->value.first)
         m_loopHintExecutionCounts.remove(iter);
 }
-#if PLATFORM(JAVA)
-void VM::set_existing_window_proxy(bool existingWindowProxy_) {
-    existingWindowProxy = existingWindowProxy_;
-}
 
-bool VM::is_existing_window_proxy() {
-    return existingWindowProxy;
-}
-#endif
 
 void VM::beginMarking()
 {
@@ -1599,6 +1631,11 @@ void VM::visitAggregateImpl(Visitor& visitor)
 {
     m_microtaskQueue.visitAggregate(visitor);
     numericStrings.visitAggregate(visitor);
+    m_builtinExecutables->visitAggregate(visitor);
+    m_regExpCache->visitAggregate(visitor);
+
+    if (heap.collectionScope() != CollectionScope::Full)
+        stringReplaceCache.visitAggregate(visitor);
 
     visitor.append(structureStructure);
     visitor.append(structureRareDataStructure);
@@ -1645,8 +1682,8 @@ void VM::visitAggregateImpl(Visitor& visitor)
     visitor.append(bigIntStructure);
 
     visitor.append(m_emptyPropertyNameEnumerator);
-    visitor.append(m_sentinelSetBucket);
-    visitor.append(m_sentinelMapBucket);
+    visitor.append(m_orderedHashTableDeletedValue);
+    visitor.append(m_orderedHashTableSentinel);
     visitor.append(m_fastCanConstructBoundExecutable);
     visitor.append(m_slowCanConstructBoundExecutable);
     visitor.append(lastCachedString);
@@ -1664,10 +1701,57 @@ void VM::removeDebugger(Debugger& debugger)
     m_debuggers.remove(&debugger);
 }
 
-void VM::performOpportunisticallyScheduledTasks(MonotonicTime deadline)
+void VM::performOpportunisticallyScheduledTasks(MonotonicTime deadline, OptionSet<SchedulerOptions> options)
 {
+    constexpr bool verbose = false;
+
+    dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] QUERY", " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
     JSLockHolder locker { *this };
-    if (!deferredWorkTimer->hasAnyPendingWork())
+    if (deferredWorkTimer->hasImminentlyScheduledWork()) {
+        dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: DeferredWorkTimer hasImminentlyScheduledWork signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+        return;
+    }
+
+    SetForScope insideOpportunisticTaskScope { heap.m_isInOpportunisticTask, true };
+    [&] {
+        auto secondsSinceEpoch = ApproximateTime::now().secondsSinceEpoch();
+        auto remainingTime = deadline.secondsSinceEpoch() - secondsSinceEpoch;
+
+        if (options.contains(SchedulerOptions::HasImminentlyScheduledWork)) {
+            dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: HasImminentlyScheduledWork ", remainingTime, " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+            return;
+        }
+
+        static constexpr auto minimumDelayBeforeOpportunisticFullGC = 30_ms;
+        static constexpr auto minimumDelayBeforeOpportunisticEdenGC = 10_ms;
+        static constexpr auto extraDurationToAvoidExceedingDeadlineDuringFullGC = 2_ms;
+        static constexpr auto extraDurationToAvoidExceedingDeadlineDuringEdenGC = 1_ms;
+
+        auto timeSinceFinishingLastFullGC = secondsSinceEpoch - heap.m_lastFullGCEndTime.secondsSinceEpoch();
+        if (timeSinceFinishingLastFullGC > minimumDelayBeforeOpportunisticFullGC && heap.m_shouldDoOpportunisticFullCollection && heap.m_totalBytesVisitedAfterLastFullCollect) {
+            auto estimatedGCDuration = (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect;
+            if (estimatedGCDuration + extraDurationToAvoidExceedingDeadlineDuringFullGC < remainingTime) {
+                dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] FULL", " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+                heap.collectSync(CollectionScope::Full);
+                heap.m_shouldDoOpportunisticFullCollection = false;
+                return;
+            }
+        }
+
+        auto timeSinceLastGC = secondsSinceEpoch - std::max(heap.m_lastGCEndTime, heap.m_currentGCStartTime).secondsSinceEpoch();
+        if (timeSinceLastGC > minimumDelayBeforeOpportunisticEdenGC && heap.totalBytesAllocatedThisCycle() && heap.m_bytesAllocatedBeforeLastEdenCollect) {
+            auto estimatedGCDuration = (heap.lastEdenGCLength() * heap.totalBytesAllocatedThisCycle()) / heap.m_bytesAllocatedBeforeLastEdenCollect;
+            if (estimatedGCDuration + extraDurationToAvoidExceedingDeadlineDuringEdenGC < remainingTime) {
+                dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] EDEN: ", timeSinceFinishingLastFullGC, " ", timeSinceLastGC, " ", heap.m_shouldDoOpportunisticFullCollection, " ", heap.m_totalBytesVisitedAfterLastFullCollect, " ", heap.totalBytesAllocatedThisCycle(), " ", heap.m_bytesAllocatedBeforeLastEdenCollect, " ", heap.m_lastGCEndTime, " ", heap.m_currentGCStartTime, " ", (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect, " ", remainingTime, " ", (heap.lastEdenGCLength() * heap.totalBytesAllocatedThisCycle()) / heap.m_bytesAllocatedBeforeLastEdenCollect, " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+                heap.collectSync(CollectionScope::Eden);
+                heap.m_shouldDoOpportunisticFullCollection = false;
+                return;
+            }
+        }
+
+        dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: nothing met. ", timeSinceFinishingLastFullGC, " ", timeSinceLastGC, " ", heap.m_shouldDoOpportunisticFullCollection, " ", heap.m_totalBytesVisitedAfterLastFullCollect, " ", heap.totalBytesAllocatedThisCycle(), " ", heap.m_bytesAllocatedBeforeLastEdenCollect, " ", heap.m_lastGCEndTime, " ", heap.m_currentGCStartTime, " ", (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect, " ", remainingTime, " ", (heap.lastEdenGCLength() * heap.totalBytesAllocatedThisCycle()) / heap.m_bytesAllocatedBeforeLastEdenCollect, " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+    }();
+
         heap.sweeper().doWorkUntil(*this, deadline);
 }
 
@@ -1677,7 +1761,9 @@ void QueuedTask::run()
         return;
     JSObject* job = jsCast<JSObject*>(m_job);
     JSGlobalObject* globalObject = job->globalObject();
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     runJSMicrotask(globalObject, m_identifier, job, m_arguments[0], m_arguments[1], m_arguments[2], m_arguments[3]);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 }
 
 template<typename Visitor>
@@ -1700,25 +1786,11 @@ void MicrotaskQueue::visitAggregateImpl(Visitor& visitor)
 }
 DEFINE_VISIT_AGGREGATE(MicrotaskQueue);
 
-void VM::ensureMegamorphicCacheSlow()
-{
-    ASSERT(!m_megamorphicCache);
-    m_megamorphicCache = makeUnique<MegamorphicCache>();
-}
-
 void VM::invalidateStructureChainIntegrity(StructureChainIntegrityEvent)
 {
-    if (m_megamorphicCache)
-        m_megamorphicCache->bumpEpoch();
+    if (auto* megamorphicCache = this->megamorphicCache())
+        megamorphicCache->bumpEpoch();
 }
-
-#if ENABLE(WEBASSEMBLY)
-void VM::registerWasmInstance(Wasm::Instance& instance)
-{
-    m_wasmInstances.add(instance);
-}
-#endif
-
 
 VM::DrainMicrotaskDelayScope::DrainMicrotaskDelayScope(VM& vm)
     : m_vm(&vm)

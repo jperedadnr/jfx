@@ -43,19 +43,21 @@ class Document;
 
 class ApplePaySetup : public ActiveDOMObject, public RefCounted<ApplePaySetup> {
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<ApplePaySetup> create(ScriptExecutionContext&, ApplePaySetupConfiguration&&);
 
     using SetupFeaturesPromise = DOMPromiseDeferred<IDLSequence<IDLInterface<ApplePaySetupFeature>>>;
     void getSetupFeatures(Document&, SetupFeaturesPromise&&);
 
     using BeginPromise = DOMPromiseDeferred<IDLBoolean>;
-    void begin(Document&, Vector<RefPtr<ApplePaySetupFeature>>&&, BeginPromise&&);
+    void begin(Document&, Vector<Ref<ApplePaySetupFeature>>&&, BeginPromise&&);
 
 private:
     ApplePaySetup(ScriptExecutionContext&, ApplePaySetupConfiguration&&);
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final { return "ApplePaySetup"; }
     void stop() final;
     void suspend(ReasonForSuspension) final;
 

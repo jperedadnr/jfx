@@ -50,8 +50,10 @@ namespace WebCore {
 
 class CSSFontSelector;
 class CSSValuePool;
+class CacheStorageConnection;
 class ContentSecurityPolicyResponseHeaders;
 class Crypto;
+class CryptoKey;
 class FileSystemStorageConnection;
 class FontFaceSet;
 class MessagePortChannelProvider;
@@ -60,6 +62,7 @@ class ReportingScope;
 class ScheduledAction;
 class ScriptBuffer;
 class ScriptBufferSourceProvider;
+class TrustedScriptURL;
 class WorkerCacheStorageConnection;
 class WorkerClient;
 class WorkerFileSystemStorageConnection;
@@ -79,7 +82,7 @@ class IDBConnectionProxy;
 }
 
 class WorkerGlobalScope : public Supplementable<WorkerGlobalScope>, public Base64Utilities, public WindowOrWorkerGlobalScope, public WorkerOrWorkletGlobalScope, public ReportingClient {
-    WTF_MAKE_ISO_ALLOCATED(WorkerGlobalScope);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(WorkerGlobalScope);
 public:
     virtual ~WorkerGlobalScope();
 
@@ -87,6 +90,7 @@ public:
     virtual Type type() const = 0;
 
     const URL& url() const final { return m_url; }
+    const URL& cookieURL() const final { return url(); }
     const URL& ownerURL() const { return m_ownerURL; }
     String origin() const;
     const String& inspectorIdentifier() const { return m_inspectorIdentifier; }
@@ -94,23 +98,23 @@ public:
     IDBClient::IDBConnectionProxy* idbConnectionProxy() final;
     void suspend() final;
     void resume() final;
+    GraphicsClient* graphicsClient() final;
 
-    using EventTarget::weakPtrFactory;
-    using EventTarget::WeakValueType;
-    using EventTarget::WeakPtrImplType;
+
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
     WorkerStorageConnection& storageConnection();
     static void postFileSystemStorageTask(Function<void()>&&);
     WorkerFileSystemStorageConnection& getFileSystemStorageConnection(Ref<FileSystemStorageConnection>&&);
     WEBCORE_EXPORT WorkerFileSystemStorageConnection* fileSystemStorageConnection();
-    WorkerCacheStorageConnection& cacheStorageConnection();
+    CacheStorageConnection& cacheStorageConnection();
     MessagePortChannelProvider& messagePortChannelProvider();
 
-#if ENABLE(SERVICE_WORKER)
     WorkerSWClientConnection& swClientConnection();
     void updateServiceWorkerClientData() final;
-#endif
 
     WorkerThread& thread() const;
+    Ref<WorkerThread> protectedThread() const;
 
     using ScriptExecutionContext::hasPendingActivity;
 
@@ -118,7 +122,7 @@ public:
     WorkerLocation& location() const;
     void close();
 
-    virtual ExceptionOr<void> importScripts(const FixedVector<String>& urls);
+    virtual ExceptionOr<void> importScripts(const FixedVector<std::variant<RefPtr<TrustedScriptURL>, String>>& urls);
     WorkerNavigator& navigator();
 
     void setIsOnline(bool);
@@ -140,7 +144,9 @@ public:
     SecurityOrigin& topOrigin() const final { return m_topOrigin.get(); }
 
     Crypto& crypto();
+
     Performance& performance() const;
+    Ref<Performance> protectedPerformance() const;
     ReportingScope& reportingScope() const { return m_reportingScope.get(); }
 
     void prepareForDestruction() override;
@@ -162,6 +168,7 @@ public:
 
     void releaseMemory(Synchronous);
     static void releaseMemoryInWorkers(Synchronous);
+    static void dumpGCHeapForWorkers();
 
     void setMainScriptSourceProvider(ScriptBufferSourceProvider&);
     void addImportedScriptSourceProvider(const URL&, ScriptBufferSourceProvider&);
@@ -169,6 +176,8 @@ public:
     ClientOrigin clientOrigin() const { return { topOrigin().data(), securityOrigin()->data() }; }
 
     WorkerClient* workerClient() { return m_workerClient.get(); }
+
+    void reportErrorToWorkerObject(const String&);
 
 protected:
     WorkerGlobalScope(WorkerThreadType, const WorkerParameters&, Ref<SecurityOrigin>&&, WorkerThread&, Ref<SecurityOrigin>&& topOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*, std::unique_ptr<WorkerClient>&&);
@@ -199,13 +208,15 @@ private:
     RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
 
     bool shouldBypassMainWorldContentSecurityPolicy() const final { return m_shouldBypassMainWorldContentSecurityPolicy; }
-
-#if ENABLE(WEB_CRYPTO)
-    bool wrapCryptoKey(const Vector<uint8_t>& key, Vector<uint8_t>& wrappedKey) final;
-    bool unwrapCryptoKey(const Vector<uint8_t>& wrappedKey, Vector<uint8_t>& key) final;
+#if !PLATFORM(JAVA)
+    std::optional<Vector<uint8_t>> wrapCryptoKey(const Vector<uint8_t>& key) final;
+    std::optional<Vector<uint8_t>> serializeAndWrapCryptoKey(CryptoKeyData&&) final;
+    std::optional<Vector<uint8_t>> unwrapCryptoKey(const Vector<uint8_t>& wrappedKey) final;
+#else
+    std::optional<Vector<uint8_t>> wrapCryptoKey(const Vector<uint8_t>& key);
+    std::optional<Vector<uint8_t>> serializeAndWrapCryptoKey(CryptoKeyData&&);
+    std::optional<Vector<uint8_t>> unwrapCryptoKey(const Vector<uint8_t>& wrappedKey);
 #endif
-
-    void stopIndexedDatabase();
 
     // ReportingClient.
     void notifyReportObservers(Ref<Report>&&) final;
@@ -237,11 +248,9 @@ private:
     WeakPtr<ScriptBufferSourceProvider> m_mainScriptSourceProvider;
     MemoryCompactRobinHoodHashMap<URL, WeakHashSet<ScriptBufferSourceProvider>> m_importedScriptsSourceProviders;
 
-    RefPtr<WorkerCacheStorageConnection> m_cacheStorageConnection;
+    RefPtr<CacheStorageConnection> m_cacheStorageConnection;
     std::unique_ptr<WorkerMessagePortChannelProvider> m_messagePortChannelProvider;
-#if ENABLE(SERVICE_WORKER)
     RefPtr<WorkerSWClientConnection> m_swClientConnection;
-#endif
     std::unique_ptr<CSSValuePool> m_cssValuePool;
     std::unique_ptr<WorkerClient> m_workerClient;
     RefPtr<CSSFontSelector> m_cssFontSelector;

@@ -58,12 +58,12 @@ CachedModuleScriptLoader::~CachedModuleScriptLoader()
     }
 }
 
-bool CachedModuleScriptLoader::load(Document& document, URL&& sourceURL)
+bool CachedModuleScriptLoader::load(Document& document, URL&& sourceURL, std::optional<ServiceWorkersMode> serviceWorkersMode)
 {
     ASSERT(m_promise);
     ASSERT(!m_cachedScript);
     String integrity = m_parameters ? m_parameters->integrity() : String { };
-    m_cachedScript = scriptFetcher().requestModuleScript(document, sourceURL, WTFMove(integrity));
+    m_cachedScript = scriptFetcher().requestModuleScript(document, sourceURL, WTFMove(integrity), serviceWorkersMode);
     if (!m_cachedScript)
         return false;
     m_sourceURL = WTFMove(sourceURL);
@@ -73,7 +73,7 @@ bool CachedModuleScriptLoader::load(Document& document, URL&& sourceURL)
     return true;
 }
 
-void CachedModuleScriptLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetrics&)
+void CachedModuleScriptLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess)
 {
     ASSERT_UNUSED(resource, &resource == m_cachedScript);
     ASSERT(m_cachedScript);

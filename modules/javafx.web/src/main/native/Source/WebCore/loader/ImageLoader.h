@@ -25,6 +25,7 @@
 #include "CachedImageClient.h"
 #include "CachedResourceHandle.h"
 #include "Element.h"
+#include "LoaderMalloc.h"
 #include "Timer.h"
 #include <wtf/Vector.h>
 #include <wtf/text/AtomString.h>
@@ -36,34 +37,45 @@ class Document;
 class ImageLoader;
 class Page;
 class RenderImageResource;
+struct ImageCandidate;
 
 template<typename T, typename Counter> class EventSender;
-using ImageEventSender = EventSender<ImageLoader, WTF::DefaultWeakPtrImpl>;
+using ImageEventSender = EventSender<ImageLoader, SingleThreadWeakPtrImpl>;
 
 enum class RelevantMutation : bool { No, Yes };
 enum class LazyImageLoadState : uint8_t { None, Deferred, LoadImmediately, FullImage };
 
 class ImageLoader : public CachedImageClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ImageLoader);
 public:
     virtual ~ImageLoader();
+
+    void ref() const;
+    void deref() const;
 
     // This function should be called when the element is attached to a document; starts
     // loading if a load hasn't already been started.
     void updateFromElement(RelevantMutation = RelevantMutation::No);
 
-    // This function should be called whenever the 'src' attribute is set, even if its value
-    // doesn't change; starts new load unconditionally (matches Firefox and Opera behavior).
+    // This function should be called whenever the 'src' attribute is set.
+    // Starts new load unconditionally (matches Firefox and Opera behavior).
     void updateFromElementIgnoringPreviousError(RelevantMutation = RelevantMutation::No);
+
+    void updateFromElementIgnoringPreviousErrorToSameValue();
 
     void elementDidMoveToNewDocument(Document&);
 
-    Element& element() { return m_element; }
-    const Element& element() const { return m_element; }
+    Element& element() { return m_element.get(); }
+    const Element& element() const { return m_element.get(); }
+    Ref<Element> protectedElement() const { return m_element.get(); }
+
+    bool shouldIgnoreCandidateWhenLoadingFromArchive(const ImageCandidate&) const;
 
     bool imageComplete() const { return m_imageComplete; }
 
     CachedImage* image() const { return m_image.get(); }
+    CachedResourceHandle<CachedImage> protectedImage() const;
     void clearImage(); // Cancels pending load events, and doesn't dispatch new ones.
 
     size_t pendingDecodePromisesCountForTesting() const { return m_decodingPromises.size(); }
@@ -83,17 +95,17 @@ public:
 
     bool isDeferred() const { return m_lazyImageLoadState == LazyImageLoadState::Deferred || m_lazyImageLoadState == LazyImageLoadState::LoadImmediately; }
 
-    Document& document() { return m_element.document(); }
+    Document& document() { return m_element->document(); }
+    Ref<Document> protectedDocument() { return m_element->document(); }
 
 protected:
     explicit ImageLoader(Element&);
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) override;
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No) override;
 
 private:
     void resetLazyImageLoading(Document&);
 
     virtual void dispatchLoadEvent() = 0;
-    virtual String sourceURI(const AtomString&) const = 0;
 
     void updatedHasPendingEvent();
     void didUpdateCachedImage(RelevantMutation, CachedResourceHandle<CachedImage>&&);
@@ -117,7 +129,7 @@ private:
 
     VisibleInViewportState imageVisibleInViewport(const Document&) const override;
 
-    Element& m_element;
+    WeakRef<Element, WeakPtrImplWithEventTargetData> m_element;
     CachedResourceHandle<CachedImage> m_image;
     Timer m_derefElementTimer;
     RefPtr<Element> m_protectedElement;

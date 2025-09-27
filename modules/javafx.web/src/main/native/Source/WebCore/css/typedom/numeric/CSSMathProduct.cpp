@@ -26,16 +26,16 @@
 #include "config.h"
 #include "CSSMathProduct.h"
 
-#include "CSSCalcOperationNode.h"
+#include "CSSCalcTree.h"
 #include "CSSMathInvert.h"
 #include "CSSNumericArray.h"
 #include "ExceptionOr.h"
 #include <wtf/FixedVector.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(CSSMathProduct);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(CSSMathProduct);
 
 ExceptionOr<Ref<CSSMathProduct>> CSSMathProduct::create(FixedVector<CSSNumberish> numberishes)
 {
@@ -45,11 +45,11 @@ ExceptionOr<Ref<CSSMathProduct>> CSSMathProduct::create(FixedVector<CSSNumberish
 ExceptionOr<Ref<CSSMathProduct>> CSSMathProduct::create(Vector<Ref<CSSNumericValue>> values)
 {
     if (values.isEmpty())
-        return Exception { SyntaxError };
+        return Exception { ExceptionCode::SyntaxError };
 
     auto type = CSSNumericType::multiplyTypes(values);
     if (!type)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     return adoptRef(*new CSSMathProduct(WTFMove(values), WTFMove(*type)));
 }
@@ -64,17 +64,17 @@ void CSSMathProduct::serialize(StringBuilder& builder, OptionSet<SerializationAr
 {
     // https://drafts.css-houdini.org/css-typed-om/#calc-serialization
     if (!arguments.contains(SerializationArguments::WithoutParentheses))
-        builder.append(arguments.contains(SerializationArguments::Nested) ? "(" : "calc(");
+        builder.append(arguments.contains(SerializationArguments::Nested) ? "("_s : "calc("_s);
     m_values->forEach([&](auto& numericValue, bool first) {
         OptionSet<SerializationArguments> operandSerializationArguments { SerializationArguments::Nested };
         operandSerializationArguments.set(SerializationArguments::WithoutParentheses, arguments.contains(SerializationArguments::WithoutParentheses));
         if (!first) {
             if (auto* mathNegate = dynamicDowncast<CSSMathInvert>(numericValue)) {
-                builder.append(" / ");
+                builder.append(" / "_s);
                 mathNegate->value().serialize(builder, operandSerializationArguments);
                 return;
             }
-            builder.append(" * ");
+            builder.append(" * "_s);
         }
         numericValue.serialize(builder, operandSerializationArguments);
     });
@@ -115,17 +115,20 @@ auto CSSMathProduct::toSumValue() const -> std::optional<SumValue>
     return { WTFMove(values) };
 }
 
-RefPtr<CSSCalcExpressionNode> CSSMathProduct::toCalcExpressionNode() const
+std::optional<CSSCalc::Child> CSSMathProduct::toCalcTreeNode() const
 {
-    Vector<Ref<CSSCalcExpressionNode>> values;
-    values.reserveInitialCapacity(m_values->length());
-    for (auto& item : m_values->array()) {
-        auto value = item->toCalcExpressionNode();
-        if (!value)
-            return nullptr;
-        values.uncheckedAppend(value.releaseNonNull());
-    }
-    return CSSCalcOperationNode::createProduct(WTFMove(values));
+    CSSCalc::Children children = WTF::compactMap(m_values->array(), [](auto& child) {
+        return child->toCalcTreeNode();
+    });
+    if (children.size() != m_values->array().size())
+        return std::nullopt;
+
+    auto product = CSSCalc::Product { .children = WTFMove(children) };
+    auto type = CSSCalc::toType(product);
+    if (!type)
+        return std::nullopt;
+
+    return CSSCalc::makeChild(WTFMove(product), *type);
 }
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2023, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,24 +39,27 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.MenuBar;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.ToggleGroup;
-import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
 import javafx.stage.Stage;
 import com.oracle.tools.fx.monkey.pages.DemoPage;
 import com.oracle.tools.fx.monkey.settings.FxSettings;
+import com.oracle.tools.fx.monkey.sheets.PropertiesMonitor;
 import com.oracle.tools.fx.monkey.tools.ClipboardViewer;
 import com.oracle.tools.fx.monkey.tools.CssPlaygroundPane;
 import com.oracle.tools.fx.monkey.tools.EmbeddedFxTextArea;
 import com.oracle.tools.fx.monkey.tools.EmbeddedJTextAreaWindow;
+import com.oracle.tools.fx.monkey.tools.JTextPanel;
 import com.oracle.tools.fx.monkey.tools.KeyboardEventViewer;
+import com.oracle.tools.fx.monkey.tools.ModalWindow;
 import com.oracle.tools.fx.monkey.tools.Native2AsciiPane;
+import com.oracle.tools.fx.monkey.tools.StageTesterWindow;
 import com.oracle.tools.fx.monkey.tools.SystemInfoViewer;
 import com.oracle.tools.fx.monkey.util.FX;
 import com.oracle.tools.fx.monkey.util.HasSkinnable;
 import com.oracle.tools.fx.monkey.util.SingleInstance;
+import com.oracle.tools.fx.monkey.util.TestPaneBase;
 
 /**
  * Monkey Tester Main Window
@@ -127,42 +130,47 @@ public class MainWindow extends Stage {
             getScene().setNodeOrientation(v);
         });
 
-        MenuBar b = new MenuBar();
+        MenuBar m = new MenuBar();
         // File
-        FX.menu(b, "_File");
-        FX.item(b, "Quit", Platform::exit);
+        FX.menu(m, "_File");
+        FX.item(m, "Quit", Platform::exit);
         // Page
-        FX.menu(b, "_Page");
-        FX.item(b, "Reload Current Page", this::reloadCurrentPage);
+        FX.menu(m, "_Page");
+        FX.item(m, "Reload Current Page", this::reloadCurrentPage);
+        FX.separator(m);
+        FX.checkItem(m, "Snapped Split Panes", AppSettings.snapSplitPanes);
         // Skin
-        FX.menu(b, "_Skin");
-        FX.item(b, "Set New Skin", this::newSkin);
-        FX.item(b, "<null> Skin", this::nullSkin);
-        // Menu
-        FX.menu(b, "_Menu");
-        ToggleGroup g = new ToggleGroup();
-        FX.radio(b, "RadioMenuItem 1", KeyCombination.keyCombination("Shortcut+1"), g);
-        FX.radio(b, "RadioMenuItem 2", KeyCombination.keyCombination("Shortcut+2"), g);
-        FX.radio(b, "RadioMenuItem 3", KeyCombination.keyCombination("Shortcut+3"), g);
+        FX.menu(m, "_Skin");
+        FX.item(m, "Set New Skin", this::newSkin);
+        FX.item(m, "<null> Skin", this::nullSkin);
         // Tools
-        FX.menu(b, "_Tools");
-        FX.item(b, "Clipboard Viewer", this::openClipboardViewer);
-        FX.item(b, "CSS Playground", this::openCssPlayground);
-        FX.item(b, "FX TextArea Embedded in JFXPanel", this::openJFXPanel);
-        FX.item(b, "JTextArea/JTextField Embedded in SwingNode", this::openJTextArea);
-        FX.item(b, "Keyboard Event Viewer", this::openKeyboardViewer);
-        FX.item(b, "Native to ASCII", this::openNative2Ascii);
-        FX.item(b, "System Info", this::openSystemInfo);
+        FX.menu(m, "_Tools");
+        FX.item(m, "Clipboard Viewer", this::openClipboardViewer);
+        FX.item(m, "CSS Playground", this::openCssPlayground);
+        FX.item(m, "FX TextArea Embedded in JFXPanel", this::openJFXPanel);
+        FX.item(m, "JTextArea/JTextField Embedded in SwingNode", this::openJTextArea);
+        FX.item(m, "JTextArea/JTextField in Pure Swing", this::openJTextAreaSwing);
+        FX.item(m, "Keyboard Event Viewer", this::openKeyboardViewer);
+        FX.item(m, "Native to ASCII", this::openNative2Ascii);
+        FX.item(m, "Platform Preferences Monitor", this::openPlatformPreferencesMonitor);
+        FX.item(m, "Stage Tester", this::openStageTesterWindow);
+        FX.item(m, "System Info", this::openSystemInfo);
+        // Logs
+        FX.menu(m, "_Logging");
+        FX.checkItem(m, "Accessibility", Loggers.accessibility.enabled);
         // Window
-        FX.menu(b, "_Window");
-        FX.item(b, orientation);
-        FX.separator(b);
-        FX.item(b, "Open Modal Window", this::openModalWindow);
-        return b;
+        FX.menu(m, "_Window");
+        FX.item(m, orientation);
+        FX.separator(m);
+        FX.item(m, "Open Modal Window", this::openModalWindow);
+        return m;
     }
 
     private void updatePage(DemoPage p) {
         FxSettings.store(contentPane);
+        if (contentPane.getCenter() instanceof TestPaneBase t) {
+            t.deactivate();
+        }
         currentPage = p;
         contentPane.setCenter(p == null ? null : p.createPane());
         updateTitle();
@@ -216,9 +224,13 @@ public class MainWindow extends Stage {
         return pages;
     }
 
+    private void openStageTesterWindow() {
+        new StageTesterWindow(this).show();
+    }
+
     private void openModalWindow() {
         new ModalWindow(this).show();
-     }
+    }
 
     private void openNative2Ascii() {
         SingleInstance.openSingleInstance(
@@ -268,6 +280,10 @@ public class MainWindow extends Stage {
         );
     }
 
+    private void openJTextAreaSwing() {
+        JTextPanel.openSwing();
+    }
+
     private void openJFXPanel() {
         EmbeddedFxTextArea.start();
     }
@@ -284,5 +300,9 @@ public class MainWindow extends Stage {
         if (n instanceof HasSkinnable s) {
             s.newSkin();
         }
+    }
+
+    private void openPlatformPreferencesMonitor() {
+        PropertiesMonitor.openPreferences(this);
     }
 }

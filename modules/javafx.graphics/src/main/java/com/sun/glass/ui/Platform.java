@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,8 +24,6 @@
  */
 package com.sun.glass.ui;
 
-import java.security.AccessController;
-import java.security.PrivilegedAction;
 import com.sun.javafx.PlatformUtil;
 
 final class Platform {
@@ -34,6 +32,7 @@ final class Platform {
     public static final String WINDOWS = "Win";
     public static final String GTK = "Gtk";
     public static final String IOS = "Ios";
+    public static final String HEADLESS = "Headless";
     public static final String UNKNOWN = "unknown";
 
     static private String type = null;
@@ -42,9 +41,7 @@ final class Platform {
         if (type == null) {
 
             // Provide for a runtime override, allowing EGL for example
-            @SuppressWarnings("removal")
-            String userPlatform =
-                AccessController.doPrivileged((PrivilegedAction<String>) () -> System.getProperty("glass.platform"));
+            String userPlatform = System.getProperty("glass.platform");
 
             if (userPlatform != null) {
                 if (userPlatform.equals("macosx"))
@@ -57,6 +54,8 @@ final class Platform {
                    type = GTK;
                 else if (userPlatform.equals("ios"))
                    type = IOS;
+                else if (userPlatform.equals("headless"))
+                   type = HEADLESS;
                 else
                    type = userPlatform;
                 return type;

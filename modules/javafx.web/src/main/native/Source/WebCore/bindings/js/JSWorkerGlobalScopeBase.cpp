@@ -30,8 +30,11 @@
 
 #include "DOMWrapperWorld.h"
 #include "EventLoop.h"
+#include "JSDOMExceptionHandling.h"
 #include "JSDOMGuardedObject.h"
 #include "JSMicrotaskCallback.h"
+#include "JSTrustedScript.h"
+#include "TrustedType.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerThread.h"
 #include <JavaScriptCore/GlobalObjectMethodTable.h>
@@ -73,6 +76,9 @@ const GlobalObjectMethodTable* JSWorkerGlobalScopeBase::globalObjectMethodTable(
     nullptr,
 #endif
     deriveShadowRealmGlobalObject,
+        codeForEval,
+        canCompileStrings,
+        trustedScriptStructure,
     };
     return &table;
 };
@@ -139,7 +145,7 @@ JSC::ScriptExecutionStatus JSWorkerGlobalScopeBase::scriptExecutionStatus(JSC::J
     return jsCast<JSWorkerGlobalScopeBase*>(globalObject)->scriptExecutionContext()->jscScriptExecutionStatus();
 }
 
-void JSWorkerGlobalScopeBase::reportViolationForUnsafeEval(JSC::JSGlobalObject* globalObject, JSC::JSString* source)
+void JSWorkerGlobalScopeBase::reportViolationForUnsafeEval(JSC::JSGlobalObject* globalObject, const String& source)
 {
     return JSGlobalObject::reportViolationForUnsafeEval(globalObject, source);
 }

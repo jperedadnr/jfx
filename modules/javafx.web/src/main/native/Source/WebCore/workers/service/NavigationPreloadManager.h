@@ -25,15 +25,14 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "NavigationPreloadState.h"
 #include "ServiceWorkerRegistration.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class NavigationPreloadManager {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NavigationPreloadManager);
 public:
     friend class ServiceWorkerRegistration;
 
@@ -60,5 +59,3 @@ inline NavigationPreloadManager::NavigationPreloadManager(ServiceWorkerRegistrat
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

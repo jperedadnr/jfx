@@ -28,8 +28,8 @@
 #include "ActiveDOMObject.h"
 #include "FileSystemHandleIdentifier.h"
 #include "IDLTypes.h"
-#include <wtf/IsoMalloc.h>
-#include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -37,9 +37,12 @@ template<typename> class DOMPromiseDeferred;
 
 class FileSystemStorageConnection;
 
-class FileSystemHandle : public ActiveDOMObject, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<FileSystemHandle> {
-    WTF_MAKE_ISO_ALLOCATED(FileSystemHandle);
+class FileSystemHandle : public ActiveDOMObject, public RefCounted<FileSystemHandle> {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(FileSystemHandle);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     virtual ~FileSystemHandle();
 
     enum class Kind : uint8_t {
@@ -60,8 +63,7 @@ protected:
     FileSystemStorageConnection& connection() { return m_connection.get(); }
 
 private:
-    // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
+    // ActiveDOMObject.
     void stop() final;
 
     Kind m_kind { Kind::File };

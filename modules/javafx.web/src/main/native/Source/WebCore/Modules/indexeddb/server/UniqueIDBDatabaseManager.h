@@ -29,6 +29,17 @@
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
+namespace IDBServer {
+class UniqueIDBDatabaseManager;
+}
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::IDBServer::UniqueIDBDatabaseManager> : std::true_type { };
+}
+
+namespace WebCore {
 
 struct ClientOrigin;
 
@@ -39,7 +50,7 @@ class UniqueIDBDatabaseConnection;
 class UniqueIDBDatabaseTransaction;
 
 class UniqueIDBDatabaseManager : public CanMakeWeakPtr<UniqueIDBDatabaseManager> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(UniqueIDBDatabaseManager);
 public:
     virtual ~UniqueIDBDatabaseManager() { }
     virtual void registerConnection(UniqueIDBDatabaseConnection&) = 0;

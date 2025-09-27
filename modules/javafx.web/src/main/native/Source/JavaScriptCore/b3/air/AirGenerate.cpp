@@ -31,6 +31,7 @@
 #include "AirAllocateRegistersAndStackAndGenerateCode.h"
 #include "AirAllocateRegistersAndStackByLinearScan.h"
 #include "AirAllocateRegistersByGraphColoring.h"
+#include "AirAllocateRegistersByGreedy.h"
 #include "AirAllocateStackByGraphColoring.h"
 #include "AirCode.h"
 #include "AirEliminateDeadCode.h"
@@ -59,7 +60,7 @@ namespace JSC { namespace B3 { namespace Air {
 
 void prepareForGeneration(Code& code)
 {
-    CompilerTimingScope timingScope("Total Air", "prepareForGeneration");
+    CompilerTimingScope timingScope("Total Air"_s, "prepareForGeneration"_s);
 
     // If we're doing super verbose dumping, the phase scope of any phase will already do a dump.
     if (shouldDumpIR(code.proc(), AirMode) && !shouldDumpIRAtEachPhase(AirMode)) {
@@ -111,8 +112,16 @@ void prepareForGeneration(Code& code)
 
     eliminateDeadCode(code);
 
-    size_t numTmps = code.numTmps(Bank::GP) + code.numTmps(Bank::FP);
-    if (!code.usesSIMD() && (code.optLevel() == 1 || numTmps > Options::maximumTmpsForGraphColoring())) {
+    auto useLinearScan = [](Code& code) -> bool {
+        if (code.usesSIMD())
+            return false;
+        if (Options::airUseGreedyRegAlloc())
+            return false;
+        unsigned numTmps = code.numTmps(Bank::GP) + code.numTmps(Bank::FP);
+        return code.optLevel() == 1 || numTmps > Options::maximumTmpsForGraphColoring();
+    };
+
+    if (useLinearScan(code)) {
         // When we're compiling quickly, we do register and stack allocation in one linear scan
         // phase. It's fast because it computes liveness only once.
         allocateRegistersAndStackByLinearScan(code);
@@ -132,6 +141,9 @@ void prepareForGeneration(Code& code)
 
         // Register allocation for all the Tmps that do not have a corresponding machine
         // register. After this phase, every Tmp has a reg.
+        if (Options::airUseGreedyRegAlloc() && !code.usesSIMD())
+            allocateRegistersByGreedy(code);
+        else
         allocateRegistersByGraphColoring(code);
 
         if (Options::logAirRegisterPressure()) {
@@ -200,7 +212,7 @@ void prepareForGeneration(Code& code)
 
 static void generateWithAlreadyAllocatedRegisters(Code& code, CCallHelpers& jit)
 {
-    CompilerTimingScope timingScope("Air", "generateWithAlreadyAllocatedRegisters");
+    CompilerTimingScope timingScope("Air"_s, "generateWithAlreadyAllocatedRegisters"_s);
 
 #if !CPU(ARM)
     DisallowMacroScratchRegisterUsage disallowScratch(jit);

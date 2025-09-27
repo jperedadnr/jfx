@@ -27,7 +27,17 @@
 
 #if ENABLE(CONTENT_FILTERING)
 
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Forward.h>
+
+namespace WebCore {
+class ContentFilterClient;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::ContentFilterClient> : std::true_type { };
+}
 
 namespace WebCore {
 
@@ -36,11 +46,9 @@ class ResourceError;
 class SharedBuffer;
 class SubstituteData;
 
-class ContentFilterClient {
+class ContentFilterClient : public AbstractRefCountedAndCanMakeWeakPtr<ContentFilterClient> {
 public:
     virtual ~ContentFilterClient() = default;
-    virtual void ref() const = 0;
-    virtual void deref() const = 0;
 
     virtual void dataReceivedThroughContentFilter(const SharedBuffer&, size_t) = 0;
     virtual ResourceError contentFilterDidBlock(ContentFilterUnblockHandler, String&& unblockRequestDeniedScript) = 0;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,20 +26,14 @@
 #pragma once
 
 #include <cstring>
-#include <span>
+#include <type_traits>
 #include <wtf/Assertions.h>
+#include <wtf/Compiler.h>
 
 namespace WTF {
 
-template<typename ContainerType, typename ForEachFunction>
-void forEach(ContainerType&& container, ForEachFunction forEachFunction)
-{
-    for (auto& value : container)
-        forEachFunction(value);
-}
-
 template<typename ContainerType, typename AnyOfFunction>
-bool anyOf(ContainerType&& container, AnyOfFunction anyOfFunction)
+bool anyOf(ContainerType&& container, NOESCAPE AnyOfFunction&& anyOfFunction)
 {
     for (auto& value : container) {
         if (anyOfFunction(value))
@@ -49,7 +43,7 @@ bool anyOf(ContainerType&& container, AnyOfFunction anyOfFunction)
 }
 
 template<typename ContainerType, typename AllOfFunction>
-bool allOf(ContainerType&& container, AllOfFunction allOfFunction)
+bool allOf(ContainerType&& container, NOESCAPE AllOfFunction&& allOfFunction)
 {
     for (auto& value : container) {
         if (!allOfFunction(value))
@@ -58,22 +52,4 @@ bool allOf(ContainerType&& container, AllOfFunction allOfFunction)
     return true;
 }
 
-template<typename T, typename U>
-void memcpySpan(std::span<T> destination, std::span<U> source)
-{
-    RELEASE_ASSERT(destination.size() == source.size());
-    static_assert(sizeof(T) == sizeof(U));
-    memcpy(destination.data(), source.data(), destination.size() * sizeof(T));
-}
-
-template<typename T>
-void memsetSpan(std::span<T> destination, uint8_t byte)
-{
-    memset(destination.data(), byte, destination.size() * sizeof(T));
-}
-
 } // namespace WTF
-
-using WTF::memcpySpan;
-using WTF::memsetSpan;
-

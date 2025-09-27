@@ -48,6 +48,7 @@ private:
 
     StyleRuleType styleRuleType() const final { return StyleRuleType::Media; }
     String cssText() const final;
+    String cssText(const CSS::SerializationContext&) const final;
     String conditionText() const final;
 
     const MQ::MediaQueryList& mediaQueries() const;

@@ -27,7 +27,7 @@
 #include "AccessibilityAtspi.h"
 #include "AccessibilityAtspiEnums.h"
 #include "AccessibilityObject.h"
-#include "AccessibilityObjectInterface.h"
+#include "AXCoreObject.h"
 #include "Editing.h"
 #include "PlatformScreen.h"
 #include "RenderLayer.h"
@@ -38,6 +38,7 @@
 #include "TextIterator.h"
 #include "VisibleUnits.h"
 #include <gio/gio.h>
+#include <wtf/Assertions.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
@@ -238,8 +239,8 @@ static Vector<unsigned, 128> offsetMapping(const String& text)
         return { };
 
     Vector<unsigned, 128> offsets;
-    SurrogatePairAwareTextIterator iterator(text.characters16(), 0, text.length(), text.length());
-    UChar32 character;
+    SurrogatePairAwareTextIterator iterator(text.span16(), 0, text.length());
+    char32_t character;
     unsigned clusterLength = 0;
     unsigned i;
     for (i = 0; iterator.consume(character, clusterLength); iterator.advance(clusterLength), ++i) {
@@ -274,13 +275,11 @@ String AccessibilityObjectAtspi::text() const
 
     m_hasListMarkerAtStart = false;
 
-#if ENABLE(INPUT_TYPE_COLOR)
     if (m_coreObject->roleValue() == AccessibilityRole::ColorWell) {
         auto color = convertColor<SRGBA<float>>(m_coreObject->colorValue()).resolved();
         GUniquePtr<char> colorString(g_strdup_printf("rgb %7.5f %7.5f %7.5f 1", color.red, color.green, color.blue));
         return String::fromUTF8(colorString.get());
     }
-#endif
 
     if (m_coreObject->isTextControl())
         return m_coreObject->doAXStringForRange({ 0, String::MaxLength });
@@ -289,10 +288,10 @@ String AccessibilityObjectAtspi::text() const
     if (!value.isNull())
         return value;
 
-    auto text = m_coreObject->textUnderElement(AccessibilityTextUnderElementMode(AccessibilityTextUnderElementMode::TextUnderElementModeIncludeAllChildren));
+    auto text = m_coreObject->textUnderElement(TextUnderElementMode(TextUnderElementMode::Children::IncludeAllChildren));
     if (auto* renderer = m_coreObject->renderer()) {
         if (is<RenderListItem>(*renderer) && downcast<RenderListItem>(*renderer).markerRenderer()) {
-            if (renderer->style().direction() == TextDirection::LTR) {
+            if (renderer->writingMode().isBidiLTR()) {
                 text = makeString(objectReplacementCharacter, text);
                 m_hasListMarkerAtStart = true;
             } else
@@ -315,7 +314,7 @@ unsigned AccessibilityObject::getLengthForTextRange() const
         textLength = downcast<RenderText>(*renderer).text().length();
 
     if (!textLength && allowsTextRanges())
-        textLength = textUnderElement(AccessibilityTextUnderElementMode(AccessibilityTextUnderElementMode::TextUnderElementModeIncludeAllChildren)).length();
+        textLength = textUnderElement(TextUnderElementMode(TextUnderElementMode::Children::IncludeAllChildren)).length();
 
     return textLength;
 }
@@ -404,7 +403,7 @@ IntPoint AccessibilityObjectAtspi::boundaryOffset(unsigned utf16Offset, TextGran
         if (!utf16Offset && m_hasListMarkerAtStart)
             return { 0, 1 };
 
-        startPosition = isStartOfWord(offsetPosition) && deprecatedIsEditingWhitespace(offsetPosition.characterBefore()) ? offsetPosition : startOfWord(offsetPosition, LeftWordIfOnBoundary);
+        startPosition = isStartOfWord(offsetPosition) && deprecatedIsEditingWhitespace(offsetPosition.characterBefore()) ? offsetPosition : startOfWord(offsetPosition, WordSide::LeftWordIfOnBoundary);
         endPostion = nextWordPosition(startPosition);
         auto positionAfterSpacingAndFollowingWord = nextWordPosition(endPostion);
         if (positionAfterSpacingAndFollowingWord != endPostion) {
@@ -701,11 +700,12 @@ bool AccessibilityObjectAtspi::selectionBounds(int& startOffset, int& endOffset)
 
 void AccessibilityObjectAtspi::setSelectedRange(unsigned utf16Offset, unsigned length)
 {
-    if (!m_coreObject)
+    auto* axObject = dynamicDowncast<AccessibilityObject>(m_coreObject.get());
+    if (!axObject)
         return;
 
-    auto range = m_coreObject->visiblePositionRangeForRange(CharacterRange(utf16Offset, length));
-    m_coreObject->setSelectedVisiblePositionRange(range);
+    auto range = axObject->visiblePositionRangeForRange(CharacterRange(utf16Offset, length));
+    axObject->setSelectedVisiblePositionRange(range);
 }
 
 bool AccessibilityObjectAtspi::selectRange(int startOffset, int endOffset)
@@ -762,9 +762,9 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
     if (!m_coreObject || !m_coreObject->renderer())
         return { };
 
-    auto accessibilityTextAttributes = [this](AXCoreObject* axObject, const HashMap<String, String>& defaultAttributes) -> HashMap<String, String> {
-        HashMap<String, String> attributes;
-        auto& style = axObject->renderer()->style();
+    auto accessibilityTextAttributes = [this](AXCoreObject& axObject, const UncheckedKeyHashMap<String, String>& defaultAttributes) -> UncheckedKeyHashMap<String, String> {
+        UncheckedKeyHashMap<String, String> attributes;
+        auto& style = axObject.renderer()->style();
 
         auto addAttributeIfNeeded = [&](const String& name, const String& value) {
             if (defaultAttributes.isEmpty() || defaultAttributes.get(name) != value)
@@ -784,14 +784,14 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
         }
 
         addAttributeIfNeeded("family-name"_s, style.fontCascade().firstFamily());
-        addAttributeIfNeeded("size"_s, makeString(std::round(style.computedFontSize() * 72 / WebCore::screenDPI()), "pt"));
+        addAttributeIfNeeded("size"_s, makeString(std::round(style.computedFontSize() * 72 / WebCore::fontDPI()), "pt"_s));
         addAttributeIfNeeded("weight"_s, makeString(static_cast<float>(style.fontCascade().weight())));
         addAttributeIfNeeded("style"_s, style.fontCascade().italic() ? "italic"_s : "normal"_s);
         addAttributeIfNeeded("strikethrough"_s, style.textDecorationLine() & TextDecorationLine::LineThrough ? "true"_s : "false"_s);
         addAttributeIfNeeded("underline"_s, style.textDecorationLine() & TextDecorationLine::Underline ? "single"_s : "none"_s);
         addAttributeIfNeeded("invisible"_s, style.visibility() == Visibility::Hidden ? "true"_s : "false"_s);
         addAttributeIfNeeded("editable"_s, m_coreObject->canSetValueAttribute() ? "true"_s : "false"_s);
-        addAttributeIfNeeded("direction"_s, style.direction() == TextDirection::LTR ? "ltr"_s : "rtl"_s);
+        addAttributeIfNeeded("direction"_s, style.writingMode().isBidiLTR() ? "ltr"_s : "rtl"_s);
 
         if (!style.textIndent().isUndefined())
             addAttributeIfNeeded("indent"_s, makeString(valueForLength(style.textIndent(), m_coreObject->size().width()).toInt()));
@@ -828,7 +828,7 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
         return attributes;
     };
 
-    auto defaultAttributes = accessibilityTextAttributes(m_coreObject, { });
+    auto defaultAttributes = accessibilityTextAttributes(*m_coreObject.get(), { });
     if (!utf16Offset)
         return { WTFMove(defaultAttributes), -1, -1 };
 
@@ -850,7 +850,7 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
     }
 
     VisiblePosition offsetPosition = m_coreObject->visiblePositionForIndex(adjustInputOffset(*utf16Offset, m_hasListMarkerAtStart));
-    auto* childNode = offsetPosition.deepEquivalent().deprecatedNode();
+    auto childNode = offsetPosition.deepEquivalent().protectedDeprecatedNode();
     if (!childNode)
         return { WTFMove(defaultAttributes), -1, -1 };
 
@@ -862,7 +862,7 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
     if (!childAxObject || childAxObject == m_coreObject)
         return { WTFMove(defaultAttributes), -1, -1 };
 
-    auto attributes = accessibilityTextAttributes(childAxObject, defaultAttributes);
+    auto attributes = accessibilityTextAttributes(*childAxObject, defaultAttributes);
     auto firstValidPosition = firstPositionInOrBeforeNode(m_coreObject->node()->firstDescendant());
     auto lastValidPosition = lastPositionInOrAfterNode(m_coreObject->node()->lastDescendant());
 
@@ -872,7 +872,11 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
         if (r->firstChildSlow())
             continue;
 
-        auto childAttributes = accessibilityTextAttributes(r->document().axObjectCache()->get(r), defaultAttributes);
+        auto* axObject = r->document().axObjectCache()->get(r);
+        if (!axObject)
+            continue;
+
+        auto childAttributes = accessibilityTextAttributes(*axObject, defaultAttributes);
         if (childAttributes != attributes)
             break;
 
@@ -886,7 +890,11 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
         if (r->firstChildSlow())
             continue;
 
-        auto childAttributes = accessibilityTextAttributes(r->document().axObjectCache()->get(r), defaultAttributes);
+        auto* axObject = r->document().axObjectCache()->get(r);
+        if (!axObject)
+            continue;
+
+        auto childAttributes = accessibilityTextAttributes(*axObject, defaultAttributes);
         if (childAttributes != attributes)
             break;
 

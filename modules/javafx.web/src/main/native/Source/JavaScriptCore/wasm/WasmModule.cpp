@@ -33,14 +33,15 @@
 #include "WasmModuleInformation.h"
 #include "WasmWorklist.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace Wasm {
 
 Module::Module(LLIntPlan& plan)
     : m_moduleInformation(plan.takeModuleInformation())
     , m_llintCallees(LLIntCallees::createFromVector(plan.takeCallees()))
     , m_ipintCallees(IPIntCallees::create(0))
-    , m_wasmToJSCallee(WasmToJSCallee::create())
-    , m_llintEntryThunks(plan.takeEntryThunks())
+    , m_wasmToJSExitStubs(plan.takeWasmToJSExitStubs())
 {
 }
 
@@ -48,14 +49,13 @@ Module::Module(IPIntPlan& plan)
     : m_moduleInformation(plan.takeModuleInformation())
     , m_llintCallees(LLIntCallees::create(0))
     , m_ipintCallees(IPIntCallees::createFromVector(plan.takeCallees()))
-    , m_wasmToJSCallee(WasmToJSCallee::create())
-    , m_llintEntryThunks(plan.takeEntryThunks())
+    , m_wasmToJSExitStubs(plan.takeWasmToJSExitStubs())
 {
 }
 
-Module::~Module() { }
+Module::~Module() = default;
 
-Wasm::TypeIndex Module::typeIndexFromFunctionIndexSpace(unsigned functionIndexSpace) const
+Wasm::TypeIndex Module::typeIndexFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace) const
 {
     return m_moduleInformation->typeIndexFromFunctionIndexSpace(functionIndexSpace);
 }
@@ -125,10 +125,8 @@ Ref<CalleeGroup> Module::getOrCreateCalleeGroup(VM& vm, MemoryMode mode)
     if (!calleeGroup || (calleeGroup->compilationFinished() && !calleeGroup->runnable())) {
         if (Options::useWasmIPInt())
             m_calleeGroups[static_cast<uint8_t>(mode)] = calleeGroup = CalleeGroup::createFromIPInt(vm, mode, const_cast<ModuleInformation&>(moduleInformation()), m_ipintCallees.copyRef());
-        else if (Options::useWasmLLInt())
-            m_calleeGroups[static_cast<uint8_t>(mode)] = calleeGroup = CalleeGroup::createFromLLInt(vm, mode, const_cast<ModuleInformation&>(moduleInformation()), m_llintCallees.copyRef());
         else
-            m_calleeGroups[static_cast<uint8_t>(mode)] = calleeGroup = CalleeGroup::createFromLLInt(vm, mode, const_cast<ModuleInformation&>(moduleInformation()), nullptr);
+            m_calleeGroups[static_cast<uint8_t>(mode)] = calleeGroup = CalleeGroup::createFromLLInt(vm, mode, const_cast<ModuleInformation&>(moduleInformation()), m_llintCallees.copyRef());
     }
     return calleeGroup.releaseNonNull();
 }
@@ -162,5 +160,7 @@ void Module::copyInitialCalleeGroupToAllMemoryModes(MemoryMode initialMode)
 }
 
 } } // namespace JSC::Wasm
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

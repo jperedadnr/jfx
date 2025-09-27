@@ -40,7 +40,7 @@ public:
     DFABytecodeInterpreter(std::span<const uint8_t> bytecode)
         : m_bytecode(bytecode) { }
 
-    using Actions = HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
+    using Actions = UncheckedKeyHashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
 
     WEBCORE_EXPORT Actions interpret(const String&, ResourceFlags);
     Actions actionsMatchingEverything();
@@ -50,7 +50,7 @@ private:
     void interpretTestFlagsAndAppendAction(unsigned& programCounter, ResourceFlags, Actions&);
 
     template<bool caseSensitive>
-    void interpetJumpTable(std::span<const char> url, uint32_t& urlIndex, uint32_t& programCounter);
+    void interpretJumpTable(std::span<const LChar> url, uint32_t& urlIndex, uint32_t& programCounter);
 
     const std::span<const uint8_t> m_bytecode;
 };

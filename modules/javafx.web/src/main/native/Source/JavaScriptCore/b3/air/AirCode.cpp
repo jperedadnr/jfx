@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,10 +37,14 @@
 #include "CCallHelpers.h"
 #include <wtf/ListDump.h>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace B3 { namespace Air {
 
 const char* const tierName = "Air ";
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CFG);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Code);
 
 static void defaultPrologueGenerator(CCallHelpers& jit, Code& code)
 {
@@ -89,6 +93,11 @@ Code::Code(Procedure& proc)
             }
 #endif
             all.remove(MacroAssembler::fpTempRegister);
+            // FIXME We should allow this to be used. See the note
+            // in https://commits.webkit.org/257808@main for more
+            // info about why masm is using scratch registers on
+            // ARM-only.
+            all.remove(MacroAssembler::addressTempRegister);
 #endif // CPU(ARM)
             auto calleeSave = RegisterSetBuilder::calleeSaveRegisters();
             all.buildAndValidate().forEach(
@@ -118,9 +127,7 @@ Code::Code(Procedure& proc)
     m_pinnedRegs.add(MacroAssembler::framePointerRegister, IgnoreVectors);
 }
 
-Code::~Code()
-{
-}
+Code::~Code() = default;
 
 void Code::emitDefaultPrologue(CCallHelpers& jit)
 {
@@ -188,7 +195,7 @@ StackSlot* Code::addStackSlot(uint64_t byteSize, StackSlotKind kind)
         // FIXME: This is unnecessarily awful. Fortunately, it doesn't run often.
         unsigned extent = WTF::roundUpToMultipleOf(result->alignment(), frameSize() - stackAdjustmentForAlignment() + byteSize);
         result->setOffsetFromFP(-static_cast<ptrdiff_t>(extent));
-        setFrameSize(WTF::roundUpToMultipleOf(stackAlignmentBytes(), extent) + stackAdjustmentForAlignment());
+        setFrameSize(WTF::roundUpToMultipleOf<stackAlignmentBytes()>(extent) + stackAdjustmentForAlignment());
     }
     return result;
 }

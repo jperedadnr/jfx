@@ -30,6 +30,7 @@
 #if ENABLE(CONTEXT_MENUS)
 
 #include "BackForwardController.h"
+#include "BitmapImage.h"
 #include "Chrome.h"
 #include "ContextMenu.h"
 #include "ContextMenuClient.h"
@@ -54,6 +55,7 @@
 #include "HTMLFrameOwnerElement.h"
 #include "HTMLImageElement.h"
 #include "HTMLTableElement.h"
+#include "HandleUserInputEventResult.h"
 #include "HitTestResult.h"
 #include "ImageBuffer.h"
 #include "ImageOverlay.h"
@@ -80,6 +82,7 @@
 #include "WindowFeatures.h"
 #include "markup.h"
 #include <wtf/SetForScope.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/WallTime.h>
 #include <wtf/unicode/CharacterNames.h>
 
@@ -95,13 +98,9 @@
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
 
-#if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
-#include <wtf/SoftLinking.h>
-SOFT_LINK_LIBRARY_OPTIONAL(libAccessibility)
-SOFT_LINK_OPTIONAL(libAccessibility, _AXSReduceMotionAutoplayAnimatedImagesEnabled, Boolean, (), ());
-#endif
-
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ContextMenuController);
 
 using namespace WTF::Unicode;
 
@@ -115,12 +114,16 @@ ContextMenuController::~ContextMenuController()
 {
 }
 
+Page& ContextMenuController::page()
+{
+    return m_page.get();
+}
+
 void ContextMenuController::clearContextMenu()
 {
     m_contextMenu = nullptr;
-    if (m_menuProvider)
-        m_menuProvider->contextMenuCleared();
-    m_menuProvider = nullptr;
+    if (RefPtr menuProvider = std::exchange(m_menuProvider, nullptr))
+        menuProvider->contextMenuCleared();
 }
 
 void ContextMenuController::handleContextMenuEvent(Event& event)
@@ -142,7 +145,7 @@ void ContextMenuController::handleContextMenuEvent(Event& event)
 
 static std::unique_ptr<ContextMenuItem> separatorItem()
 {
-    return std::unique_ptr<ContextMenuItem>(new ContextMenuItem(SeparatorType, ContextMenuItemTagNoAction, String()));
+    return std::unique_ptr<ContextMenuItem>(new ContextMenuItem(ContextMenuItemType::Separator, ContextMenuItemTagNoAction, String()));
 }
 
 void ContextMenuController::showContextMenu(Event& event, ContextMenuProvider& provider)
@@ -183,7 +186,8 @@ static void prepareContextForQRCode(ContextMenuContext& context)
         return;
 
     RefPtr<Element> element;
-    for (auto& lineage : lineageOfType<Element>(is<Element>(*node) ? downcast<Element>(*node) : *node->parentElement())) {
+    RefPtr nodeElement = dynamicDowncast<Element>(*node);
+    for (auto& lineage : lineageOfType<Element>(nodeElement ? *nodeElement : *node->protectedParentElement())) {
         if (is<HTMLTableElement>(lineage) || is<HTMLCanvasElement>(lineage) || is<HTMLImageElement>(lineage) || is<SVGSVGElement>(lineage)) {
             element = &lineage;
             break;
@@ -204,15 +208,15 @@ static void prepareContextForQRCode(ContextMenuContext& context)
     if (!frame)
         return;
 
-    auto nodeSnapshotImageBuffer = snapshotNode(*frame, *element, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() });
-    auto nodeSnapshotImage = ImageBuffer::sinkIntoImage(WTFMove(nodeSnapshotImageBuffer), PreserveResolution::Yes);
+    auto nodeSnapshotImageBuffer = snapshotNode(*frame, *element, { { }, ImageBufferPixelFormat::BGRA8, DestinationColorSpace::SRGB() });
+    RefPtr nodeSnapshotImage = BitmapImage::create(ImageBuffer::sinkIntoNativeImage(WTFMove(nodeSnapshotImageBuffer)));
     context.setPotentialQRCodeNodeSnapshotImage(nodeSnapshotImage.get());
 
     // FIXME: Node snapshotting does not take transforms into account, making it unreliable for QR code detection.
     // As a fallback, also take a viewport-level snapshot. A node snapshot is still required to capture partially
     // obscured elements. This workaround can be removed once rdar://87204215 is fixed.
-    auto viewportSnapshotImageBuffer = snapshotFrameRect(*frame, elementRect, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() });
-    auto viewportSnapshotImage = ImageBuffer::sinkIntoImage(WTFMove(viewportSnapshotImageBuffer), PreserveResolution::Yes);
+    auto viewportSnapshotImageBuffer = snapshotFrameRect(*frame, elementRect, { { }, ImageBufferPixelFormat::BGRA8, DestinationColorSpace::SRGB() });
+    RefPtr viewportSnapshotImage = BitmapImage::create(ImageBuffer::sinkIntoNativeImage(WTFMove(viewportSnapshotImageBuffer)));
     context.setPotentialQRCodeViewportSnapshotImage(viewportSnapshotImage.get());
 }
 
@@ -220,18 +224,18 @@ static void prepareContextForQRCode(ContextMenuContext& context)
 
 std::unique_ptr<ContextMenu> ContextMenuController::maybeCreateContextMenu(Event& event, OptionSet<HitTestRequest::Type> hitType, ContextMenuContext::Type contextType)
 {
-    if (!is<MouseEvent>(event))
+    RefPtr mouseEvent = dynamicDowncast<MouseEvent>(event);
+    if (!mouseEvent)
         return nullptr;
 
-    auto& mouseEvent = downcast<MouseEvent>(event);
-    if (!is<Node>(mouseEvent.target()))
+    RefPtr node = dynamicDowncast<Node>(mouseEvent->target());
+    if (!node)
         return nullptr;
-    auto& node = downcast<Node>(*mouseEvent.target());
-    auto* frame = node.document().frame();
+    RefPtr frame = node->document().frame();
     if (!frame)
         return nullptr;
 
-    auto result = frame->eventHandler().hitTestResultAtPoint(mouseEvent.absoluteLocation(), WTFMove(hitType));
+    auto result = frame->checkedEventHandler()->hitTestResultAtPoint(mouseEvent->absoluteLocation(), WTFMove(hitType));
     if (!result.innerNonSharedNode())
         return nullptr;
 
@@ -245,7 +249,7 @@ std::unique_ptr<ContextMenu> ContextMenuController::maybeCreateContextMenu(Event
 
 void ContextMenuController::showContextMenu(Event& event)
 {
-    if ((!m_menuProvider || m_menuProvider->contextMenuContextType() == ContextMenuContext::Type::ContextMenu) && m_page.settings().developerExtrasEnabled())
+    if ((!m_menuProvider || m_menuProvider->contextMenuContextType() == ContextMenuContext::Type::ContextMenu) && m_page->settings().developerExtrasEnabled())
         addDebuggingItems();
 
     event.setDefaultHandled();
@@ -253,38 +257,39 @@ void ContextMenuController::showContextMenu(Event& event)
 
 void ContextMenuController::didDismissContextMenu()
 {
-    if (m_menuProvider)
-        m_menuProvider->didDismissContextMenu();
+    if (RefPtr menuProvider = m_menuProvider)
+        menuProvider->didDismissContextMenu();
+    m_context = ContextMenuContext();
 }
 
 static void openNewWindow(const URL& urlToLoad, LocalFrame& frame, Event* event, ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy)
 {
-    Page* oldPage = frame.page();
+    RefPtr oldPage = frame.page();
     if (!oldPage)
         return;
 
-    FrameLoadRequest frameLoadRequest { *frame.document(), frame.document()->securityOrigin(), ResourceRequest(urlToLoad, frame.loader().outgoingReferrer()), { }, InitiatedByMainFrame::Unknown };
+    FrameLoadRequest frameLoadRequest { frame.protectedDocument().releaseNonNull(), frame.document()->protectedSecurityOrigin(), ResourceRequest(urlToLoad, frame.loader().outgoingReferrer()), { }, InitiatedByMainFrame::Unknown };
     frameLoadRequest.setShouldOpenExternalURLsPolicy(shouldOpenExternalURLsPolicy);
     frameLoadRequest.setNewFrameOpenerPolicy(NewFrameOpenerPolicy::Suppress);
 
-    Page* newPage = oldPage->chrome().createWindow(frame, { }, { *frame.document(), frameLoadRequest.resourceRequest(), frameLoadRequest.initiatedByMainFrame() });
+    RefPtr newPage = oldPage->chrome().createWindow(frame, { }, { }, { *frame.protectedDocument(), frameLoadRequest.resourceRequest(), frameLoadRequest.initiatedByMainFrame(), frameLoadRequest.isRequestFromClientOrUserInput() });
     if (!newPage)
         return;
     newPage->chrome().show();
-    if (auto* localMainFrame = dynamicDowncast<LocalFrame>(newPage->mainFrame()))
-        localMainFrame->loader().loadFrameRequest(WTFMove(frameLoadRequest), event, { });
+    if (RefPtr localMainFrame = dynamicDowncast<LocalFrame>(newPage->mainFrame()))
+        localMainFrame->protectedLoader()->loadFrameRequest(WTFMove(frameLoadRequest), event, { });
 }
 
 #if PLATFORM(GTK)
 
 static void insertUnicodeCharacter(UChar character, LocalFrame& frame)
 {
-    String text(&character, 1);
-    if (!frame.editor().shouldInsertText(text, frame.selection().selection().toNormalizedRange(), EditorInsertAction::Typed))
+    String text(span(character));
+    if (!frame.protectedEditor()->shouldInsertText(text, frame.selection().selection().toNormalizedRange(), EditorInsertAction::Typed))
         return;
 
     ASSERT(frame.document());
-    TypingCommand::insertText(*frame.document(), text, { }, TypingCommand::TextCompositionType::None);
+    TypingCommand::insertText(*frame.protectedDocument(), text, nullptr, { }, TypingCommand::TextCompositionType::None);
 }
 
 #endif
@@ -297,14 +302,13 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
         return;
     }
 
-    auto& document = m_context.hitTestResult().innerNonSharedNode()->document();
+    Ref document = m_context.hitTestResult().innerNonSharedNode()->document();
 
-    auto* frame = document.frame();
+    RefPtr frame = document->frame();
     if (!frame)
         return;
 
-    Ref protector(*frame);
-    RefPtr<Event> eventForLoadRequests = [&]() -> Event* {
+    RefPtr eventForLoadRequests = [&]() -> Event* {
 #if PLATFORM(COCOA)
         if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ContextMenuTriggersLinkActivationNavigationType))
             return nullptr;
@@ -321,7 +325,7 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
         m_client->downloadURL(m_context.hitTestResult().absoluteLinkURL());
         break;
     case ContextMenuItemTagCopyLinkToClipboard:
-        frame->editor().copyURL(m_context.hitTestResult().absoluteLinkURL(), m_context.hitTestResult().textContent());
+        frame->protectedEditor()->copyURL(m_context.hitTestResult().absoluteLinkURL(), m_context.hitTestResult().textContent());
         break;
     case ContextMenuItemTagOpenImageInNewWindow:
         openNewWindow(m_context.hitTestResult().absoluteImageURL(), *frame, nullptr, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
@@ -333,11 +337,11 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
     case ContextMenuItemTagCopyImageToClipboard:
         // FIXME: The Pasteboard class is not written yet
         // For now, call into the client. This is temporary!
-        frame->editor().copyImage(m_context.hitTestResult());
+        frame->protectedEditor()->copyImage(m_context.hitTestResult());
         break;
 #if PLATFORM(GTK)
-    case ContextMenuItemTagCopyImageUrlToClipboard:
-        frame->editor().copyURL(m_context.hitTestResult().absoluteImageURL(), m_context.hitTestResult().textContent());
+    case ContextMenuItemTagCopyImageURLToClipboard:
+        frame->protectedEditor()->copyURL(m_context.hitTestResult().absoluteImageURL(), m_context.hitTestResult().textContent());
         break;
 #endif
     case ContextMenuItemTagOpenMediaInNewWindow:
@@ -348,7 +352,7 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
         m_client->downloadURL(m_context.hitTestResult().absoluteMediaURL());
         break;
     case ContextMenuItemTagCopyMediaLinkToClipboard:
-        frame->editor().copyURL(m_context.hitTestResult().absoluteMediaURL(), m_context.hitTestResult().textContent());
+        frame->protectedEditor()->copyURL(m_context.hitTestResult().absoluteMediaURL(), m_context.hitTestResult().textContent());
         break;
     case ContextMenuItemTagToggleMediaControls:
         m_context.hitTestResult().toggleMediaControlsDisplay();
@@ -374,8 +378,11 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
     case ContextMenuItemTagToggleVideoEnhancedFullscreen:
         m_context.hitTestResult().toggleEnhancedFullscreenForVideo();
         break;
+    case ContextMenuItemTagToggleVideoViewer:
+        m_context.hitTestResult().toggleVideoViewer();
+        break;
     case ContextMenuItemTagOpenFrameInNewWindow: {
-        DocumentLoader* loader = frame->loader().documentLoader();
+        RefPtr loader = frame->loader().documentLoader();
         if (!loader->unreachableURL().isEmpty())
             openNewWindow(loader->unreachableURL(), *frame, nullptr, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
         else
@@ -384,12 +391,12 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
     }
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
     case ContextMenuItemTagPlayAllAnimations: {
-        if (auto* page = frame->page())
+        if (RefPtr page = frame->page())
             page->setImageAnimationEnabled(true);
         break;
     }
     case ContextMenuItemTagPauseAllAnimations: {
-        if (auto* page = frame->page())
+        if (RefPtr page = frame->page())
             page->setImageAnimationEnabled(false);
         break;
     }
@@ -401,21 +408,28 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
         break;
 #endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
     case ContextMenuItemTagCopy:
-        frame->editor().copy();
+        frame->protectedEditor()->copy();
+        break;
+    case ContextMenuItemTagCopyLinkWithHighlight:
+        if (RefPtr page = frame->page()) {
+            auto url = page->fragmentDirectiveURLForSelectedText();
+            if (url.isValid())
+                frame->editor().copyURL(url, { });
+        }
         break;
     case ContextMenuItemTagGoBack:
-        if (Page* page = frame->page())
-            page->backForward().goBackOrForward(-1);
+        if (RefPtr page = frame->page())
+            page->checkedBackForward()->goBackOrForward(-1);
         break;
     case ContextMenuItemTagGoForward:
-        if (Page* page = frame->page())
-            page->backForward().goBackOrForward(1);
+        if (RefPtr page = frame->page())
+            page->checkedBackForward()->goBackOrForward(1);
         break;
     case ContextMenuItemTagStop:
-        frame->loader().stop();
+        frame->protectedLoader()->stop();
         break;
     case ContextMenuItemTagReload:
-        frame->loader().reload();
+        frame->protectedLoader()->reload();
         break;
     case ContextMenuItemTagCut:
         frame->editor().command("Cut"_s).execute();
@@ -428,7 +442,7 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
         frame->editor().command("PasteAsPlainText"_s).execute();
         break;
     case ContextMenuItemTagDelete:
-        frame->editor().performDelete();
+        frame->protectedEditor()->performDelete();
         break;
     case ContextMenuItemTagUnicodeInsertLRMMark:
         insertUnicodeCharacter(leftToRightMark, *frame);
@@ -469,44 +483,44 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
 #endif
     case ContextMenuItemTagSpellingGuess: {
         VisibleSelection selection = frame->selection().selection();
-        if (frame->editor().shouldInsertText(title, selection.toNormalizedRange(), EditorInsertAction::Pasted)) {
+        if (frame->protectedEditor()->shouldInsertText(title, selection.toNormalizedRange(), EditorInsertAction::Pasted)) {
             OptionSet<ReplaceSelectionCommand::CommandOption> replaceOptions { ReplaceSelectionCommand::MatchStyle, ReplaceSelectionCommand::PreventNesting };
 
             if (frame->editor().behavior().shouldAllowSpellingSuggestionsWithoutSelection()) {
                 ASSERT(selection.isCaretOrRange());
                 VisibleSelection wordSelection(selection.base());
                 wordSelection.expandUsingGranularity(TextGranularity::WordGranularity);
-                frame->selection().setSelection(wordSelection);
+                frame->checkedSelection()->setSelection(wordSelection);
             } else {
                 ASSERT(frame->editor().selectedText().length());
                 replaceOptions.add(ReplaceSelectionCommand::SelectReplacement);
             }
 
-            Document* document = frame->document();
+            RefPtr document = frame->document();
             ASSERT(document);
-            auto command = ReplaceSelectionCommand::create(*document, createFragmentFromMarkup(*document, title, emptyString()), replaceOptions);
+            Ref command = ReplaceSelectionCommand::create(*document, createFragmentFromMarkup(*document, title, emptyString()), replaceOptions);
             command->apply();
-            frame->selection().revealSelection(SelectionRevealMode::Reveal, ScrollAlignment::alignToEdgeIfNeeded);
+            frame->checkedSelection()->revealSelection(SelectionRevealMode::Reveal, ScrollAlignment::alignToEdgeIfNeeded);
         }
         break;
     }
     case ContextMenuItemTagIgnoreSpelling:
-        frame->editor().ignoreSpelling();
+        frame->protectedEditor()->ignoreSpelling();
         break;
     case ContextMenuItemTagLearnSpelling:
-        frame->editor().learnSpelling();
+        frame->protectedEditor()->learnSpelling();
         break;
     case ContextMenuItemTagSearchWeb:
-        m_client->searchWithGoogle(frame);
+        m_client->searchWithGoogle(frame.get());
         break;
     case ContextMenuItemTagLookUpInDictionary:
         // FIXME: Some day we may be able to do this from within WebCore.
-        m_client->lookUpInDictionary(frame);
+        m_client->lookUpInDictionary(frame.get());
         break;
     case ContextMenuItemTagOpenLink:
-        if (auto* targetFrame = m_context.hitTestResult().targetFrame()) {
+        if (RefPtr targetFrame = m_context.hitTestResult().targetFrame()) {
             ResourceRequest resourceRequest { m_context.hitTestResult().absoluteLinkURL(), frame->loader().outgoingReferrer() };
-            FrameLoadRequest frameLoadRequest { *frame->document(), frame->document()->securityOrigin(), WTFMove(resourceRequest), { }, InitiatedByMainFrame::Unknown };
+            FrameLoadRequest frameLoadRequest { frame->protectedDocument().releaseNonNull(), frame->document()->securityOrigin(), WTFMove(resourceRequest), { }, InitiatedByMainFrame::Unknown };
             frameLoadRequest.setNewFrameOpenerPolicy(NewFrameOpenerPolicy::Suppress);
             if (targetFrame->isMainFrame())
                 frameLoadRequest.setShouldOpenExternalURLsPolicy(ShouldOpenExternalURLsPolicy::ShouldAllow);
@@ -521,7 +535,7 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
         frame->editor().command("ToggleItalic"_s).execute();
         break;
     case ContextMenuItemTagUnderline:
-        frame->editor().toggleUnderline();
+        frame->protectedEditor()->toggleUnderline();
         break;
     case ContextMenuItemTagOutline:
         // We actually never enable this because CSS does not have a way to specify an outline font,
@@ -538,13 +552,13 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
         m_client->stopSpeaking();
         break;
     case ContextMenuItemTagDefaultDirection:
-        frame->editor().setBaseWritingDirection(WritingDirection::Natural);
+        frame->protectedEditor()->setBaseWritingDirection(WritingDirection::Natural);
         break;
     case ContextMenuItemTagLeftToRight:
-        frame->editor().setBaseWritingDirection(WritingDirection::LeftToRight);
+        frame->protectedEditor()->setBaseWritingDirection(WritingDirection::LeftToRight);
         break;
     case ContextMenuItemTagRightToLeft:
-        frame->editor().setBaseWritingDirection(WritingDirection::RightToLeft);
+        frame->protectedEditor()->setBaseWritingDirection(WritingDirection::RightToLeft);
         break;
     case ContextMenuItemTagTextDirectionDefault:
         frame->editor().command("MakeTextWritingDirectionNatural"_s).execute();
@@ -555,68 +569,63 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
     case ContextMenuItemTagTextDirectionRightToLeft:
         frame->editor().command("MakeTextWritingDirectionRightToLeft"_s).execute();
         break;
-#if PLATFORM(COCOA)
-    case ContextMenuItemTagSearchInSpotlight:
-        m_client->searchWithSpotlight();
-        break;
-#endif
     case ContextMenuItemTagShowSpellingPanel:
-        frame->editor().showSpellingGuessPanel();
+        frame->protectedEditor()->showSpellingGuessPanel();
         break;
     case ContextMenuItemTagCheckSpelling:
-        frame->editor().advanceToNextMisspelling();
+        frame->protectedEditor()->advanceToNextMisspelling();
         break;
     case ContextMenuItemTagCheckSpellingWhileTyping:
-        frame->editor().toggleContinuousSpellChecking();
+        frame->protectedEditor()->toggleContinuousSpellChecking();
         break;
     case ContextMenuItemTagCheckGrammarWithSpelling:
-        frame->editor().toggleGrammarChecking();
+        frame->protectedEditor()->toggleGrammarChecking();
         break;
 #if USE(APPKIT)
     case ContextMenuItemTagMakeUpperCase:
-        frame->editor().uppercaseWord();
+        frame->protectedEditor()->uppercaseWord();
         break;
     case ContextMenuItemTagMakeLowerCase:
-        frame->editor().lowercaseWord();
+        frame->protectedEditor()->lowercaseWord();
         break;
     case ContextMenuItemTagCapitalize:
-        frame->editor().capitalizeWord();
+        frame->protectedEditor()->capitalizeWord();
         break;
 #endif
 #if PLATFORM(COCOA)
     case ContextMenuItemTagChangeBack:
-        frame->editor().changeBackToReplacedString(m_context.hitTestResult().replacedString());
+        frame->protectedEditor()->changeBackToReplacedString(m_context.hitTestResult().replacedString());
         break;
 #endif
 #if USE(AUTOMATIC_TEXT_REPLACEMENT)
     case ContextMenuItemTagShowSubstitutions:
-        frame->editor().showSubstitutionsPanel();
+        frame->protectedEditor()->showSubstitutionsPanel();
         break;
     case ContextMenuItemTagSmartCopyPaste:
-        frame->editor().toggleSmartInsertDelete();
+        frame->protectedEditor()->toggleSmartInsertDelete();
         break;
     case ContextMenuItemTagSmartQuotes:
-        frame->editor().toggleAutomaticQuoteSubstitution();
+        frame->protectedEditor()->toggleAutomaticQuoteSubstitution();
         break;
     case ContextMenuItemTagSmartDashes:
-        frame->editor().toggleAutomaticDashSubstitution();
+        frame->protectedEditor()->toggleAutomaticDashSubstitution();
         break;
     case ContextMenuItemTagSmartLinks:
-        frame->editor().toggleAutomaticLinkDetection();
+        frame->protectedEditor()->toggleAutomaticLinkDetection();
         break;
     case ContextMenuItemTagTextReplacement:
-        frame->editor().toggleAutomaticTextReplacement();
+        frame->protectedEditor()->toggleAutomaticTextReplacement();
         break;
     case ContextMenuItemTagCorrectSpellingAutomatically:
-        frame->editor().toggleAutomaticSpellingCorrection();
+        frame->protectedEditor()->toggleAutomaticSpellingCorrection();
         break;
 #endif
     case ContextMenuItemTagInspectElement:
-        if (Page* page = frame->page())
+        if (RefPtr page = frame->page())
             page->inspectorController().inspect(m_context.hitTestResult().innerNonSharedNode());
         break;
     case ContextMenuItemTagDictationAlternative:
-        frame->editor().applyDictationAlternative(title);
+        frame->protectedEditor()->applyDictationAlternative(title);
         break;
 #if PLATFORM(MAC)
     case ContextMenuItemTagShowFonts:
@@ -641,6 +650,12 @@ void ContextMenuController::contextMenuItemSelected(ContextMenuAction action, co
         }
 #endif
         break;
+
+    case ContextMenuItemTagWritingTools:
+        // The Writing Tools context menu item action is handled in the client layer.
+        RELEASE_ASSERT_NOT_REACHED();
+        break;
+
 #if ENABLE(PDFJS)
     case ContextMenuItemPDFAutoSize:
         performPDFJSAction(*frame, "context-menu-auto-size"_s);
@@ -690,15 +705,15 @@ void ContextMenuController::createAndAppendFontSubMenu(ContextMenuItem& fontMenu
     ContextMenu fontMenu;
 
 #if PLATFORM(COCOA)
-    ContextMenuItem showFonts(ActionType, ContextMenuItemTagShowFonts, contextMenuItemTagShowFonts());
+    ContextMenuItem showFonts(ContextMenuItemType::Action, ContextMenuItemTagShowFonts, contextMenuItemTagShowFonts());
 #endif
-    ContextMenuItem bold(CheckableActionType, ContextMenuItemTagBold, contextMenuItemTagBold());
-    ContextMenuItem italic(CheckableActionType, ContextMenuItemTagItalic, contextMenuItemTagItalic());
-    ContextMenuItem underline(CheckableActionType, ContextMenuItemTagUnderline, contextMenuItemTagUnderline());
-    ContextMenuItem outline(ActionType, ContextMenuItemTagOutline, contextMenuItemTagOutline());
+    ContextMenuItem bold(ContextMenuItemType::CheckableAction, ContextMenuItemTagBold, contextMenuItemTagBold());
+    ContextMenuItem italic(ContextMenuItemType::CheckableAction, ContextMenuItemTagItalic, contextMenuItemTagItalic());
+    ContextMenuItem underline(ContextMenuItemType::CheckableAction, ContextMenuItemTagUnderline, contextMenuItemTagUnderline());
+    ContextMenuItem outline(ContextMenuItemType::Action, ContextMenuItemTagOutline, contextMenuItemTagOutline());
 #if PLATFORM(COCOA)
-    ContextMenuItem styles(ActionType, ContextMenuItemTagStyles, contextMenuItemTagStyles());
-    ContextMenuItem showColors(ActionType, ContextMenuItemTagShowColors, contextMenuItemTagShowColors());
+    ContextMenuItem styles(ContextMenuItemType::Action, ContextMenuItemTagStyles, contextMenuItemTagStyles());
+    ContextMenuItem showColors(ContextMenuItemType::Action, ContextMenuItemTagShowColors, contextMenuItemTagShowColors());
 #endif
 
 #if PLATFORM(COCOA)
@@ -724,16 +739,16 @@ void ContextMenuController::createAndAppendSpellingAndGrammarSubMenu(ContextMenu
 {
     ContextMenu spellingAndGrammarMenu;
 
-    ContextMenuItem showSpellingPanel(ActionType, ContextMenuItemTagShowSpellingPanel,
+    ContextMenuItem showSpellingPanel(ContextMenuItemType::Action, ContextMenuItemTagShowSpellingPanel,
         contextMenuItemTagShowSpellingPanel(true));
-    ContextMenuItem checkSpelling(ActionType, ContextMenuItemTagCheckSpelling,
+    ContextMenuItem checkSpelling(ContextMenuItemType::Action, ContextMenuItemTagCheckSpelling,
         contextMenuItemTagCheckSpelling());
-    ContextMenuItem checkAsYouType(CheckableActionType, ContextMenuItemTagCheckSpellingWhileTyping,
+    ContextMenuItem checkAsYouType(ContextMenuItemType::CheckableAction, ContextMenuItemTagCheckSpellingWhileTyping,
         contextMenuItemTagCheckSpellingWhileTyping());
-    ContextMenuItem grammarWithSpelling(CheckableActionType, ContextMenuItemTagCheckGrammarWithSpelling,
+    ContextMenuItem grammarWithSpelling(ContextMenuItemType::CheckableAction, ContextMenuItemTagCheckGrammarWithSpelling,
         contextMenuItemTagCheckGrammarWithSpelling());
 #if PLATFORM(COCOA)
-    ContextMenuItem correctSpelling(CheckableActionType, ContextMenuItemTagCorrectSpellingAutomatically,
+    ContextMenuItem correctSpelling(ContextMenuItemType::CheckableAction, ContextMenuItemTagCorrectSpellingAutomatically,
         contextMenuItemTagCorrectSpellingAutomatically());
 #endif
 
@@ -760,8 +775,8 @@ void ContextMenuController::createAndAppendSpeechSubMenu(ContextMenuItem& speech
 {
     ContextMenu speechMenu;
 
-    ContextMenuItem start(ActionType, ContextMenuItemTagStartSpeaking, contextMenuItemTagStartSpeaking());
-    ContextMenuItem stop(ActionType, ContextMenuItemTagStopSpeaking, contextMenuItemTagStopSpeaking());
+    ContextMenuItem start(ContextMenuItemType::Action, ContextMenuItemTagStartSpeaking, contextMenuItemTagStartSpeaking());
+    ContextMenuItem stop(ContextMenuItemType::Action, ContextMenuItemTagStopSpeaking, contextMenuItemTagStopSpeaking());
 
     appendItem(start, &speechMenu);
     appendItem(stop, &speechMenu);
@@ -777,16 +792,16 @@ void ContextMenuController::createAndAppendUnicodeSubMenu(ContextMenuItem& unico
 {
     ContextMenu unicodeMenu;
 
-    ContextMenuItem leftToRightMarkMenuItem(ActionType, ContextMenuItemTagUnicodeInsertLRMMark, contextMenuItemTagUnicodeInsertLRMMark());
-    ContextMenuItem rightToLeftMarkMenuItem(ActionType, ContextMenuItemTagUnicodeInsertRLMMark, contextMenuItemTagUnicodeInsertRLMMark());
-    ContextMenuItem leftToRightEmbedMenuItem(ActionType, ContextMenuItemTagUnicodeInsertLREMark, contextMenuItemTagUnicodeInsertLREMark());
-    ContextMenuItem rightToLeftEmbedMenuItem(ActionType, ContextMenuItemTagUnicodeInsertRLEMark, contextMenuItemTagUnicodeInsertRLEMark());
-    ContextMenuItem leftToRightOverrideMenuItem(ActionType, ContextMenuItemTagUnicodeInsertLROMark, contextMenuItemTagUnicodeInsertLROMark());
-    ContextMenuItem rightToLeftOverrideMenuItem(ActionType, ContextMenuItemTagUnicodeInsertRLOMark, contextMenuItemTagUnicodeInsertRLOMark());
-    ContextMenuItem popDirectionalFormattingMenuItem(ActionType, ContextMenuItemTagUnicodeInsertPDFMark, contextMenuItemTagUnicodeInsertPDFMark());
-    ContextMenuItem zeroWidthSpaceMenuItem(ActionType, ContextMenuItemTagUnicodeInsertZWSMark, contextMenuItemTagUnicodeInsertZWSMark());
-    ContextMenuItem zeroWidthJoinerMenuItem(ActionType, ContextMenuItemTagUnicodeInsertZWJMark, contextMenuItemTagUnicodeInsertZWJMark());
-    ContextMenuItem zeroWidthNonJoinerMenuItem(ActionType, ContextMenuItemTagUnicodeInsertZWNJMark, contextMenuItemTagUnicodeInsertZWNJMark());
+    ContextMenuItem leftToRightMarkMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertLRMMark, contextMenuItemTagUnicodeInsertLRMMark());
+    ContextMenuItem rightToLeftMarkMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertRLMMark, contextMenuItemTagUnicodeInsertRLMMark());
+    ContextMenuItem leftToRightEmbedMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertLREMark, contextMenuItemTagUnicodeInsertLREMark());
+    ContextMenuItem rightToLeftEmbedMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertRLEMark, contextMenuItemTagUnicodeInsertRLEMark());
+    ContextMenuItem leftToRightOverrideMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertLROMark, contextMenuItemTagUnicodeInsertLROMark());
+    ContextMenuItem rightToLeftOverrideMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertRLOMark, contextMenuItemTagUnicodeInsertRLOMark());
+    ContextMenuItem popDirectionalFormattingMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertPDFMark, contextMenuItemTagUnicodeInsertPDFMark());
+    ContextMenuItem zeroWidthSpaceMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertZWSMark, contextMenuItemTagUnicodeInsertZWSMark());
+    ContextMenuItem zeroWidthJoinerMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertZWJMark, contextMenuItemTagUnicodeInsertZWJMark());
+    ContextMenuItem zeroWidthNonJoinerMenuItem(ContextMenuItemType::Action, ContextMenuItemTagUnicodeInsertZWNJMark, contextMenuItemTagUnicodeInsertZWNJMark());
 
     appendItem(leftToRightMarkMenuItem, &unicodeMenu);
     appendItem(rightToLeftMarkMenuItem, &unicodeMenu);
@@ -808,10 +823,10 @@ void ContextMenuController::createAndAppendWritingDirectionSubMenu(ContextMenuIt
 {
     ContextMenu writingDirectionMenu;
 
-    ContextMenuItem defaultItem(ActionType, ContextMenuItemTagDefaultDirection,
+    ContextMenuItem defaultItem(ContextMenuItemType::Action, ContextMenuItemTagDefaultDirection,
         contextMenuItemTagDefaultDirection());
-    ContextMenuItem ltr(CheckableActionType, ContextMenuItemTagLeftToRight, contextMenuItemTagLeftToRight());
-    ContextMenuItem rtl(CheckableActionType, ContextMenuItemTagRightToLeft, contextMenuItemTagRightToLeft());
+    ContextMenuItem ltr(ContextMenuItemType::CheckableAction, ContextMenuItemTagLeftToRight, contextMenuItemTagLeftToRight());
+    ContextMenuItem rtl(ContextMenuItemType::CheckableAction, ContextMenuItemTagRightToLeft, contextMenuItemTagRightToLeft());
 
     appendItem(defaultItem, &writingDirectionMenu);
     appendItem(ltr, &writingDirectionMenu);
@@ -824,9 +839,9 @@ void ContextMenuController::createAndAppendTextDirectionSubMenu(ContextMenuItem&
 {
     ContextMenu textDirectionMenu;
 
-    ContextMenuItem defaultItem(ActionType, ContextMenuItemTagTextDirectionDefault, contextMenuItemTagDefaultDirection());
-    ContextMenuItem ltr(CheckableActionType, ContextMenuItemTagTextDirectionLeftToRight, contextMenuItemTagLeftToRight());
-    ContextMenuItem rtl(CheckableActionType, ContextMenuItemTagTextDirectionRightToLeft, contextMenuItemTagRightToLeft());
+    ContextMenuItem defaultItem(ContextMenuItemType::Action, ContextMenuItemTagTextDirectionDefault, contextMenuItemTagDefaultDirection());
+    ContextMenuItem ltr(ContextMenuItemType::CheckableAction, ContextMenuItemTagTextDirectionLeftToRight, contextMenuItemTagLeftToRight());
+    ContextMenuItem rtl(ContextMenuItemType::CheckableAction, ContextMenuItemTagTextDirectionRightToLeft, contextMenuItemTagRightToLeft());
 
     appendItem(defaultItem, &textDirectionMenu);
     appendItem(ltr, &textDirectionMenu);
@@ -843,12 +858,12 @@ void ContextMenuController::createAndAppendSubstitutionsSubMenu(ContextMenuItem&
 {
     ContextMenu substitutionsMenu;
 
-    ContextMenuItem showSubstitutions(ActionType, ContextMenuItemTagShowSubstitutions, contextMenuItemTagShowSubstitutions(true));
-    ContextMenuItem smartCopyPaste(CheckableActionType, ContextMenuItemTagSmartCopyPaste, contextMenuItemTagSmartCopyPaste());
-    ContextMenuItem smartQuotes(CheckableActionType, ContextMenuItemTagSmartQuotes, contextMenuItemTagSmartQuotes());
-    ContextMenuItem smartDashes(CheckableActionType, ContextMenuItemTagSmartDashes, contextMenuItemTagSmartDashes());
-    ContextMenuItem smartLinks(CheckableActionType, ContextMenuItemTagSmartLinks, contextMenuItemTagSmartLinks());
-    ContextMenuItem textReplacement(CheckableActionType, ContextMenuItemTagTextReplacement, contextMenuItemTagTextReplacement());
+    ContextMenuItem showSubstitutions(ContextMenuItemType::Action, ContextMenuItemTagShowSubstitutions, contextMenuItemTagShowSubstitutions(true));
+    ContextMenuItem smartCopyPaste(ContextMenuItemType::CheckableAction, ContextMenuItemTagSmartCopyPaste, contextMenuItemTagSmartCopyPaste());
+    ContextMenuItem smartQuotes(ContextMenuItemType::CheckableAction, ContextMenuItemTagSmartQuotes, contextMenuItemTagSmartQuotes());
+    ContextMenuItem smartDashes(ContextMenuItemType::CheckableAction, ContextMenuItemTagSmartDashes, contextMenuItemTagSmartDashes());
+    ContextMenuItem smartLinks(ContextMenuItemType::CheckableAction, ContextMenuItemTagSmartLinks, contextMenuItemTagSmartLinks());
+    ContextMenuItem textReplacement(ContextMenuItemType::CheckableAction, ContextMenuItemTagTextReplacement, contextMenuItemTagTextReplacement());
 
     appendItem(showSubstitutions, &substitutionsMenu);
     appendItem(*separatorItem(), &substitutionsMenu);
@@ -865,9 +880,9 @@ void ContextMenuController::createAndAppendTransformationsSubMenu(ContextMenuIte
 {
     ContextMenu transformationsMenu;
 
-    ContextMenuItem makeUpperCase(ActionType, ContextMenuItemTagMakeUpperCase, contextMenuItemTagMakeUpperCase());
-    ContextMenuItem makeLowerCase(ActionType, ContextMenuItemTagMakeLowerCase, contextMenuItemTagMakeLowerCase());
-    ContextMenuItem capitalize(ActionType, ContextMenuItemTagCapitalize, contextMenuItemTagCapitalize());
+    ContextMenuItem makeUpperCase(ContextMenuItemType::Action, ContextMenuItemTagMakeUpperCase, contextMenuItemTagMakeUpperCase());
+    ContextMenuItem makeLowerCase(ContextMenuItemType::Action, ContextMenuItemTagMakeLowerCase, contextMenuItemTagMakeLowerCase());
+    ContextMenuItem capitalize(ContextMenuItemType::Action, ContextMenuItemTagCapitalize, contextMenuItemTagCapitalize());
 
     appendItem(makeUpperCase, &transformationsMenu);
     appendItem(makeLowerCase, &transformationsMenu);
@@ -892,117 +907,117 @@ void ContextMenuController::createAndAppendTransformationsSubMenu(ContextMenuIte
 
 void ContextMenuController::populate()
 {
-    ContextMenuItem OpenLinkItem(ActionType, ContextMenuItemTagOpenLink, contextMenuItemTagOpenLink());
-    ContextMenuItem OpenLinkInNewWindowItem(ActionType, ContextMenuItemTagOpenLinkInNewWindow,
+    ContextMenuItem OpenLinkItem(ContextMenuItemType::Action, ContextMenuItemTagOpenLink, contextMenuItemTagOpenLink());
+    ContextMenuItem OpenLinkInNewWindowItem(ContextMenuItemType::Action, ContextMenuItemTagOpenLinkInNewWindow,
         contextMenuItemTagOpenLinkInNewWindow());
-    ContextMenuItem DownloadFileItem(ActionType, ContextMenuItemTagDownloadLinkToDisk,
+    ContextMenuItem DownloadFileItem(ContextMenuItemType::Action, ContextMenuItemTagDownloadLinkToDisk,
         contextMenuItemTagDownloadLinkToDisk());
-    ContextMenuItem CopyLinkItem(ActionType, ContextMenuItemTagCopyLinkToClipboard,
+    ContextMenuItem CopyLinkItem(ContextMenuItemType::Action, ContextMenuItemTagCopyLinkToClipboard,
         contextMenuItemTagCopyLinkToClipboard());
-    ContextMenuItem OpenImageInNewWindowItem(ActionType, ContextMenuItemTagOpenImageInNewWindow,
+    ContextMenuItem OpenImageInNewWindowItem(ContextMenuItemType::Action, ContextMenuItemTagOpenImageInNewWindow,
         contextMenuItemTagOpenImageInNewWindow());
-    ContextMenuItem DownloadImageItem(ActionType, ContextMenuItemTagDownloadImageToDisk,
+    ContextMenuItem DownloadImageItem(ContextMenuItemType::Action, ContextMenuItemTagDownloadImageToDisk,
         contextMenuItemTagDownloadImageToDisk());
-    ContextMenuItem CopyImageItem(ActionType, ContextMenuItemTagCopyImageToClipboard,
+    ContextMenuItem CopyImageItem(ContextMenuItemType::Action, ContextMenuItemTagCopyImageToClipboard,
         contextMenuItemTagCopyImageToClipboard());
 #if PLATFORM(GTK)
-    ContextMenuItem CopyImageUrlItem(ActionType, ContextMenuItemTagCopyImageUrlToClipboard,
-        contextMenuItemTagCopyImageUrlToClipboard());
+    ContextMenuItem CopyImageURLItem(ContextMenuItemType::Action, ContextMenuItemTagCopyImageURLToClipboard,
+        contextMenuItemTagCopyImageURLToClipboard());
 #endif
-    ContextMenuItem OpenMediaInNewWindowItem(ActionType, ContextMenuItemTagOpenMediaInNewWindow, String());
-    ContextMenuItem DownloadMediaItem(ActionType, ContextMenuItemTagDownloadMediaToDisk, String());
-    ContextMenuItem CopyMediaLinkItem(ActionType, ContextMenuItemTagCopyMediaLinkToClipboard, String());
-    ContextMenuItem MediaPlayPause(ActionType, ContextMenuItemTagMediaPlayPause,
+    ContextMenuItem OpenMediaInNewWindowItem(ContextMenuItemType::Action, ContextMenuItemTagOpenMediaInNewWindow, String());
+    ContextMenuItem DownloadMediaItem(ContextMenuItemType::Action, ContextMenuItemTagDownloadMediaToDisk, String());
+    ContextMenuItem CopyMediaLinkItem(ContextMenuItemType::Action, ContextMenuItemTagCopyMediaLinkToClipboard, String());
+    ContextMenuItem MediaPlayPause(ContextMenuItemType::Action, ContextMenuItemTagMediaPlayPause,
         contextMenuItemTagMediaPlay());
-    ContextMenuItem MediaMute(ActionType, ContextMenuItemTagMediaMute,
+    ContextMenuItem MediaMute(ContextMenuItemType::Action, ContextMenuItemTagMediaMute,
         contextMenuItemTagMediaMute());
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
-    ContextMenuItem PlayAllAnimations(ActionType, ContextMenuItemTagPlayAllAnimations, contextMenuItemTagPlayAllAnimations());
-    ContextMenuItem PauseAllAnimations(ActionType, ContextMenuItemTagPauseAllAnimations, contextMenuItemTagPauseAllAnimations());
-    ContextMenuItem PlayAnimation(ActionType, ContextMenuItemTagPlayAnimation, contextMenuItemTagPlayAnimation());
-    ContextMenuItem PauseAnimation(ActionType, ContextMenuItemTagPauseAnimation, contextMenuItemTagPauseAnimation());
+    ContextMenuItem PlayAllAnimations(ContextMenuItemType::Action, ContextMenuItemTagPlayAllAnimations, contextMenuItemTagPlayAllAnimations());
+    ContextMenuItem PauseAllAnimations(ContextMenuItemType::Action, ContextMenuItemTagPauseAllAnimations, contextMenuItemTagPauseAllAnimations());
+    ContextMenuItem PlayAnimation(ContextMenuItemType::Action, ContextMenuItemTagPlayAnimation, contextMenuItemTagPlayAnimation());
+    ContextMenuItem PauseAnimation(ContextMenuItemType::Action, ContextMenuItemTagPauseAnimation, contextMenuItemTagPauseAnimation());
 #endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
 #if SUPPORTS_TOGGLE_SHOW_HIDE_MEDIA_CONTROLS
-    ContextMenuItem ToggleMediaControls(ActionType, ContextMenuItemTagToggleMediaControls,
+    ContextMenuItem ToggleMediaControls(ContextMenuItemType::Action, ContextMenuItemTagToggleMediaControls,
         contextMenuItemTagHideMediaControls());
 #else
-    ContextMenuItem ToggleMediaControls(CheckableActionType, ContextMenuItemTagToggleMediaControls,
+    ContextMenuItem ToggleMediaControls(ContextMenuItemType::CheckableAction, ContextMenuItemTagToggleMediaControls,
         contextMenuItemTagToggleMediaControls());
 #endif
-    ContextMenuItem ToggleMediaLoop(CheckableActionType, ContextMenuItemTagToggleMediaLoop,
+    ContextMenuItem ToggleMediaLoop(ContextMenuItemType::CheckableAction, ContextMenuItemTagToggleMediaLoop,
         contextMenuItemTagToggleMediaLoop());
-    ContextMenuItem EnterVideoFullscreen(ActionType, ContextMenuItemTagEnterVideoFullscreen,
+    ContextMenuItem EnterVideoFullscreen(ContextMenuItemType::Action, ContextMenuItemTagEnterVideoFullscreen,
         contextMenuItemTagEnterVideoFullscreen());
-    ContextMenuItem ToggleVideoFullscreen(ActionType, ContextMenuItemTagToggleVideoFullscreen,
+    ContextMenuItem ToggleVideoFullscreen(ContextMenuItemType::Action, ContextMenuItemTagToggleVideoFullscreen,
         contextMenuItemTagEnterVideoFullscreen());
 #if PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)
-    ContextMenuItem ToggleVideoEnhancedFullscreen(ActionType, ContextMenuItemTagToggleVideoEnhancedFullscreen, contextMenuItemTagEnterVideoEnhancedFullscreen());
-#endif
-#if PLATFORM(COCOA)
-    ContextMenuItem SearchSpotlightItem(ActionType, ContextMenuItemTagSearchInSpotlight,
-        contextMenuItemTagSearchInSpotlight());
+    ContextMenuItem ToggleVideoEnhancedFullscreen(ContextMenuItemType::Action, ContextMenuItemTagToggleVideoEnhancedFullscreen, contextMenuItemTagEnterVideoEnhancedFullscreen());
+    ContextMenuItem ToggleVideoViewer(ContextMenuItemType::Action, ContextMenuItemTagToggleVideoViewer, contextMenuItemTagEnterVideoViewer());
 #endif
 
 #if ENABLE(PDFJS)
-    ContextMenuItem PDFAutoSizeItem(ActionType, ContextMenuItemPDFAutoSize, contextMenuItemPDFAutoSize());
-    ContextMenuItem PDFZoomInItem(ActionType, ContextMenuItemPDFZoomIn, contextMenuItemPDFZoomIn());
-    ContextMenuItem PDFZoomOutItem(ActionType, ContextMenuItemPDFZoomOut, contextMenuItemPDFZoomOut());
-    ContextMenuItem PDFActualSizeItem(ActionType, ContextMenuItemPDFActualSize, contextMenuItemPDFActualSize());
+    ContextMenuItem PDFAutoSizeItem(ContextMenuItemType::Action, ContextMenuItemPDFAutoSize, contextMenuItemPDFAutoSize());
+    ContextMenuItem PDFZoomInItem(ContextMenuItemType::Action, ContextMenuItemPDFZoomIn, contextMenuItemPDFZoomIn());
+    ContextMenuItem PDFZoomOutItem(ContextMenuItemType::Action, ContextMenuItemPDFZoomOut, contextMenuItemPDFZoomOut());
+    ContextMenuItem PDFActualSizeItem(ContextMenuItemType::Action, ContextMenuItemPDFActualSize, contextMenuItemPDFActualSize());
 
-    ContextMenuItem PDFSinglePageItem(ActionType, ContextMenuItemPDFSinglePage, contextMenuItemPDFSinglePage());
-    ContextMenuItem PDFSinglePageContinuousItem(ActionType, ContextMenuItemPDFSinglePageContinuous, contextMenuItemPDFSinglePageContinuous());
-    ContextMenuItem PDFTwoPagesItem(ActionType, ContextMenuItemPDFTwoPages, contextMenuItemPDFTwoPages());
-    ContextMenuItem PDFTwoPagesContinuousItem(ActionType, ContextMenuItemPDFTwoPagesContinuous, contextMenuItemPDFTwoPagesContinuous());
+    ContextMenuItem PDFSinglePageItem(ContextMenuItemType::Action, ContextMenuItemPDFSinglePage, contextMenuItemPDFSinglePage());
+    ContextMenuItem PDFSinglePageContinuousItem(ContextMenuItemType::Action, ContextMenuItemPDFSinglePageContinuous, contextMenuItemPDFSinglePageContinuous());
+    ContextMenuItem PDFTwoPagesItem(ContextMenuItemType::Action, ContextMenuItemPDFTwoPages, contextMenuItemPDFTwoPages());
+    ContextMenuItem PDFTwoPagesContinuousItem(ContextMenuItemType::Action, ContextMenuItemPDFTwoPagesContinuous, contextMenuItemPDFTwoPagesContinuous());
 
-    ContextMenuItem PDFNextPageItem(ActionType, ContextMenuItemPDFNextPage, contextMenuItemPDFNextPage());
-    ContextMenuItem PDFPreviousPageItem(ActionType, ContextMenuItemPDFPreviousPage, contextMenuItemPDFPreviousPage());
+    ContextMenuItem PDFNextPageItem(ContextMenuItemType::Action, ContextMenuItemPDFNextPage, contextMenuItemPDFNextPage());
+    ContextMenuItem PDFPreviousPageItem(ContextMenuItemType::Action, ContextMenuItemPDFPreviousPage, contextMenuItemPDFPreviousPage());
 #endif
 
 #if ENABLE(APP_HIGHLIGHTS)
-    ContextMenuItem AddHighlightItem(ActionType, ContextMenuItemTagAddHighlightToCurrentQuickNote, contextMenuItemTagAddHighlightToCurrentQuickNote());
-    ContextMenuItem AddHighlightToNewQuickNoteItem(ActionType, ContextMenuItemTagAddHighlightToNewQuickNote, contextMenuItemTagAddHighlightToNewQuickNote());
+    ContextMenuItem AddHighlightItem(ContextMenuItemType::Action, ContextMenuItemTagAddHighlightToCurrentQuickNote, contextMenuItemTagAddHighlightToCurrentQuickNote());
+    ContextMenuItem AddHighlightToNewQuickNoteItem(ContextMenuItemType::Action, ContextMenuItemTagAddHighlightToNewQuickNote, contextMenuItemTagAddHighlightToNewQuickNote());
+#endif
+#if !PLATFORM(JAVA)
+    ContextMenuItem CopyLinkToHighlightItem(ContextMenuItemType::Action, ContextMenuItemTagCopyLinkToHighlight, contextMenuItemTagCopyLinkToHighlight());
 #endif
 #if !PLATFORM(GTK)
-    ContextMenuItem SearchWebItem(ActionType, ContextMenuItemTagSearchWeb, contextMenuItemTagSearchWeb());
+    ContextMenuItem SearchWebItem(ContextMenuItemType::Action, ContextMenuItemTagSearchWeb, contextMenuItemTagSearchWeb());
 #endif
-    ContextMenuItem CopyItem(ActionType, ContextMenuItemTagCopy, contextMenuItemTagCopy());
-    ContextMenuItem BackItem(ActionType, ContextMenuItemTagGoBack, contextMenuItemTagGoBack());
-    ContextMenuItem ForwardItem(ActionType, ContextMenuItemTagGoForward,  contextMenuItemTagGoForward());
-    ContextMenuItem StopItem(ActionType, ContextMenuItemTagStop, contextMenuItemTagStop());
-    ContextMenuItem ReloadItem(ActionType, ContextMenuItemTagReload, contextMenuItemTagReload());
-    ContextMenuItem OpenFrameItem(ActionType, ContextMenuItemTagOpenFrameInNewWindow,
+    ContextMenuItem CopyItem(ContextMenuItemType::Action, ContextMenuItemTagCopy, contextMenuItemTagCopy());
+    ContextMenuItem BackItem(ContextMenuItemType::Action, ContextMenuItemTagGoBack, contextMenuItemTagGoBack());
+    ContextMenuItem ForwardItem(ContextMenuItemType::Action, ContextMenuItemTagGoForward,  contextMenuItemTagGoForward());
+    ContextMenuItem StopItem(ContextMenuItemType::Action, ContextMenuItemTagStop, contextMenuItemTagStop());
+    ContextMenuItem ReloadItem(ContextMenuItemType::Action, ContextMenuItemTagReload, contextMenuItemTagReload());
+    ContextMenuItem OpenFrameItem(ContextMenuItemType::Action, ContextMenuItemTagOpenFrameInNewWindow,
         contextMenuItemTagOpenFrameInNewWindow());
-    ContextMenuItem NoGuessesItem(ActionType, ContextMenuItemTagNoGuessesFound,
+    ContextMenuItem NoGuessesItem(ContextMenuItemType::Action, ContextMenuItemTagNoGuessesFound,
         contextMenuItemTagNoGuessesFound());
-    ContextMenuItem IgnoreSpellingItem(ActionType, ContextMenuItemTagIgnoreSpelling,
+    ContextMenuItem IgnoreSpellingItem(ContextMenuItemType::Action, ContextMenuItemTagIgnoreSpelling,
         contextMenuItemTagIgnoreSpelling());
-    ContextMenuItem LearnSpellingItem(ActionType, ContextMenuItemTagLearnSpelling,
+    ContextMenuItem LearnSpellingItem(ContextMenuItemType::Action, ContextMenuItemTagLearnSpelling,
         contextMenuItemTagLearnSpelling());
-    ContextMenuItem IgnoreGrammarItem(ActionType, ContextMenuItemTagIgnoreGrammar,
+    ContextMenuItem IgnoreGrammarItem(ContextMenuItemType::Action, ContextMenuItemTagIgnoreGrammar,
         contextMenuItemTagIgnoreGrammar());
-    ContextMenuItem CutItem(ActionType, ContextMenuItemTagCut, contextMenuItemTagCut());
-    ContextMenuItem PasteItem(ActionType, ContextMenuItemTagPaste, contextMenuItemTagPaste());
+    ContextMenuItem CutItem(ContextMenuItemType::Action, ContextMenuItemTagCut, contextMenuItemTagCut());
+    ContextMenuItem PasteItem(ContextMenuItemType::Action, ContextMenuItemTagPaste, contextMenuItemTagPaste());
 #if PLATFORM(GTK)
-    ContextMenuItem PasteAsPlainTextItem(ActionType, ContextMenuItemTagPasteAsPlainText, contextMenuItemTagPasteAsPlainText());
-    ContextMenuItem DeleteItem(ActionType, ContextMenuItemTagDelete, contextMenuItemTagDelete());
-    ContextMenuItem SelectAllItem(ActionType, ContextMenuItemTagSelectAll, contextMenuItemTagSelectAll());
-    ContextMenuItem InsertEmojiItem(ActionType, ContextMenuItemTagInsertEmoji, contextMenuItemTagInsertEmoji());
+    ContextMenuItem PasteAsPlainTextItem(ContextMenuItemType::Action, ContextMenuItemTagPasteAsPlainText, contextMenuItemTagPasteAsPlainText());
+    ContextMenuItem DeleteItem(ContextMenuItemType::Action, ContextMenuItemTagDelete, contextMenuItemTagDelete());
+    ContextMenuItem SelectAllItem(ContextMenuItemType::Action, ContextMenuItemTagSelectAll, contextMenuItemTagSelectAll());
+    ContextMenuItem InsertEmojiItem(ContextMenuItemType::Action, ContextMenuItemTagInsertEmoji, contextMenuItemTagInsertEmoji());
 #endif
 #if ENABLE(IMAGE_ANALYSIS)
-    ContextMenuItem LookUpImageItem(ActionType, ContextMenuItemTagLookUpImage, contextMenuItemTagLookUpImage());
+    ContextMenuItem LookUpImageItem(ContextMenuItemType::Action, ContextMenuItemTagLookUpImage, contextMenuItemTagLookUpImage());
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WIN)
     ContextMenuItem ShareMenuItem;
 #else
-    ContextMenuItem ShareMenuItem(ActionType, ContextMenuItemTagShareMenu, emptyString());
+    ContextMenuItem ShareMenuItem(ContextMenuItemType::Action, ContextMenuItemTagShareMenu, emptyString());
 #endif
 
 #if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
-    ContextMenuItem copySubjectItem { ActionType, ContextMenuItemTagCopySubject, contextMenuItemTagCopySubject() };
+    ContextMenuItem copySubjectItem { ContextMenuItemType::Action, ContextMenuItemTagCopySubject, contextMenuItemTagCopySubject() };
 #endif
 
-    Node* node = m_context.hitTestResult().innerNonSharedNode();
+    RefPtr node = m_context.hitTestResult().innerNonSharedNode();
     if (!node)
         return;
 #if PLATFORM(GTK)
@@ -1024,12 +1039,12 @@ void ContextMenuController::populate()
             return;
 
 #if PLATFORM(COCOA)
-        ContextMenuItem lookUpInDictionaryItem(ActionType, ContextMenuItemTagLookUpInDictionary, contextMenuItemTagLookUpInDictionary(selectedText));
+        ContextMenuItem lookUpInDictionaryItem(ContextMenuItemType::Action, ContextMenuItemTagLookUpInDictionary, contextMenuItemTagLookUpInDictionary(selectedText));
         appendItem(lookUpInDictionaryItem, m_contextMenu.get());
 #endif
 
 #if HAVE(TRANSLATION_UI_SERVICES)
-        ContextMenuItem translateItem(ActionType, ContextMenuItemTagTranslate, contextMenuItemTagTranslate(selectedText));
+        ContextMenuItem translateItem(ContextMenuItemType::Action, ContextMenuItemTagTranslate, contextMenuItemTagTranslate(selectedText));
         appendItem(translateItem, m_contextMenu.get());
 #endif
 
@@ -1044,10 +1059,7 @@ void ContextMenuController::populate()
         if (!frame->page() || !frame->page()->settings().imageAnimationControlEnabled())
             return false;
 
-        auto* autoplayAnimatedImagesFunction = _AXSReduceMotionAutoplayAnimatedImagesEnabledPtr();
-        // Only show these controls if autoplay of animated images has been disabled.
-        bool systemAllowsAnimationControls = autoplayAnimatedImagesFunction && !autoplayAnimatedImagesFunction();
-        return systemAllowsAnimationControls || frame->page()->settings().allowAnimationControlsOverride();
+        return Image::systemAllowsAnimationControls() || frame->page()->settings().allowAnimationControlsOverride();
     };
 
     bool shouldAddPlayAllPauseAllAnimationsItem = canAddAnimationControls();
@@ -1068,10 +1080,10 @@ void ContextMenuController::populate()
     m_context.setSelectedText(selectedText);
 
     if (!m_context.hitTestResult().isContentEditable()) {
-        FrameLoader& loader = frame->loader();
+        Ref loader = frame->loader();
         URL linkURL = m_context.hitTestResult().absoluteLinkURL();
         if (!linkURL.isEmpty()) {
-            if (loader.client().canHandleRequest(ResourceRequest(linkURL))) {
+            if (loader->client().canHandleRequest(ResourceRequest(linkURL))) {
                 appendItem(OpenLinkItem, m_contextMenu.get());
                 appendItem(OpenLinkInNewWindowItem, m_contextMenu.get());
                 appendItem(DownloadFileItem, m_contextMenu.get());
@@ -1087,7 +1099,7 @@ void ContextMenuController::populate()
             appendItem(OpenImageInNewWindowItem, m_contextMenu.get());
             appendItem(DownloadImageItem, m_contextMenu.get());
 
-            auto image = m_context.hitTestResult().image();
+            RefPtr image = m_context.hitTestResult().image();
             if (imageURL.protocolIsFile() || image) {
                 appendItem(CopyImageItem, m_contextMenu.get());
 
@@ -1115,7 +1127,7 @@ void ContextMenuController::populate()
 #endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
             }
 #if PLATFORM(GTK)
-            appendItem(CopyImageUrlItem, m_contextMenu.get());
+            appendItem(CopyImageURLItem, m_contextMenu.get());
 #endif
         }
 
@@ -1129,14 +1141,16 @@ void ContextMenuController::populate()
             appendItem(ToggleMediaControls, m_contextMenu.get());
             appendItem(ToggleMediaLoop, m_contextMenu.get());
 #if SUPPORTS_TOGGLE_VIDEO_FULLSCREEN
+            if (!m_context.hitTestResult().mediaIsInVideoViewer())
             appendItem(ToggleVideoFullscreen, m_contextMenu.get());
 #else
             appendItem(EnterVideoFullscreen, m_contextMenu.get());
 #endif
 #if PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)
             appendItem(ToggleVideoEnhancedFullscreen, m_contextMenu.get());
+            appendItem(ToggleVideoViewer, m_contextMenu.get());
 #endif
-            if (m_context.hitTestResult().isDownloadableMedia() && loader.client().canHandleRequest(ResourceRequest(mediaURL))) {
+            if (m_context.hitTestResult().isDownloadableMedia() && loader->client().canHandleRequest(ResourceRequest(mediaURL))) {
                 appendItem(*separatorItem(), m_contextMenu.get());
                 appendItem(CopyMediaLinkItem, m_contextMenu.get());
                 appendItem(OpenMediaInNewWindowItem, m_contextMenu.get());
@@ -1150,7 +1164,7 @@ void ContextMenuController::populate()
             if (!imageURL.isEmpty())
                 appendItem(*separatorItem(), m_contextMenu.get());
 
-            auto* page = frame->page();
+            RefPtr page = frame->page();
             RefPtr ownerElement = frame->ownerElement();
             bool isPDFDocument = ownerElement && ownerElement->document().isPDFDocument();
             bool isMainFrame = frame->isMainFrame();
@@ -1159,6 +1173,10 @@ void ContextMenuController::populate()
                 addSelectedTextActionsIfNeeded(selectedText);
 
                 appendItem(CopyItem, m_contextMenu.get());
+#if !PLATFORM(JAVA)
+                if (!selectionIsInsideImageOverlay && isMainFrame && page && page->settings().scrollToTextFragmentGenerationEnabled())
+                    appendItem(CopyLinkToHighlightItem, m_contextMenu.get());
+#endif
 #if PLATFORM(COCOA)
                 appendItem(*separatorItem(), m_contextMenu.get());
 
@@ -1173,7 +1191,13 @@ void ContextMenuController::populate()
                 appendItem(ShareMenuItem, m_contextMenu.get());
                 appendItem(*separatorItem(), m_contextMenu.get());
 
-                ContextMenuItem SpeechMenuItem(SubmenuType, ContextMenuItemTagSpeechMenu, contextMenuItemTagSpeechMenu());
+#if ENABLE(WRITING_TOOLS)
+                appendItem(*separatorItem(), m_contextMenu.get());
+                ContextMenuItem writingToolsItem(ContextMenuItemType::Action, ContextMenuItemTagWritingTools, contextMenuItemTagWritingTools());
+                appendItem(writingToolsItem, m_contextMenu.get());
+#endif
+
+                ContextMenuItem SpeechMenuItem(ContextMenuItemType::Submenu, ContextMenuItemTagSpeechMenu, contextMenuItemTagSpeechMenu());
                 createAndAppendSpeechSubMenu(SpeechMenuItem);
                 appendItem(SpeechMenuItem, m_contextMenu.get());
 #endif
@@ -1189,15 +1213,15 @@ void ContextMenuController::populate()
 #else
 
                 if (isMainFrame) {
-                    if (page && page->backForward().canGoBackOrForward(-1))
+                    if (page && page->checkedBackForward()->canGoBackOrForward(-1))
                         appendItem(BackItem, m_contextMenu.get());
 
-                    if (page && page->backForward().canGoBackOrForward(1))
+                    if (page && page->checkedBackForward()->canGoBackOrForward(1))
                         appendItem(ForwardItem, m_contextMenu.get());
 
                     // Here we use isLoadingInAPISense rather than isLoading because Stop/Reload are
                     // intended to match WebKit's API, not WebCore's internal notion of loading status.
-                    if (loader.documentLoader()->isLoadingInAPISense())
+                    if (loader->documentLoader()->isLoadingInAPISense())
                         appendItem(StopItem, m_contextMenu.get());
                     else
                         appendItem(ReloadItem, m_contextMenu.get());
@@ -1240,7 +1264,7 @@ void ContextMenuController::populate()
         bool inPasswordField = frame->selection().selection().isInPasswordField();
         if (!inPasswordField) {
             bool haveContextMenuItemsForMisspellingOrGrammer = false;
-            bool spellCheckingEnabled = frame->editor().isSpellCheckingEnabledFor(node);
+            bool spellCheckingEnabled = frame->editor().isSpellCheckingEnabledFor(node.get());
             if (spellCheckingEnabled) {
                 // Consider adding spelling-related or grammar-related context menu items (never both, since a single selected range
                 // is never considered a misspelling and bad grammar at the same time)
@@ -1256,7 +1280,7 @@ void ContextMenuController::populate()
                     } else {
                         for (const auto& guess : guesses) {
                             if (!guess.isEmpty()) {
-                                ContextMenuItem item(ActionType, ContextMenuItemTagSpellingGuess, guess);
+                                ContextMenuItem item(ContextMenuItemType::Action, ContextMenuItemTagSpellingGuess, guess);
                                 appendItem(item, m_contextMenu.get());
                             }
                         }
@@ -1274,7 +1298,7 @@ void ContextMenuController::populate()
                     // If the string was autocorrected, generate a contextual menu item allowing it to be changed back.
                     String replacedString = m_context.hitTestResult().replacedString();
                     if (!replacedString.isEmpty()) {
-                        ContextMenuItem item(ActionType, ContextMenuItemTagChangeBack, contextMenuItemTagChangeBack(replacedString));
+                        ContextMenuItem item(ContextMenuItemType::Action, ContextMenuItemTagChangeBack, contextMenuItemTagChangeBack(replacedString));
                         appendItem(item, m_contextMenu.get());
                         appendItem(*separatorItem(), m_contextMenu.get());
                         haveContextMenuItemsForMisspellingOrGrammer = true;
@@ -1288,7 +1312,7 @@ void ContextMenuController::populate()
                 Vector<String> dictationAlternatives = m_context.hitTestResult().dictationAlternatives();
                 if (!dictationAlternatives.isEmpty()) {
                     for (auto& alternative : dictationAlternatives) {
-                        ContextMenuItem item(ActionType, ContextMenuItemTagDictationAlternative, alternative);
+                        ContextMenuItem item(ContextMenuItemType::Action, ContextMenuItemTagDictationAlternative, alternative);
                         appendItem(item, m_contextMenu.get());
                     }
                     appendItem(*separatorItem(), m_contextMenu.get());
@@ -1296,10 +1320,10 @@ void ContextMenuController::populate()
             }
         }
 
-        FrameLoader& loader = frame->loader();
+        Ref loader = frame->loader();
         URL linkURL = m_context.hitTestResult().absoluteLinkURL();
         if (!linkURL.isEmpty()) {
-            if (loader.client().canHandleRequest(ResourceRequest(linkURL))) {
+            if (loader->client().canHandleRequest(ResourceRequest(linkURL))) {
                 appendItem(OpenLinkItem, m_contextMenu.get());
                 appendItem(OpenLinkInNewWindowItem, m_contextMenu.get());
                 appendItem(DownloadFileItem, m_contextMenu.get());
@@ -1324,19 +1348,27 @@ void ContextMenuController::populate()
 #endif
 
         if (!inPasswordField) {
-#if !PLATFORM(GTK)
+#if ENABLE(WRITING_TOOLS)
             appendItem(*separatorItem(), m_contextMenu.get());
-            ContextMenuItem SpellingAndGrammarMenuItem(SubmenuType, ContextMenuItemTagSpellingMenu,
+            ContextMenuItem writingToolsItem(ContextMenuItemType::Action, ContextMenuItemTagWritingTools, contextMenuItemTagWritingTools());
+            appendItem(writingToolsItem, m_contextMenu.get());
+#endif
+
+#if !PLATFORM(GTK)
+#if !ENABLE(WRITING_TOOLS)
+            appendItem(*separatorItem(), m_contextMenu.get());
+#endif
+            ContextMenuItem SpellingAndGrammarMenuItem(ContextMenuItemType::Submenu, ContextMenuItemTagSpellingMenu,
                 contextMenuItemTagSpellingMenu());
             createAndAppendSpellingAndGrammarSubMenu(SpellingAndGrammarMenuItem);
             appendItem(SpellingAndGrammarMenuItem, m_contextMenu.get());
 #endif
 #if PLATFORM(COCOA)
-            ContextMenuItem substitutionsMenuItem(SubmenuType, ContextMenuItemTagSubstitutionsMenu,
+            ContextMenuItem substitutionsMenuItem(ContextMenuItemType::Submenu, ContextMenuItemTagSubstitutionsMenu,
                 contextMenuItemTagSubstitutionsMenu());
             createAndAppendSubstitutionsSubMenu(substitutionsMenuItem);
             appendItem(substitutionsMenuItem, m_contextMenu.get());
-            ContextMenuItem transformationsMenuItem(SubmenuType, ContextMenuItemTagTransformationsMenu,
+            ContextMenuItem transformationsMenuItem(ContextMenuItemType::Submenu, ContextMenuItemTagTransformationsMenu,
                 contextMenuItemTagTransformationsMenu());
             createAndAppendTransformationsSubMenu(transformationsMenuItem);
             appendItem(transformationsMenuItem, m_contextMenu.get());
@@ -1347,34 +1379,34 @@ void ContextMenuController::populate()
             bool shouldShowFontMenu = true;
 #endif
             if (shouldShowFontMenu) {
-                ContextMenuItem FontMenuItem(SubmenuType, ContextMenuItemTagFontMenu,
+                ContextMenuItem FontMenuItem(ContextMenuItemType::Submenu, ContextMenuItemTagFontMenu,
                     contextMenuItemTagFontMenu());
                 createAndAppendFontSubMenu(FontMenuItem);
                 appendItem(FontMenuItem, m_contextMenu.get());
             }
 #if PLATFORM(COCOA)
-            ContextMenuItem SpeechMenuItem(SubmenuType, ContextMenuItemTagSpeechMenu, contextMenuItemTagSpeechMenu());
+            ContextMenuItem SpeechMenuItem(ContextMenuItemType::Submenu, ContextMenuItemTagSpeechMenu, contextMenuItemTagSpeechMenu());
             createAndAppendSpeechSubMenu(SpeechMenuItem);
             appendItem(SpeechMenuItem, m_contextMenu.get());
 #endif
 #if PLATFORM(GTK)
             EditorClient* client = frame->editor().client();
             if (client && client->shouldShowUnicodeMenu()) {
-                ContextMenuItem UnicodeMenuItem(SubmenuType, ContextMenuItemTagUnicode, contextMenuItemTagUnicode());
+                ContextMenuItem UnicodeMenuItem(ContextMenuItemType::Submenu, ContextMenuItemTagUnicode, contextMenuItemTagUnicode());
                 createAndAppendUnicodeSubMenu(UnicodeMenuItem);
                 appendItem(*separatorItem(), m_contextMenu.get());
                 appendItem(UnicodeMenuItem, m_contextMenu.get());
             }
 #else
-            ContextMenuItem WritingDirectionMenuItem(SubmenuType, ContextMenuItemTagWritingDirectionMenu,
+            ContextMenuItem WritingDirectionMenuItem(ContextMenuItemType::Submenu, ContextMenuItemTagWritingDirectionMenu,
                 contextMenuItemTagWritingDirectionMenu());
             createAndAppendWritingDirectionSubMenu(WritingDirectionMenuItem);
             appendItem(WritingDirectionMenuItem, m_contextMenu.get());
-            if (Page* page = frame->page()) {
+            if (RefPtr page = frame->page()) {
                 bool includeTextDirectionSubmenu = page->settings().textDirectionSubmenuInclusionBehavior() == TextDirectionSubmenuInclusionBehavior::AlwaysIncluded
                     || (page->settings().textDirectionSubmenuInclusionBehavior() == TextDirectionSubmenuInclusionBehavior::AutomaticallyIncluded && frame->editor().hasBidiSelection());
                 if (includeTextDirectionSubmenu) {
-                    ContextMenuItem TextDirectionMenuItem(SubmenuType, ContextMenuItemTagTextDirectionMenu, contextMenuItemTagTextDirectionMenu());
+                    ContextMenuItem TextDirectionMenuItem(ContextMenuItemType::Submenu, ContextMenuItemTagTextDirectionMenu, contextMenuItemTagTextDirectionMenu());
                     createAndAppendTextDirectionSubMenu(TextDirectionMenuItem);
                     appendItem(TextDirectionMenuItem, m_contextMenu.get());
                 }
@@ -1399,15 +1431,15 @@ void ContextMenuController::populate()
 
 void ContextMenuController::addDebuggingItems()
 {
-    Node* node = m_context.hitTestResult().innerNonSharedNode();
+    RefPtr node = m_context.hitTestResult().innerNonSharedNode();
     if (!node)
         return;
 
-    auto* frame = node->document().frame();
+    RefPtr frame = node->document().frame();
     if (!frame)
         return;
 
-    Page* page = frame->page();
+    RefPtr page = frame->page();
     if (!page)
         return;
     ASSERT(page->inspectorController().enabled());
@@ -1420,23 +1452,41 @@ void ContextMenuController::addDebuggingItems()
     if (m_contextMenu && !m_contextMenu->items().isEmpty())
         appendItem(*separatorItem(), m_contextMenu.get());
 
-    ContextMenuItem InspectElementItem(ActionType, ContextMenuItemTagInspectElement, contextMenuItemTagInspectElement());
+    ContextMenuItem InspectElementItem(ContextMenuItemType::Action, ContextMenuItemTagInspectElement, contextMenuItemTagInspectElement());
     appendItem(InspectElementItem, m_contextMenu.get());
 
 #if ENABLE(VIDEO)
     if (page->settings().showMediaStatsContextMenuItemEnabled() && !m_context.hitTestResult().absoluteMediaURL().isEmpty()) {
-        ContextMenuItem ShowMediaStats(CheckableActionType, ContextMenuItemTagShowMediaStats, contextMenuItemTagShowMediaStats());
+        ContextMenuItem ShowMediaStats(ContextMenuItemType::CheckableAction, ContextMenuItemTagShowMediaStats, contextMenuItemTagShowMediaStats());
         appendItem(ShowMediaStats, m_contextMenu.get());
     }
 #endif // ENABLE(VIDEO)
 }
 
+bool ContextMenuController::shouldEnableCopyLinkWithHighlight() const
+{
+    Ref document = m_context.hitTestResult().innerNonSharedNode()->document();
+    RefPtr frame = document->frame();
+    if (!frame)
+        return false;
+
+    auto url = document->url();
+    if (!url.isValid() || !url.protocolIsInHTTPFamily())
+        return false;
+
+    auto selectedRange = frame->selection().selection().range();
+    bool selectionIsInsideImageOverlay = selectedRange && ImageOverlay::isInsideOverlay(*selectedRange);
+    if (frame->page() && frame->page()->settings().scrollToTextFragmentGenerationEnabled() && !selectionIsInsideImageOverlay)
+        return frame->selection().isRange();
+    return false;
+}
+
 void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
 {
-    if (item.type() == SeparatorType)
+    if (item.type() == ContextMenuItemType::Separator)
         return;
 
-    auto* frame = m_context.hitTestResult().innerNonSharedNode()->document().frame();
+    RefPtr frame = m_context.hitTestResult().innerNonSharedNode()->document().frame();
     if (!frame)
         return;
 
@@ -1491,11 +1541,14 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
             shouldEnable = frame->selection().isRange();
             break;
         case ContextMenuItemTagPaste:
-            shouldEnable = frame->editor().canDHTMLPaste() || frame->editor().canPaste();
+            shouldEnable = frame->editor().canDHTMLPaste() || frame->editor().canEdit();
+            break;
+        case ContextMenuItemTagCopyLinkWithHighlight:
+            shouldEnable = shouldEnableCopyLinkWithHighlight();
             break;
 #if PLATFORM(GTK)
         case ContextMenuItemTagPasteAsPlainText:
-            shouldEnable = frame->editor().canDHTMLPaste() || frame->editor().canPaste();
+            shouldEnable = frame->editor().canDHTMLPaste() || frame->editor().canEdit();
             break;
         case ContextMenuItemTagDelete:
             shouldEnable = frame->editor().canDelete();
@@ -1609,10 +1662,10 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
 #endif
 #if PLATFORM(GTK)
         case ContextMenuItemTagGoBack:
-            shouldEnable = frame->page() && frame->page()->backForward().canGoBackOrForward(-1);
+            shouldEnable = frame->page() && frame->page()->checkedBackForward()->canGoBackOrForward(-1);
             break;
         case ContextMenuItemTagGoForward:
-            shouldEnable = frame->page() && frame->page()->backForward().canGoBackOrForward(1);
+            shouldEnable = frame->page() && frame->page()->checkedBackForward()->canGoBackOrForward(1);
             break;
         case ContextMenuItemTagStop:
             shouldEnable = frame->loader().documentLoader()->isLoadingInAPISense();
@@ -1638,7 +1691,7 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
         case ContextMenuItemTagCopyImageToClipboard:
         case ContextMenuItemTagCopySubject:
 #if PLATFORM(GTK)
-        case ContextMenuItemTagCopyImageUrlToClipboard:
+        case ContextMenuItemTagCopyImageURLToClipboard:
 #endif
             break;
         case ContextMenuItemTagDownloadImageToDisk:
@@ -1714,10 +1767,14 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
 #endif
             shouldEnable = m_context.hitTestResult().mediaSupportsEnhancedFullscreen();
             break;
+        case ContextMenuItemTagToggleVideoViewer:
+#if PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)
+            item.setTitle(m_context.hitTestResult().mediaIsInVideoViewer() ? contextMenuItemTagExitVideoViewer() : contextMenuItemTagEnterVideoViewer());
+#endif
+            break;
         case ContextMenuItemTagOpenFrameInNewWindow:
         case ContextMenuItemTagSpellingGuess:
         case ContextMenuItemTagOther:
-        case ContextMenuItemTagSearchInSpotlight:
         case ContextMenuItemTagSearchWeb:
         case ContextMenuItemTagOpenWithDefaultApplication:
         case ContextMenuItemPDFActualSize:
@@ -1763,6 +1820,7 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
             break;
         case ContextMenuItemTagLookUpImage:
         case ContextMenuItemTagTranslate:
+        case ContextMenuItemTagWritingTools:
             break;
     }
 
@@ -1777,9 +1835,10 @@ void ContextMenuController::showContextMenuAt(LocalFrame& frame, const IntPoint&
     clearContextMenu();
 
     // Simulate a click in the middle of the accessibility object.
-    PlatformMouseEvent mouseEvent(clickPoint, clickPoint, RightButton, PlatformEvent::Type::MousePressed, 1, { }, WallTime::now(), ForceAtClick, SyntheticClickType::NoTap);
-    frame.eventHandler().handleMousePressEvent(mouseEvent);
-    bool handled = frame.eventHandler().sendContextMenuEvent(mouseEvent);
+    PlatformMouseEvent mouseEvent(clickPoint, clickPoint, MouseButton::Right, PlatformEvent::Type::MousePressed, 1, { }, WallTime::now(), ForceAtClick, SyntheticClickType::NoTap);
+
+    frame.checkedEventHandler()->handleMousePressEvent(mouseEvent);
+    bool handled = frame.checkedEventHandler()->sendContextMenuEvent(mouseEvent);
     if (handled)
         m_client->showContextMenu();
 }
@@ -1801,9 +1860,8 @@ void ContextMenuController::showImageControlsMenu(Event& event)
 
 void ContextMenuController::performPDFJSAction(LocalFrame& frame, const String& action)
 {
-    auto* pdfDocument = dynamicDowncast<PDFDocument>(frame.ownerElement()->document());
-    if (pdfDocument)
-        pdfDocument->postMessageToIframe(action, nullptr);
+    if (RefPtr document = dynamicDowncast<PDFDocument>(frame.ownerElement()->document()))
+        document->postMessageToIframe(action, nullptr);
 }
 
 #endif

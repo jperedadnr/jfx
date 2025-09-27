@@ -26,6 +26,7 @@
 #pragma once
 
 #include "AnimationFrameRate.h"
+#include "AnimationMalloc.h"
 #include "ReducedResolutionSeconds.h"
 #include <wtf/HashMap.h>
 #include <wtf/Seconds.h>
@@ -33,7 +34,7 @@
 namespace WebCore {
 
 class FrameRateAligner {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Animation);
 public:
     FrameRateAligner();
     ~FrameRateAligner();
@@ -54,7 +55,7 @@ private:
         bool isNew { true };
     };
 
-    HashMap<FramesPerSecond, FrameRateData> m_frameRates;
+    UncheckedKeyHashMap<FramesPerSecond, FrameRateData> m_frameRates;
     ReducedResolutionSeconds m_timestamp;
 };
 

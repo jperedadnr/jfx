@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -40,6 +40,13 @@ class InspectorController;
 class LocalFrame;
 class Page;
 
+enum class InspectorClientDeveloperPreference : uint8_t {
+    PrivateClickMeasurementDebugModeEnabled,
+    ITPDebugModeEnabled,
+    MockCaptureDevicesEnabled,
+    NeedsSiteSpecificQuirks,
+};
+
 class InspectorClient {
 public:
     virtual ~InspectorClient() = default;
@@ -65,11 +72,7 @@ public:
     virtual void elementSelectionChanged(bool) { }
     virtual void timelineRecordingChanged(bool) { }
 
-    enum class DeveloperPreference {
-        PrivateClickMeasurementDebugModeEnabled,
-        ITPDebugModeEnabled,
-        MockCaptureDevicesEnabled,
-    };
+    using DeveloperPreference = InspectorClientDeveloperPreference;
     virtual void setDeveloperPreferenceOverride(DeveloperPreference, std::optional<bool>) { }
 
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
@@ -82,16 +85,3 @@ public:
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::InspectorClient::DeveloperPreference> {
-    using values = EnumValues<
-        WebCore::InspectorClient::DeveloperPreference,
-        WebCore::InspectorClient::DeveloperPreference::PrivateClickMeasurementDebugModeEnabled,
-        WebCore::InspectorClient::DeveloperPreference::ITPDebugModeEnabled,
-        WebCore::InspectorClient::DeveloperPreference::MockCaptureDevicesEnabled
-    >;
-};
-
-} // namespace WTF

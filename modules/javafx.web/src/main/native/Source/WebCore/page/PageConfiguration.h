@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,11 +30,13 @@
 #include "PageIdentifier.h"
 #include "ShouldRelaxThirdPartyCookieBlocking.h"
 #include <pal/SessionID.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
 #include <wtf/RobinHoodHashSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/Vector.h>
 
@@ -44,6 +46,10 @@
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
 #include "DeviceOrientationUpdateProvider.h"
+#endif
+
+#if PLATFORM(VISION) && ENABLE(GAMEPAD)
+#include "ShouldRequireExplicitConsentForGamepadAccess.h"
 #endif
 
 namespace WebCore {
@@ -59,18 +65,24 @@ class CacheStorageProvider;
 class ChromeClient;
 class ContextMenuClient;
 class CookieJar;
+class CredentialRequestCoordinatorClient;
+class CryptoClient;
 class DatabaseProvider;
 class DiagnosticLoggingClient;
 class DragClient;
 class EditorClient;
+class Frame;
+class FrameLoader;
+class HistoryItemClient;
 class InspectorClient;
 class LocalFrameLoaderClient;
-class MediaRecorderProvider;
 class ModelPlayerProvider;
 class PaymentCoordinatorClient;
 class PerformanceLoggingClient;
 class PluginInfoProvider;
+class ProcessSyncClient;
 class ProgressTrackerClient;
+class RemoteFrame;
 class RemoteFrameClient;
 class ScreenOrientationManager;
 class SocketProvider;
@@ -82,12 +94,21 @@ class UserContentProvider;
 class UserContentURLPattern;
 class ValidationMessageClient;
 class VisitedLinkStore;
-class WebGLStateTracker;
 class WebRTCProvider;
 
+enum class SandboxFlag : uint16_t;
+using SandboxFlags = OptionSet<SandboxFlag>;
+
 class PageConfiguration {
-    WTF_MAKE_NONCOPYABLE(PageConfiguration); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(PageConfiguration, WEBCORE_EXPORT);
+    WTF_MAKE_NONCOPYABLE(PageConfiguration);
 public:
+
+    struct LocalMainFrameCreationParameters {
+        CompletionHandler<UniqueRef<LocalFrameLoaderClient>(LocalFrame&, FrameLoader&)> clientCreator;
+        SandboxFlags effectiveSandboxFlags;
+    };
+    using MainFrameCreationParameters = std::variant<LocalMainFrameCreationParameters, CompletionHandler<UniqueRef<RemoteFrameClient>(RemoteFrame&)>>;
 
     WEBCORE_EXPORT PageConfiguration(
         std::optional<PageIdentifier>,
@@ -100,25 +121,27 @@ public:
         Ref<BackForwardClient>&&,
         Ref<CookieJar>&&,
         UniqueRef<ProgressTrackerClient>&&,
-#if PLATFORM(JAVA)
-        UniqueRef<LocalFrameLoaderClient>,
-#else
-        std::variant<UniqueRef<LocalFrameLoaderClient>, UniqueRef<RemoteFrameClient>>&&,
-#endif
+        MainFrameCreationParameters&&,
         FrameIdentifier mainFrameIdentifier,
+        RefPtr<Frame>&& mainFrameOpener,
         UniqueRef<SpeechRecognitionProvider>&&,
-        UniqueRef<MediaRecorderProvider>&&,
         Ref<BroadcastChannelRegistry>&&,
         UniqueRef<StorageProvider>&&,
         UniqueRef<ModelPlayerProvider>&&,
         Ref<BadgeClient>&&,
+        Ref<HistoryItemClient>&&,
 #if ENABLE(CONTEXT_MENUS)
         UniqueRef<ContextMenuClient>&&,
 #endif
 #if ENABLE(APPLE_PAY)
-        UniqueRef<PaymentCoordinatorClient>&&,
+        Ref<PaymentCoordinatorClient>&&,
 #endif
-        UniqueRef<ChromeClient>&&
+        UniqueRef<ChromeClient>&&,
+        UniqueRef<CryptoClient>&&,
+        UniqueRef<ProcessSyncClient>&&
+#if HAVE(DIGITAL_CREDENTIALS_UI)
+        , UniqueRef<CredentialRequestCoordinatorClient>&&
+#endif
     );
     WEBCORE_EXPORT ~PageConfiguration();
     PageConfiguration(PageConfiguration&&);
@@ -135,7 +158,7 @@ public:
     std::unique_ptr<DragClient> dragClient;
     std::unique_ptr<InspectorClient> inspectorClient;
 #if ENABLE(APPLE_PAY)
-    UniqueRef<PaymentCoordinatorClient> paymentCoordinatorClient;
+    Ref<PaymentCoordinatorClient> paymentCoordinatorClient;
 #endif
 
 #if ENABLE(WEB_AUTHN)
@@ -152,20 +175,15 @@ public:
     Ref<BackForwardClient> backForwardClient;
     Ref<CookieJar> cookieJar;
     std::unique_ptr<ValidationMessageClient> validationMessageClient;
-#if PLATFORM(JAVA)
-    UniqueRef<LocalFrameLoaderClient> clientForMainFrame;
-#else
-    std::variant<UniqueRef<LocalFrameLoaderClient>, UniqueRef<RemoteFrameClient>> clientForMainFrame;
-#endif
+
+    MainFrameCreationParameters mainFrameCreationParameters;
 
     FrameIdentifier mainFrameIdentifier;
+    RefPtr<Frame> mainFrameOpener;
     std::unique_ptr<DiagnosticLoggingClient> diagnosticLoggingClient;
     std::unique_ptr<PerformanceLoggingClient> performanceLoggingClient;
-#if ENABLE(WEBGL)
-    std::unique_ptr<WebGLStateTracker> webGLStateTracker;
-#endif
 #if ENABLE(SPEECH_SYNTHESIS)
-    std::unique_ptr<SpeechSynthesisClient> speechSynthesisClient;
+    RefPtr<SpeechSynthesisClient> speechSynthesisClient;
 #endif
 
     RefPtr<ApplicationCacheStorage> applicationCacheStorage;
@@ -184,7 +202,6 @@ public:
     Vector<UserContentURLPattern> corsDisablingPatterns;
     HashSet<String> maskedURLSchemes;
     UniqueRef<SpeechRecognitionProvider> speechRecognitionProvider;
-    UniqueRef<MediaRecorderProvider> mediaRecorderProvider;
 
     // FIXME: These should be all be Settings.
     bool loadsSubresources { true };
@@ -192,6 +209,11 @@ public:
     bool userScriptsShouldWaitUntilNotification { true };
     ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking { ShouldRelaxThirdPartyCookieBlocking::No };
     bool httpsUpgradeEnabled { true };
+    std::optional<std::pair<uint16_t, uint16_t>> portsForUpgradingInsecureSchemeForTesting;
+
+#if PLATFORM(IOS_FAMILY)
+    bool canShowWhileLocked { false };
+#endif
 
     UniqueRef<StorageProvider> storageProvider;
 
@@ -201,8 +223,28 @@ public:
 #endif
 
     Ref<BadgeClient> badgeClient;
+    Ref<HistoryItemClient> historyItemClient;
 
     ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension { WebCore::ContentSecurityPolicyModeForExtension::None };
+    UniqueRef<CryptoClient> cryptoClient;
+
+    UniqueRef<ProcessSyncClient> processSyncClient;
+
+#if PLATFORM(VISION) && ENABLE(GAMEPAD)
+    ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent { ShouldRequireExplicitConsentForGamepadAccess::No };
+#endif
+
+#if HAVE(AUDIT_TOKEN)
+    std::optional<audit_token_t> presentingApplicationAuditToken;
+#endif
+
+#if PLATFORM(COCOA)
+    String presentingApplicationBundleIdentifier;
+#endif
+
+#if HAVE(DIGITAL_CREDENTIALS_UI)
+    UniqueRef<CredentialRequestCoordinatorClient> credentialRequestCoordinatorClient;
+#endif
 };
 
 }

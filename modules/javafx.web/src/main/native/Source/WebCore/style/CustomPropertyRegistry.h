@@ -27,6 +27,7 @@
 #include "CSSRegisteredCustomProperty.h"
 #include "StyleRule.h"
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -37,7 +38,7 @@ namespace Style {
 class Scope;
 
 class CustomPropertyRegistry {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CustomPropertyRegistry);
 public:
     CustomPropertyRegistry(Scope&);
 
@@ -50,14 +51,20 @@ public:
 
     const RenderStyle& initialValuePrototypeStyle() const;
 
+    bool invalidatePropertiesWithViewportUnits(Document&);
+
+    enum class ViewportUnitDependency : bool { No, Yes };
+    enum class ParseInitialValueError : uint8_t { NotComputationallyIndependent, DidNotParse };
+    static Expected<std::pair<RefPtr<CSSCustomPropertyValue>, ViewportUnitDependency>, ParseInitialValueError> parseInitialValue(const Document&, const AtomString& propertyName, const CSSCustomPropertySyntax&, CSSParserTokenRange);
+
 private:
     void invalidate(const AtomString&);
     void notifyAnimationsOfCustomPropertyRegistration(const AtomString&);
 
     Scope& m_scope;
 
-    HashMap<AtomString, std::unique_ptr<const CSSRegisteredCustomProperty>> m_propertiesFromAPI;
-    HashMap<AtomString, std::unique_ptr<const CSSRegisteredCustomProperty>> m_propertiesFromStylesheet;
+    UncheckedKeyHashMap<AtomString, UniqueRef<CSSRegisteredCustomProperty>> m_propertiesFromAPI;
+    UncheckedKeyHashMap<AtomString, UniqueRef<CSSRegisteredCustomProperty>> m_propertiesFromStylesheet;
 
     mutable std::unique_ptr<RenderStyle> m_initialValuePrototypeStyle;
     mutable bool m_hasInvalidPrototypeStyle { false };

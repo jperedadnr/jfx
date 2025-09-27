@@ -26,15 +26,16 @@
 #include "GraphicsContext.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
+#include "LayoutIntegrationLineLayout.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
+#include "RenderChildIterator.h"
 #include "RenderElementInlines.h"
 #include "RenderStyleSetters.h"
-#include "RenderTextFragment.h"
 #include "RenderTheme.h"
 #include "RenderTreeBuilder.h"
 #include "StyleInheritedData.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include "RenderThemeIOS.h"
@@ -44,11 +45,12 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderButton);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RenderButton);
 
 RenderButton::RenderButton(HTMLFormControlElement& element, RenderStyle&& style)
-    : RenderFlexibleBox(element, WTFMove(style))
+    : RenderFlexibleBox(Type::Button, element, WTFMove(style))
 {
+    ASSERT(isRenderButton());
 }
 
 RenderButton::~RenderButton() = default;
@@ -73,30 +75,47 @@ void RenderButton::setInnerRenderer(RenderBlock& innerRenderer)
     ASSERT(!m_inner.get());
     m_inner = innerRenderer;
     updateAnonymousChildStyle(m_inner->mutableStyle());
+
+    if (m_inner && m_inner->layoutBox()) {
+        if (auto* inlineFormattingContextRoot = dynamicDowncast<RenderBlockFlow>(*m_inner); inlineFormattingContextRoot && inlineFormattingContextRoot->inlineLayout())
+            inlineFormattingContextRoot->inlineLayout()->rootStyleWillChange(*inlineFormattingContextRoot, inlineFormattingContextRoot->style());
+        if (auto* lineLayout = LayoutIntegration::LineLayout::containing(*m_inner))
+            lineLayout->styleWillChange(*m_inner, m_inner->style(), StyleDifference::Layout);
+        LayoutIntegration::LineLayout::updateStyle(*m_inner);
+        for (auto& child : childrenOfType<RenderText>(*m_inner))
+            LayoutIntegration::LineLayout::updateStyle(child);
+    }
 }
 
 void RenderButton::updateAnonymousChildStyle(RenderStyle& childStyle) const
 {
     childStyle.setFlexGrow(1.0f);
-    // min-width: 0; is needed for correct shrinking.
-    childStyle.setMinWidth(Length(0, LengthType::Fixed));
-    // Use margin:auto instead of align-items:center to get safe centering, i.e.
+
+    // min-inline-size: 0; is needed for correct shrinking.
+    // Use margin-block:auto instead of align-items:center to get safe centering, i.e.
     // when the content overflows, treat it the same as align-items: flex-start.
+    if (isHorizontalWritingMode()) {
+        childStyle.setMinWidth(Length(0, LengthType::Fixed));
     childStyle.setMarginTop(Length());
     childStyle.setMarginBottom(Length());
+    } else {
+        childStyle.setMinHeight(Length(0, LengthType::Fixed));
+        childStyle.setMarginLeft(Length());
+        childStyle.setMarginRight(Length());
+    }
     childStyle.setFlexDirection(style().flexDirection());
     childStyle.setJustifyContent(style().justifyContent());
     childStyle.setFlexWrap(style().flexWrap());
     childStyle.setAlignItems(style().alignItems());
     childStyle.setAlignContent(style().alignContent());
+    childStyle.setTextBoxTrim(style().textBoxTrim());
 }
 
 void RenderButton::updateFromElement()
 {
     // If we're an input element, we may need to change our button text.
-    if (is<HTMLInputElement>(formControlElement())) {
-        HTMLInputElement& input = downcast<HTMLInputElement>(formControlElement());
-        String value = input.valueWithDefault();
+    if (RefPtr input = dynamicDowncast<HTMLInputElement>(formControlElement())) {
+        String value = input->valueWithDefault();
         setText(value);
     }
 }
@@ -150,7 +169,7 @@ LayoutRect RenderButton::controlClipRect(const LayoutPoint& additionalOffset) co
 
 static LayoutUnit synthesizedBaselineFromContentBox(const RenderBox& box, LineDirectionMode direction)
 {
-    return direction == HorizontalLine ? box.borderTop() + box.paddingTop() + box.contentHeight() : box.borderRight() + box.paddingRight() + box.contentWidth();
+    return direction == HorizontalLine ? box.borderTop() + box.paddingTop() + box.contentBoxHeight() : box.borderRight() + box.paddingRight() + box.contentBoxWidth();
 }
 
 LayoutUnit RenderButton::baselinePosition(FontBaseline fontBaseline, bool firstLine, LineDirectionMode direction, LinePositionMode mode) const

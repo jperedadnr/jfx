@@ -29,7 +29,6 @@
 #pragma once
 
 #include "JSDOMConvertInterface.h"
-#include "JSLocalDOMWindow.h"
 #include "WindowProxy.h"
 #include <JavaScriptCore/JSGlobalProxy.h>
 
@@ -45,7 +44,7 @@ class Frame;
 class WEBCORE_EXPORT JSWindowProxy final : public JSC::JSGlobalProxy {
 public:
     using Base = JSC::JSGlobalProxy;
-    static constexpr bool needsDestruction = true;
+    static constexpr JSC::DestructionMode needsDestruction = JSC::NeedsDestruction;
     static void destroy(JSCell*);
 
     template<typename CellType, JSC::SubspaceAccess> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm) { return subspaceForImpl(vm); }
@@ -62,16 +61,32 @@ public:
     WindowProxy* windowProxy() const;
 
     DOMWindow& wrapped() const;
+    Ref<DOMWindow> protectedWrapped() const;
     static WindowProxy* toWrapped(JSC::VM&, JSC::JSValue);
 
-    DOMWrapperWorld& world() { return m_world; }
+    DOMWrapperWorld& world();
+    Ref<DOMWrapperWorld> protectedWorld();
 
     void attachDebugger(JSC::Debugger*);
 
 private:
+    JSWindowProxy() = delete;
+    JSWindowProxy(const JSWindowProxy&) = delete;
+    JSWindowProxy(JSWindowProxy&&) = delete;
     JSWindowProxy(JSC::VM&, JSC::Structure&, DOMWrapperWorld&);
+    ~JSWindowProxy();
     void finishCreation(JSC::VM&, DOMWindow&);
     static JSC::GCClient::IsoSubspace* subspaceForImpl(JSC::VM&);
+
+#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
+    static bool getOwnPropertySlot(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::PropertySlot&);
+    static bool getOwnPropertySlotByIndex(JSC::JSObject*, JSC::JSGlobalObject*, unsigned, JSC::PropertySlot&);
+    static bool put(JSC::JSCell*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::JSValue, JSC::PutPropertySlot&);
+    static bool putByIndex(JSC::JSCell*, JSC::JSGlobalObject*, unsigned, JSC::JSValue, bool shouldThrow);
+    static bool deleteProperty(JSC::JSCell*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::DeletePropertySlot&);
+    static bool deletePropertyByIndex(JSC::JSCell*, JSC::JSGlobalObject*, unsigned);
+    static bool defineOwnProperty(JSC::JSObject*, JSC::JSGlobalObject*, JSC::PropertyName, const JSC::PropertyDescriptor&, bool shouldThrow);
+#endif
 
     Ref<DOMWrapperWorld> m_world;
 };

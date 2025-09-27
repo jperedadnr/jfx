@@ -54,9 +54,9 @@ public:
     void didSendWebSocketFrame(const WebSocketFrame&) const;
     void didReceiveWebSocketFrameError(const String& errorMessage) const;
 
-    WebSocketChannelIdentifier progressIdentifier() const;
+    WebSocketChannelIdentifier progressIdentifier() const { return m_progressIdentifier; }
 
-    static WebSocketFrame createFrame(const uint8_t* data, size_t length, WebSocketFrame::OpCode);
+    static WebSocketFrame createFrame(std::span<const uint8_t> data, WebSocketFrame::OpCode);
 
 private:
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;

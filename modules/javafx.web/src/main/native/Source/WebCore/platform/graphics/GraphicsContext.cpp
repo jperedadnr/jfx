@@ -28,6 +28,7 @@
 
 #include "BidiResolver.h"
 #include "DecomposedGlyphs.h"
+#include "DisplayListReplayer.h"
 #include "Filter.h"
 #include "FilterImage.h"
 #include "FloatRoundedRect.h"
@@ -35,23 +36,26 @@
 #include "ImageBuffer.h"
 #include "ImageOrientation.h"
 #include "IntRect.h"
-#include "MediaPlayer.h"
-#include "MediaPlayerPrivate.h"
 #include "RoundedRect.h"
 #include "SystemImage.h"
 #include "TextBoxIterator.h"
 #include "VideoFrame.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-GraphicsContext::GraphicsContext(const GraphicsContextState::ChangeFlags& changeFlags, InterpolationQuality imageInterpolationQuality)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsContext);
+
+GraphicsContext::GraphicsContext(IsDeferred isDeferred, const GraphicsContextState::ChangeFlags& changeFlags, InterpolationQuality imageInterpolationQuality)
     : m_state(changeFlags, imageInterpolationQuality)
+    , m_isDeferred(isDeferred)
 {
 }
 
-GraphicsContext::GraphicsContext(const GraphicsContextState& state)
+GraphicsContext::GraphicsContext(IsDeferred isDeferred, const GraphicsContextState& state)
     : m_state(state)
+    , m_isDeferred(isDeferred)
 {
 }
 
@@ -61,17 +65,22 @@ GraphicsContext::~GraphicsContext()
     ASSERT(!m_transparencyLayerCount);
 }
 
-void GraphicsContext::save()
+void GraphicsContext::save(GraphicsContextState::Purpose purpose)
 {
+    ASSERT(purpose == GraphicsContextState::Purpose::SaveRestore || purpose == GraphicsContextState::Purpose::TransparencyLayer);
     m_stack.append(m_state);
+    m_state.repurpose(purpose);
 }
 
-void GraphicsContext::restore()
+void GraphicsContext::restore(GraphicsContextState::Purpose purpose)
 {
     if (m_stack.isEmpty()) {
         LOG_ERROR("ERROR void GraphicsContext::restore() stack is empty");
         return;
     }
+
+    ASSERT_UNUSED(purpose, purpose == m_state.purpose());
+    ASSERT_UNUSED(purpose, purpose == GraphicsContextState::Purpose::SaveRestore || purpose == GraphicsContextState::Purpose::TransparencyLayer);
 
     m_state = m_stack.last();
     m_stack.removeLast();
@@ -80,6 +89,32 @@ void GraphicsContext::restore()
     // Canvas elements will immediately save() again, but that goes into inline capacity.
     if (m_stack.isEmpty())
         m_stack.clear();
+}
+
+void GraphicsContext::unwindStateStack(unsigned count)
+{
+    ASSERT(count <= stackSize());
+    while (count-- > 0) {
+        switch (m_state.purpose()) {
+        case GraphicsContextState::Purpose::SaveRestore:
+            restore();
+            break;
+        case GraphicsContextState::Purpose::TransparencyLayer:
+            endTransparencyLayer();
+            break;
+        default:
+            ASSERT_NOT_REACHED();
+        }
+    }
+}
+
+FloatSize GraphicsContext::platformShadowOffset(const FloatSize& shadowOffset) const
+{
+#if USE(CG)
+    if (shadowsIgnoreTransforms())
+        return { shadowOffset.width(), -shadowOffset.height() };
+#endif
+    return shadowOffset;
 }
 
 void GraphicsContext::mergeLastChanges(const GraphicsContextState& state, const std::optional<GraphicsContextState>& lastDrawingState)
@@ -116,6 +151,11 @@ void GraphicsContext::beginTransparencyLayer(float)
     ++m_transparencyLayerCount;
 }
 
+void GraphicsContext::beginTransparencyLayer(CompositeOperator, BlendMode)
+{
+    ++m_transparencyLayerCount;
+}
+
 void GraphicsContext::endTransparencyLayer()
 {
     ASSERT(m_transparencyLayerCount > 0);
@@ -128,15 +168,15 @@ FloatSize GraphicsContext::drawText(const FontCascade& font, const TextRun& run,
     return font.drawText(*this, run, point, from, to);
 }
 
-void GraphicsContext::drawGlyphs(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& point, FontSmoothingMode fontSmoothingMode)
+void GraphicsContext::drawGlyphs(const Font& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& point, FontSmoothingMode fontSmoothingMode)
 {
-    FontCascade::drawGlyphs(*this, font, glyphs, advances, numGlyphs, point, fontSmoothingMode);
+    FontCascade::drawGlyphs(*this, font, glyphs, advances, point, fontSmoothingMode);
 }
 
 void GraphicsContext::drawDecomposedGlyphs(const Font& font, const DecomposedGlyphs& decomposedGlyphs)
 {
     auto positionedGlyphs = decomposedGlyphs.positionedGlyphs();
-    FontCascade::drawGlyphs(*this, font, positionedGlyphs.glyphs.data(), positionedGlyphs.advances.data(), positionedGlyphs.glyphs.size(), positionedGlyphs.localAnchor, positionedGlyphs.smoothingMode);
+    FontCascade::drawGlyphs(*this, font, positionedGlyphs.glyphs.span(), positionedGlyphs.advances.span(), positionedGlyphs.localAnchor, positionedGlyphs.smoothingMode);
 }
 
 void GraphicsContext::drawEmphasisMarks(const FontCascade& font, const TextRun& run, const AtomString& mark, const FloatPoint& point, unsigned from, std::optional<unsigned> to)
@@ -201,15 +241,23 @@ IntSize GraphicsContext::compatibleImageBufferSize(const FloatSize& size) const
     return scaledImageBufferSize(size, scaleFactor());
 }
 
-RefPtr<ImageBuffer> GraphicsContext::createImageBuffer(const FloatSize& size, float resolutionScale, const DestinationColorSpace& colorSpace, std::optional<RenderingMode> renderingMode, std::optional<RenderingMethod> renderingMethod) const
+RenderingMode GraphicsContext::renderingModeForCompatibleBuffer() const
 {
-    auto bufferOptions = bufferOptionsForRendingMode(renderingMode.value_or(this->renderingMode()));
+    switch (renderingMode()) {
+    case RenderingMode::Accelerated:
+    case RenderingMode::Unaccelerated:
+    case RenderingMode::DisplayList:
+        return renderingMode();
+    case RenderingMode::PDFDocument:
+        return RenderingMode::Unaccelerated;
+    }
 
-    if (!renderingMethod || *renderingMethod == RenderingMethod::Local)
-        return ImageBuffer::create(size, RenderingPurpose::Unspecified, resolutionScale, colorSpace, PixelFormat::BGRA8, bufferOptions);
+    return RenderingMode::Unaccelerated;
+}
 
-    bufferOptions.add(ImageBufferOptions::UseDisplayList);
-    return ImageBuffer::create(size, RenderingPurpose::Unspecified, resolutionScale, colorSpace, PixelFormat::BGRA8, bufferOptions);
+RefPtr<ImageBuffer> GraphicsContext::createImageBuffer(const FloatSize& size, float resolutionScale, const DestinationColorSpace& colorSpace, std::optional<RenderingMode> renderingMode, std::optional<RenderingMethod>) const
+{
+    return ImageBuffer::create(size, renderingMode.value_or(this->renderingModeForCompatibleBuffer()), RenderingPurpose::Unspecified, resolutionScale, colorSpace, ImageBufferPixelFormat::BGRA8);
 }
 
 RefPtr<ImageBuffer> GraphicsContext::createScaledImageBuffer(const FloatSize& size, const FloatSize& scale, const DestinationColorSpace& colorSpace, std::optional<RenderingMode> renderingMode, std::optional<RenderingMethod> renderingMethod) const
@@ -257,17 +305,17 @@ RefPtr<ImageBuffer> GraphicsContext::createScaledImageBuffer(const FloatRect& re
 
 RefPtr<ImageBuffer> GraphicsContext::createAlignedImageBuffer(const FloatSize& size, const DestinationColorSpace& colorSpace, std::optional<RenderingMethod> renderingMethod) const
 {
-    return createScaledImageBuffer(size, scaleFactor(), colorSpace, renderingMode(), renderingMethod);
+    return createScaledImageBuffer(size, scaleFactor(), colorSpace, renderingModeForCompatibleBuffer(), renderingMethod);
 }
 
 RefPtr<ImageBuffer> GraphicsContext::createAlignedImageBuffer(const FloatRect& rect, const DestinationColorSpace& colorSpace, std::optional<RenderingMethod> renderingMethod) const
 {
-    return createScaledImageBuffer(rect, scaleFactor(), colorSpace, renderingMode(), renderingMethod);
+    return createScaledImageBuffer(rect, scaleFactor(), colorSpace, renderingModeForCompatibleBuffer(), renderingMethod);
 }
 
-void GraphicsContext::drawNativeImage(NativeImage& image, const FloatSize& imageSize, const FloatRect& destination, const FloatRect& source, const ImagePaintingOptions& options)
+void GraphicsContext::drawNativeImage(NativeImage& image, const FloatRect& destination, const FloatRect& source, ImagePaintingOptions options)
 {
-    image.draw(*this, imageSize, destination, source, options);
+    image.draw(*this, destination, source, options);
 }
 
 void GraphicsContext::drawSystemImage(SystemImage& systemImage, const FloatRect& destinationRect)
@@ -275,31 +323,31 @@ void GraphicsContext::drawSystemImage(SystemImage& systemImage, const FloatRect&
     systemImage.draw(*this, destinationRect);
 }
 
-ImageDrawResult GraphicsContext::drawImage(Image& image, const FloatPoint& destination, const ImagePaintingOptions& imagePaintingOptions)
+ImageDrawResult GraphicsContext::drawImage(Image& image, const FloatPoint& destination, ImagePaintingOptions imagePaintingOptions)
 {
     return drawImage(image, FloatRect(destination, image.size()), FloatRect(FloatPoint(), image.size()), imagePaintingOptions);
 }
 
-ImageDrawResult GraphicsContext::drawImage(Image& image, const FloatRect& destination, const ImagePaintingOptions& imagePaintingOptions)
+ImageDrawResult GraphicsContext::drawImage(Image& image, const FloatRect& destination, ImagePaintingOptions imagePaintingOptions)
 {
     FloatRect srcRect(FloatPoint(), image.size(imagePaintingOptions.orientation()));
     return drawImage(image, destination, srcRect, imagePaintingOptions);
 }
 
-ImageDrawResult GraphicsContext::drawImage(Image& image, const FloatRect& destination, const FloatRect& source, const ImagePaintingOptions& options)
+ImageDrawResult GraphicsContext::drawImage(Image& image, const FloatRect& destination, const FloatRect& source, ImagePaintingOptions options)
 {
     InterpolationQualityMaintainer interpolationQualityForThisScope(*this, options.interpolationQuality());
     return image.draw(*this, destination, source, options);
 }
 
-ImageDrawResult GraphicsContext::drawTiledImage(Image& image, const FloatRect& destination, const FloatPoint& source, const FloatSize& tileSize, const FloatSize& spacing, const ImagePaintingOptions& options)
+ImageDrawResult GraphicsContext::drawTiledImage(Image& image, const FloatRect& destination, const FloatPoint& source, const FloatSize& tileSize, const FloatSize& spacing, ImagePaintingOptions options)
 {
     InterpolationQualityMaintainer interpolationQualityForThisScope(*this, options.interpolationQuality());
     return image.drawTiled(*this, destination, source, tileSize, spacing, options);
 }
 
 ImageDrawResult GraphicsContext::drawTiledImage(Image& image, const FloatRect& destination, const FloatRect& source, const FloatSize& tileScaleFactor,
-    Image::TileRule hRule, Image::TileRule vRule, const ImagePaintingOptions& options)
+    Image::TileRule hRule, Image::TileRule vRule, ImagePaintingOptions options)
 {
     if (hRule == Image::StretchTile && vRule == Image::StretchTile) {
         // Just do a scale.
@@ -307,26 +355,36 @@ ImageDrawResult GraphicsContext::drawTiledImage(Image& image, const FloatRect& d
     }
 
     InterpolationQualityMaintainer interpolationQualityForThisScope(*this, options.interpolationQuality());
-    return image.drawTiled(*this, destination, source, tileScaleFactor, hRule, vRule, options.compositeOperator());
+    return image.drawTiled(*this, destination, source, tileScaleFactor, hRule, vRule, { options.compositeOperator() });
 }
 
-void GraphicsContext::drawImageBuffer(ImageBuffer& image, const FloatPoint& destination, const ImagePaintingOptions& imagePaintingOptions)
+RefPtr<NativeImage> GraphicsContext::nativeImageForDrawing(ImageBuffer& imageBuffer)
+{
+    if (m_isDeferred == IsDeferred::Yes || &imageBuffer.context() == this)
+        return imageBuffer.copyNativeImage();
+    return imageBuffer.createNativeImageReference();
+}
+
+void GraphicsContext::drawImageBuffer(ImageBuffer& image, const FloatPoint& destination, ImagePaintingOptions imagePaintingOptions)
 {
     drawImageBuffer(image, FloatRect(destination, image.logicalSize()), FloatRect({ }, image.logicalSize()), imagePaintingOptions);
 }
 
-void GraphicsContext::drawImageBuffer(ImageBuffer& image, const FloatRect& destination, const ImagePaintingOptions& imagePaintingOptions)
+void GraphicsContext::drawImageBuffer(ImageBuffer& image, const FloatRect& destination, ImagePaintingOptions imagePaintingOptions)
 {
     drawImageBuffer(image, destination, FloatRect({ }, image.logicalSize()), imagePaintingOptions);
 }
 
-void GraphicsContext::drawImageBuffer(ImageBuffer& image, const FloatRect& destination, const FloatRect& source, const ImagePaintingOptions& options)
+void GraphicsContext::drawImageBuffer(ImageBuffer& image, const FloatRect& destination, const FloatRect& source, ImagePaintingOptions options)
 {
     InterpolationQualityMaintainer interpolationQualityForThisScope(*this, options.interpolationQuality());
-    image.draw(*this, destination, source, options);
+    FloatRect sourceScaled = source;
+    sourceScaled.scale(image.resolutionScale());
+    if (auto nativeImage = nativeImageForDrawing(image))
+        drawNativeImageInternal(*nativeImage, destination, sourceScaled, options);
 }
 
-void GraphicsContext::drawConsumingImageBuffer(RefPtr<ImageBuffer> image, const FloatPoint& destination, const ImagePaintingOptions& imagePaintingOptions)
+void GraphicsContext::drawConsumingImageBuffer(RefPtr<ImageBuffer> image, const FloatPoint& destination, ImagePaintingOptions imagePaintingOptions)
 {
     if (!image)
         return;
@@ -334,7 +392,7 @@ void GraphicsContext::drawConsumingImageBuffer(RefPtr<ImageBuffer> image, const 
     drawConsumingImageBuffer(WTFMove(image), FloatRect(destination, imageLogicalSize), FloatRect({ }, imageLogicalSize), imagePaintingOptions);
 }
 
-void GraphicsContext::drawConsumingImageBuffer(RefPtr<ImageBuffer> image, const FloatRect& destination, const ImagePaintingOptions& imagePaintingOptions)
+void GraphicsContext::drawConsumingImageBuffer(RefPtr<ImageBuffer> image, const FloatRect& destination, ImagePaintingOptions imagePaintingOptions)
 {
     if (!image)
         return;
@@ -342,12 +400,16 @@ void GraphicsContext::drawConsumingImageBuffer(RefPtr<ImageBuffer> image, const 
     drawConsumingImageBuffer(WTFMove(image), destination, FloatRect({ }, imageLogicalSize), imagePaintingOptions);
 }
 
-void GraphicsContext::drawConsumingImageBuffer(RefPtr<ImageBuffer> image, const FloatRect& destination, const FloatRect& source, const ImagePaintingOptions& options)
+void GraphicsContext::drawConsumingImageBuffer(RefPtr<ImageBuffer> image, const FloatRect& destination, const FloatRect& source, ImagePaintingOptions options)
 {
     if (!image)
         return;
+    ASSERT(this != &image->context());
     InterpolationQualityMaintainer interpolationQualityForThisScope(*this, options.interpolationQuality());
-    ImageBuffer::drawConsuming(WTFMove(image), *this, destination, source, options);
+    FloatRect scaledSource = source;
+    scaledSource.scale(image->resolutionScale());
+    if (auto nativeImage = ImageBuffer::sinkIntoNativeImage(WTFMove(image)))
+        drawNativeImageInternal(*nativeImage, destination, scaledSource, options);
 }
 
 void GraphicsContext::drawFilteredImageBuffer(ImageBuffer* sourceImage, const FloatRect& sourceImageRect, Filter& filter, FilterResults& results)
@@ -356,7 +418,7 @@ void GraphicsContext::drawFilteredImageBuffer(ImageBuffer* sourceImage, const Fl
     if (!result)
         return;
 
-    auto imageBuffer = result->imageBuffer();
+    RefPtr imageBuffer = result->imageBuffer();
     if (!imageBuffer)
         return;
 
@@ -365,15 +427,25 @@ void GraphicsContext::drawFilteredImageBuffer(ImageBuffer* sourceImage, const Fl
     scale(filter.filterScale());
 }
 
-void GraphicsContext::drawPattern(ImageBuffer& image, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& options)
+void GraphicsContext::drawPattern(ImageBuffer& image, const FloatRect& destRect, const FloatRect& source, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
 {
-    image.drawPattern(*this, destRect, tileRect, patternTransform, phase, spacing, options);
+    FloatRect scaledSource = source;
+    scaledSource.scale(image.resolutionScale());
+    if (auto nativeImage = nativeImageForDrawing(image))
+        drawPattern(*nativeImage, destRect, source, patternTransform, phase, spacing, options);
 }
 
 void GraphicsContext::drawControlPart(ControlPart& part, const FloatRoundedRect& borderRect, float deviceScaleFactor, const ControlStyle& style)
 {
     part.draw(*this, borderRect, deviceScaleFactor, style);
 }
+
+#if ENABLE(VIDEO)
+void GraphicsContext::drawVideoFrame(VideoFrame& frame, const FloatRect& destination, ImageOrientation orientation, bool shouldDiscardAlpha)
+{
+    frame.draw(*this, destination, orientation, shouldDiscardAlpha);
+}
+#endif
 
 void GraphicsContext::clipRoundedRect(const FloatRoundedRect& rect)
 {
@@ -507,9 +579,10 @@ void GraphicsContext::strokeEllipseAsPath(const FloatRect& ellipse)
     strokePath(path);
 }
 
-void GraphicsContext::drawLineForText(const FloatRect& rect, bool printing, bool doubleUnderlines, StrokeStyle style)
+void GraphicsContext::drawLineForText(const FloatRect& rect, bool isPrinting, bool doubleUnderlines, StrokeStyle style)
 {
-    drawLinesForText(rect.location(), rect.height(), DashArray { 0, rect.width() }, printing, doubleUnderlines, style);
+    FloatSegment line[1] { { 0, rect.width() } };
+    drawLinesForText(rect.location(), rect.height(), line, isPrinting, doubleUnderlines, style);
 }
 
 FloatRect GraphicsContext::computeUnderlineBoundsForText(const FloatRect& rect, bool printing)
@@ -596,52 +669,83 @@ Vector<FloatPoint> GraphicsContext::centerLineAndCutOffCorners(bool isVerticalLi
     return { point1, point2 };
 }
 
-void GraphicsContext::clearShadow()
+auto GraphicsContext::computeRectsAndStrokeColorForLinesForText(const FloatPoint& point, float thickness, std::span<const FloatSegment> lineSegments, bool isPrinting, bool doubleLines, StrokeStyle strokeStyle) -> RectsAndStrokeColor
 {
-    if (!m_state.style())
-        return;
-
-    if (!std::holds_alternative<GraphicsDropShadow>(*m_state.style()))
-        return;
-
-    m_state.setStyle(std::nullopt);
-    didUpdateState(m_state);
-}
-
-bool GraphicsContext::hasVisibleShadow() const
-{
-    if (const auto shadow = dropShadow())
-        return shadow->isVisible();
-
-    return false;
-}
-
-bool GraphicsContext::hasBlurredShadow() const
-{
-    if (const auto shadow = dropShadow())
-        return shadow->isBlurred();
-
-    return false;
-}
-
-bool GraphicsContext::hasShadow() const
-{
-    if (const auto shadow = dropShadow())
-        return shadow->hasOutsets();
-
-    return false;
-}
-
-#if ENABLE(VIDEO)
-void GraphicsContext::paintFrameForMedia(MediaPlayer& player, const FloatRect& destination)
-{
-    player.playerPrivate()->paintCurrentFrameInContext(*this, destination);
-}
-
-void GraphicsContext::paintVideoFrame(VideoFrame& frame, const FloatRect& destination, bool shouldDiscardAlpha)
-{
-    frame.paintInContext(*this, destination, ImageOrientation::Orientation::None, shouldDiscardAlpha);
-}
+#if USE(CG)
+    auto makeRect = [](float x, float y, float width, float height) -> CGRect {
+        return { { x, y }, { width, height } };
+    };
+#else
+    auto makeRect = [](float x, float y, float width, float height) -> FloatRect {
+        return { x, y, width, height };
+    };
 #endif
+
+    RectsAndStrokeColor result;
+    auto& rects = result.rects;
+    auto& strokeColor = result.strokeColor;
+    if (lineSegments.empty())
+        return result;
+    strokeColor = this->strokeColor();
+    FloatRect bounds = computeLineBoundsAndAntialiasingModeForText(FloatRect { point, FloatSize { lineSegments.back().end, thickness } }, isPrinting, strokeColor);
+    if (bounds.isEmpty())
+        return result;
+
+    rects.reserveInitialCapacity((doubleLines ? 2 : 1) * lineSegments.size());
+
+    float dashWidth = 0;
+    switch (strokeStyle) {
+    case StrokeStyle::DottedStroke:
+        dashWidth = bounds.height();
+        break;
+    case StrokeStyle::DashedStroke:
+        dashWidth = 2 * bounds.height();
+        break;
+    case StrokeStyle::SolidStroke:
+    default:
+        break;
+    }
+
+    if (dashWidth) {
+        for (const auto& lineSegment : lineSegments) {
+            auto left = lineSegment.begin;
+            auto width = lineSegment.length();
+            auto doubleWidth = 2 * dashWidth;
+            auto quotient = static_cast<int>(left / doubleWidth);
+            auto startOffset = left - quotient * doubleWidth;
+            auto effectiveLeft = left + startOffset;
+            auto startParticle = static_cast<int>(std::floor(effectiveLeft / doubleWidth));
+            auto endParticle = static_cast<int>(std::ceil((left + width) / doubleWidth));
+
+            for (auto j = startParticle; j < endParticle; ++j) {
+                auto actualDashWidth = dashWidth;
+                auto dashStart = bounds.x() + j * doubleWidth;
+
+                if (j == startParticle && startOffset > 0 && startOffset < dashWidth) {
+                    actualDashWidth -= startOffset;
+                    dashStart += startOffset;
+                }
+
+                if (j == endParticle - 1) {
+                    auto remainingWidth = left + width - (j * doubleWidth);
+                    if (remainingWidth < dashWidth)
+                        actualDashWidth = remainingWidth;
+                }
+
+                rects.append(makeRect(dashStart, bounds.y(), actualDashWidth, bounds.height()));
+            }
+        }
+    } else {
+        for (const auto& lineSegment : lineSegments)
+            rects.append(makeRect(bounds.x() + lineSegment.begin, bounds.y(), lineSegment.length(), bounds.height()));
+    }
+    if (doubleLines) {
+        // The space between double underlines is equal to the height of the underline.
+        float y = bounds.y() + 2 * bounds.height();
+        for (const auto& lineSegment : lineSegments)
+            rects.append(makeRect(bounds.x() + lineSegment.begin, y, lineSegment.length(), bounds.height()));
+    }
+    return result;
+}
 
 } // namespace WebCore

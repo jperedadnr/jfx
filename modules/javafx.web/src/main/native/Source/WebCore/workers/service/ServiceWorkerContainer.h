@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "ActiveDOMObject.h"
 #include "AddEventListenerOptions.h"
 #include "EventTarget.h"
@@ -49,17 +47,24 @@ namespace WebCore {
 class DeferredPromise;
 class NavigatorBase;
 class ServiceWorker;
+class TrustedScriptURL;
 
 enum class ServiceWorkerUpdateViaCache : uint8_t;
 enum class WorkerType : bool;
 
+struct CookieChangeSubscription;
+
 class ServiceWorkerContainer final : public EventTarget, public ActiveDOMObject, public ServiceWorkerJobClient {
     WTF_MAKE_NONCOPYABLE(ServiceWorkerContainer);
-    WTF_MAKE_ISO_ALLOCATED(ServiceWorkerContainer);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ServiceWorkerContainer);
 public:
     static UniqueRef<ServiceWorkerContainer> create(ScriptExecutionContext*, NavigatorBase&);
 
     ~ServiceWorkerContainer();
+
+    // ActiveDOMObject.
+    void ref() const final;
+    void deref() const final;
 
     ServiceWorker* controller() const;
 
@@ -67,7 +72,7 @@ public:
     ReadyPromise& ready();
 
     using RegistrationOptions = ServiceWorkerRegistrationOptions;
-    void addRegistration(const String& scriptURL, const RegistrationOptions&, Ref<DeferredPromise>&&);
+    void addRegistration(std::variant<RefPtr<TrustedScriptURL>, String>&&, const RegistrationOptions&, Ref<DeferredPromise>&&);
     void unregisterRegistration(ServiceWorkerRegistrationIdentifier, DOMPromiseDeferred<IDLBoolean>&&);
     void updateRegistration(const URL& scopeURL, const URL& scriptURL, WorkerType, RefPtr<DeferredPromise>&&);
 
@@ -109,6 +114,10 @@ public:
     void setNavigationPreloadHeaderValue(ServiceWorkerRegistrationIdentifier, String&&, VoidPromise&&);
     void getNavigationPreloadState(ServiceWorkerRegistrationIdentifier, NavigationPreloadStatePromise&&);
 
+    void addCookieChangeSubscriptions(ServiceWorkerRegistrationIdentifier, Vector<CookieChangeSubscription>&&, Ref<DeferredPromise>&&);
+    void removeCookieChangeSubscriptions(ServiceWorkerRegistrationIdentifier, Vector<CookieChangeSubscription>&&, Ref<DeferredPromise>&&);
+    void cookieChangeSubscriptions(ServiceWorkerRegistrationIdentifier, Ref<DeferredPromise>&&);
+
 private:
     ServiceWorkerContainer(ScriptExecutionContext*, NavigatorBase&);
 
@@ -131,14 +140,14 @@ private:
     ScriptExecutionContext* context() final { return scriptExecutionContext(); }
 
     SWClientConnection& ensureSWClientConnection();
-
-    // ActiveDOMObject.
-    const char* activeDOMObjectName() const final;
+    Ref<SWClientConnection> ensureProtectedSWClientConnection();
 
     ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
-    EventTargetInterface eventTargetInterface() const final { return ServiceWorkerContainerEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::ServiceWorkerContainer; }
     void refEventTarget() final;
     void derefEventTarget() final;
+
+    // ActiveDOMObject.
     void stop() final;
 
     void notifyRegistrationIsSettled(const ServiceWorkerRegistrationKey&);
@@ -156,7 +165,7 @@ private:
     HashMap<ServiceWorkerJobIdentifier, OngoingJob> m_jobMap;
 
     bool m_isStopped { false };
-    HashMap<ServiceWorkerRegistrationIdentifier, ServiceWorkerRegistration*> m_registrations;
+    HashMap<ServiceWorkerRegistrationIdentifier, WeakRef<ServiceWorkerRegistration, WeakPtrImplWithEventTargetData>> m_registrations;
 
 #if ASSERT_ENABLED
     Ref<Thread> m_creationThread { Thread::current() };
@@ -169,5 +178,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

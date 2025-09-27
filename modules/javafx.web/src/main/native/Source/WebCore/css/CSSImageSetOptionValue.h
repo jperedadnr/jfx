@@ -25,12 +25,12 @@
 
 #pragma once
 
+#include "CSSPrimitiveValue.h"
 #include "CSSValue.h"
+#include <wtf/Function.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-
-class CSSPrimitiveValue;
 
 class CSSImageSetOptionValue final : public CSSValue {
 public:
@@ -39,7 +39,7 @@ public:
     static Ref<CSSImageSetOptionValue> create(Ref<CSSValue>&&, Ref<CSSPrimitiveValue>&&, String);
 
     bool equals(const CSSImageSetOptionValue&) const;
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
 
     Ref<CSSValue> image() const { return m_image; }
 
@@ -48,6 +48,16 @@ public:
 
     String type() const { return m_mimeType; }
     void setType(String);
+
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    {
+        if (func(m_image.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        if (func(m_resolution.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        return IterationStatus::Continue;
+    }
+    bool customTraverseSubresources(NOESCAPE const Function<bool(const CachedResource&)>&) const;
 
 private:
     CSSImageSetOptionValue(Ref<CSSValue>&&, Ref<CSSPrimitiveValue>&&);

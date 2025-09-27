@@ -30,6 +30,7 @@
 #include "JSArrayInlines.h"
 #include "JSFunction.h"
 #include "JSGenericTypedArrayViewInlines.h"
+#include "JSGlobalProxy.h"
 #include "JSObject.h"
 #include "JSTypedArrays.h"
 #include "Lookup.h"
@@ -37,12 +38,29 @@
 #include "StructureInlines.h"
 #include "TypedArrayType.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
+
+inline Structure* JSObject::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+{
+    return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
+}
+
+inline Structure* JSNonFinalObject::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+{
+    return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
+}
+
+inline Structure* JSFinalObject::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype, unsigned inlineCapacity)
+{
+    return Structure::create(vm, globalObject, prototype, typeInfo(), info(), defaultIndexingType, inlineCapacity);
+}
 
 template<typename CellType, SubspaceAccess>
 CompleteSubspace* JSFinalObject::subspaceFor(VM& vm)
 {
-    static_assert(!CellType::needsDestruction);
+    static_assert(CellType::needsDestruction == DoesNotNeedDestruction);
     return &vm.cellSpace();
 }
 
@@ -390,7 +408,7 @@ ALWAYS_INLINE ASCIILiteral JSObject::putDirectInternal(VM& vm, PropertyName prop
 
             // FIXME: Check attributes against PropertyAttribute::CustomAccessorOrValue. Changing GetterSetter should work w/o transition.
             // https://bugs.webkit.org/show_bug.cgi?id=214342
-            if (mode == PutModeDefineOwnProperty && (newAttributes != attributes || (newAttributes & PropertyAttribute::AccessorOrCustomAccessorOrValue))) {
+            if ((mode == PutModeDefineOwnProperty || mode == PutModeDefineOwnPropertyForJSONSlow) && (newAttributes != attributes || (newAttributes & PropertyAttribute::AccessorOrCustomAccessorOrValue))) {
                 DeferredStructureTransitionWatchpointFire deferred(vm, structure);
                 setStructure(vm, Structure::attributeChangeTransition(vm, structure, propertyName, newAttributes, &deferred));
                 if (UNLIKELY(mayBePrototype()))
@@ -412,14 +430,15 @@ ALWAYS_INLINE ASCIILiteral JSObject::putDirectInternal(VM& vm, PropertyName prop
         return { };
     }
 
+    // In PutModeDefineOwnPropertyForJSONSlow, this is already checked.
+    if constexpr (mode != PutModeDefineOwnPropertyForJSONSlow) {
     PropertyOffset offset;
-    size_t currentCapacity = this->structure()->outOfLineCapacity();
     Structure* newStructure = Structure::addPropertyTransitionToExistingStructure(structure, propertyName, newAttributes, offset);
     if (newStructure) {
         Butterfly* newButterfly = butterfly();
-        if (currentCapacity != newStructure->outOfLineCapacity()) {
+            if (structure->outOfLineCapacity() != newStructure->outOfLineCapacity()) {
             ASSERT(newStructure != this->structure());
-            newButterfly = allocateMoreOutOfLineStorage(vm, currentCapacity, newStructure->outOfLineCapacity());
+                newButterfly = allocateMoreOutOfLineStorage(vm, structure->outOfLineCapacity(), newStructure->outOfLineCapacity());
             nukeStructureAndSetButterfly(vm, structureID, newButterfly);
         }
 
@@ -436,9 +455,10 @@ ALWAYS_INLINE ASCIILiteral JSObject::putDirectInternal(VM& vm, PropertyName prop
             vm.invalidateStructureChainIntegrity(VM::StructureChainIntegrityEvent::Add);
         return { };
     }
+    }
 
     unsigned currentAttributes;
-    offset = structure->get(vm, propertyName, currentAttributes);
+    PropertyOffset offset = structure->get(vm, propertyName, currentAttributes);
     if (offset != invalidOffset) {
         if (mode == PutModePut && (currentAttributes & PropertyAttribute::ReadOnlyOrAccessorOrCustomAccessor))
             return ReadonlyPropertyChangeError;
@@ -448,7 +468,7 @@ ALWAYS_INLINE ASCIILiteral JSObject::putDirectInternal(VM& vm, PropertyName prop
 
         // FIXME: Check attributes against PropertyAttribute::CustomAccessorOrValue. Changing GetterSetter should work w/o transition.
         // https://bugs.webkit.org/show_bug.cgi?id=214342
-        if (mode == PutModeDefineOwnProperty && (newAttributes != currentAttributes || (newAttributes & PropertyAttribute::AccessorOrCustomAccessorOrValue))) {
+        if ((mode == PutModeDefineOwnProperty || mode == PutModeDefineOwnPropertyForJSONSlow) && (newAttributes != currentAttributes || (newAttributes & PropertyAttribute::AccessorOrCustomAccessorOrValue))) {
             // We want the structure transition watchpoint to fire after this object has switched structure.
             // This allows adaptive watchpoints to observe if the new structure is the one we want.
             DeferredStructureTransitionWatchpointFire deferredWatchpointFire(vm, structure);
@@ -471,7 +491,7 @@ ALWAYS_INLINE ASCIILiteral JSObject::putDirectInternal(VM& vm, PropertyName prop
     // We want the structure transition watchpoint to fire after this object has switched structure.
     // This allows adaptive watchpoints to observe if the new structure is the one we want.
     DeferredStructureTransitionWatchpointFire deferredWatchpointFire(vm, structure);
-    newStructure = Structure::addNewPropertyTransition(vm, structure, propertyName, newAttributes, offset, slot.context(), &deferredWatchpointFire);
+    Structure* newStructure = Structure::addNewPropertyTransition(vm, structure, propertyName, newAttributes, offset, slot.context(), &deferredWatchpointFire);
 
     validateOffset(offset);
     ASSERT(newStructure->isValidOffset(offset));
@@ -792,6 +812,7 @@ ALWAYS_INLINE void JSObject::getNonReifiedStaticPropertyNames(VM& vm, PropertyNa
     if (staticPropertiesReified())
         return;
 
+    Structure* structure = this->structure();
     // Add properties from the static hashtables of properties
     for (const ClassInfo* info = classInfo(); info; info = info->parentClass) {
         const HashTable* table = info->staticPropHashTable;
@@ -799,8 +820,15 @@ ALWAYS_INLINE void JSObject::getNonReifiedStaticPropertyNames(VM& vm, PropertyNa
             continue;
 
         for (auto iter = table->begin(); iter != table->end(); ++iter) {
-            if (mode == DontEnumPropertiesMode::Include || !(iter->attributes() & PropertyAttribute::DontEnum))
-                propertyNames.add(Identifier::fromLatin1(vm, iter.key()));
+            if (mode == DontEnumPropertiesMode::Include || !(iter->attributes() & PropertyAttribute::DontEnum)) {
+                auto identifier = Identifier::fromString(vm, iter.key());
+                // If the structure is shadowing the static property use it's attributes to determine if
+                // the property name is enumerable but add it here to preserve the right property order.
+                unsigned structureAttributes;
+                if (isValidOffset(structure->get(vm, identifier, structureAttributes)) && (mode == DontEnumPropertiesMode::Exclude && (structureAttributes & PropertyAttribute::DontEnum)))
+                    continue;
+                propertyNames.add(identifier);
+            }
         }
     }
 }
@@ -846,19 +874,86 @@ inline void JSObject::setPrivateBrand(JSGlobalObject* globalObject, JSValue bran
     this->setStructure(vm, newStructure);
 }
 
-template<typename Functor>
-bool JSObject::fastForEachPropertyWithSideEffectFreeFunctor(VM& vm, const Functor& functor)
+// Function forEachOwnIndexedProperty should only used in the fast path
+// for copying own non-GetterSetter indexed properties.
+template<JSObject::SortMode mode, typename Functor>
+void JSObject::forEachOwnIndexedProperty(JSGlobalObject* globalObject, const Functor& functor)
 {
-    if (hasNonReifiedStaticProperties())
-        return false;
+    ASSERT(structure()->canPerformFastPropertyEnumerationCommon());
+    ASSERT(canHaveExistingOwnIndexedProperties() && !canHaveExistingOwnIndexedGetterSetterProperties());
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
-    Structure* structure = this->structure();
+    switch (indexingType()) {
+    case ALL_BLANK_INDEXING_TYPES:
+    case ALL_UNDECIDED_INDEXING_TYPES:
+        break;
 
-    if (!structure->canPerformFastPropertyEnumeration())
-        return false;
+    case ALL_INT32_INDEXING_TYPES:
+    case ALL_CONTIGUOUS_INDEXING_TYPES:
+    case ALL_DOUBLE_INDEXING_TYPES: {
+        unsigned usedLength = m_butterfly->publicLength();
+        for (unsigned i = 0; i < usedLength; ++i) {
+            JSValue value = getDirectIndex(globalObject, i);
+            RETURN_IF_EXCEPTION(scope, void());
+            if (value && functor(i, value) == IterationStatus::Done)
+                return;
+        }
+        break;
+    }
 
-    structure->forEachProperty(vm, functor);
-    return true;
+    case ALL_ARRAY_STORAGE_INDEXING_TYPES: {
+        ArrayStorage* storage = m_butterfly->arrayStorage();
+        unsigned usedVectorLength = std::min(storage->length(), storage->vectorLength());
+        for (unsigned i = 0; i < usedVectorLength; ++i) {
+            auto value = storage->m_vector[i];
+            if (!value)
+                continue;
+            if (functor(i, value.get()) == IterationStatus::Done)
+                return;
+        }
+
+        if (SparseArrayValueMap* map = storage->m_sparseMap.get()) {
+            MarkedArgumentBuffer values;
+            if constexpr (mode == JSObject::SortMode::Default) {
+                Vector<unsigned, 8> properties;
+                for (auto& [key, value] : *map) {
+                    if (!(value.attributes() & PropertyAttribute::DontEnum)) {
+                        properties.append(key);
+                        values.appendWithCrashOnOverflow(value.get());
+                    }
+                }
+
+                for (size_t i = 0; i < properties.size(); ++i) {
+                    if (functor(properties[i], values.at(i)) == IterationStatus::Done)
+                        return;
+                }
+            } else {
+                Vector<std::tuple<unsigned, unsigned>, 8> propertyAndValueIndexTuples;
+                unsigned valueIndex = 0;
+                for (auto& [key, value] : *map) {
+                    if (!(value.attributes() & PropertyAttribute::DontEnum)) {
+                        propertyAndValueIndexTuples.append({ key, valueIndex++ });
+                        values.appendWithCrashOnOverflow(value.get());
+                    }
+                }
+
+                std::sort(propertyAndValueIndexTuples.begin(), propertyAndValueIndexTuples.end(), [](auto a, auto b) {
+                    return std::get<0>(a) < std::get<0>(b);
+                });
+                for (size_t i = 0; i < propertyAndValueIndexTuples.size(); ++i) {
+                    auto [property, valueIndex] = propertyAndValueIndexTuples.at(i);
+                    if (functor(property, values.at(valueIndex)) == IterationStatus::Done)
+                        return;
+                }
+            }
+        }
+        break;
+    }
+
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+    }
 }
 
 ALWAYS_INLINE JSFinalObject* JSFinalObject::createDefaultEmptyObject(JSGlobalObject* globalObject)
@@ -872,3 +967,5 @@ ALWAYS_INLINE JSFinalObject* JSFinalObject::createDefaultEmptyObject(JSGlobalObj
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

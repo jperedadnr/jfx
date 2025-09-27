@@ -29,26 +29,20 @@
 
 #include "LibWebRTCMacros.h"
 #include "LibWebRTCProvider.h"
+#include "LibWebRTCUtils.h"
 #include "RTCCertificate.h"
 
-ALLOW_UNUSED_PARAMETERS_BEGIN
-ALLOW_COMMA_BEGIN
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
 #include <webrtc/rtc_base/ref_counted_object.h>
 #include <webrtc/rtc_base/rtc_certificate_generator.h>
 #include <webrtc/rtc_base/ssl_certificate.h>
 
-ALLOW_COMMA_END
-ALLOW_UNUSED_PARAMETERS_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace WebCore {
 
 namespace LibWebRTCCertificateGenerator {
-
-static inline String fromStdString(const std::string& value)
-{
-    return String::fromUTF8(value.data(), value.length());
-}
 
 class RTCCertificateGeneratorCallbackWrapper : public ThreadSafeRefCounted<RTCCertificateGeneratorCallbackWrapper, WTF::DestructionThread::Main> {
 public:
@@ -61,7 +55,7 @@ public:
     {
         callOnMainThread([origin = m_origin.releaseNonNull(), callback = WTFMove(m_resultCallback), certificate = WTFMove(certificate)]() mutable {
             if (!certificate) {
-                callback(Exception { TypeError, "Unable to create a certificate"_s });
+                callback(Exception { ExceptionCode::TypeError, "Unable to create a certificate"_s });
                 return;
     }
 
@@ -69,7 +63,7 @@ public:
             auto stats = certificate->GetSSLCertificate().GetStats();
             auto* info = stats.get();
             while (info) {
-                StringView fingerprint { reinterpret_cast<const unsigned char*>(info->fingerprint.data()), static_cast<unsigned>(info->fingerprint.length()) };
+                StringView fingerprint { std::span { info->fingerprint } };
                 fingerprints.append({ fromStdString(info->fingerprint_algorithm), fingerprint.convertToASCIILowercase() });
                 info = info->issuer.get();
             };
@@ -108,7 +102,7 @@ void generateCertificate(Ref<SecurityOrigin>&& origin, LibWebRTCProvider& provid
 {
     auto callbackWrapper = RTCCertificateGeneratorCallbackWrapper::create(WTFMove(origin), WTFMove(resultCallback));
 
-    absl::optional<uint64_t> expiresMs;
+    std::optional<uint64_t> expiresMs;
     if (info.expires)
         expiresMs = static_cast<uint64_t>(*info.expires);
 

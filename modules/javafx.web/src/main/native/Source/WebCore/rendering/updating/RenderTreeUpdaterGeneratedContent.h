@@ -27,6 +27,7 @@
 
 #include "RenderStyleConstants.h"
 #include "RenderTreeUpdater.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -34,14 +35,15 @@ class Element;
 class RenderQuote;
 
 class RenderTreeUpdater::GeneratedContent {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(GeneratedContent);
 public:
     GeneratedContent(RenderTreeUpdater&);
 
-    void updateBackdropRenderer(RenderElement&);
+    void updateBackdropRenderer(RenderElement&, StyleDifference minimalStyleDifference);
     void updatePseudoElement(Element&, const Style::ElementUpdate&, PseudoId);
     void updateRemainingQuotes();
     void updateCounters();
+    void updateWritingSuggestionsRenderer(RenderElement&, StyleDifference minimalStyleDifference);
 
     static void removeBeforePseudoElement(Element&, RenderTreeBuilder&);
     static void removeAfterPseudoElement(Element&, RenderTreeBuilder&);
@@ -52,7 +54,7 @@ private:
     bool needsPseudoElement(const RenderStyle*);
 
     RenderTreeUpdater& m_updater;
-    WeakPtr<RenderQuote> m_previousUpdatedQuote;
+    SingleThreadWeakPtr<RenderQuote> m_previousUpdatedQuote;
 };
 
 }

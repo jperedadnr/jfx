@@ -37,7 +37,8 @@ public:
 
     const URL& url() const { return m_url; }
     const ResourceResponse& response() const { return m_response; }
-    FragmentedSharedBuffer& data() const { return static_reference_cast<FragmentedSharedBuffer>(Ref { *m_data.get() }); }
+    FragmentedSharedBuffer& data() const { return *m_data.get(); }
+    Ref<FragmentedSharedBuffer> protectedData() const { return data(); }
     void append(const SharedBuffer& buffer) { m_data.append(buffer); }
     void clear() { m_data.empty(); }
 

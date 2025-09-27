@@ -61,11 +61,9 @@ enum UserInterfaceDirectionPolicy { "Content", "System" };
     attribute ForcedAccessibilityValue forcedSupportsHighDynamicRangeValue;
 
     // DeprecatedGlobalSettings.
-    undefined setFetchAPIKeepAliveEnabled(boolean enabled);
     undefined setCustomPasteboardDataEnabled(boolean enabled);
 
     readonly attribute boolean vp9DecoderEnabled;
-    readonly attribute boolean mediaSourceInlinePaintingEnabled;
 
     undefined setShouldManageAudioSessionCategory(boolean should);
 

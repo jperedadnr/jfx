@@ -64,23 +64,27 @@ void WorkerFileSystemStorageConnection::scopeClosed()
 {
     auto sameEntryCallbacks = std::exchange(m_sameEntryCallbacks, { });
     for (auto& callback : sameEntryCallbacks.values())
-        callback(Exception { InvalidStateError });
+        callback(Exception { ExceptionCode::InvalidStateError });
 
     auto getHandleCallbacks = std::exchange(m_getHandleCallbacks, { });
     for (auto& callback : getHandleCallbacks.values())
-        callback(Exception { InvalidStateError });
+        callback(Exception { ExceptionCode::InvalidStateError });
 
     auto removeEntryCallbacks = std::exchange(m_voidCallbacks, { });
     for (auto& callback : removeEntryCallbacks.values())
-        callback(Exception { InvalidStateError });
+        callback(Exception { ExceptionCode::InvalidStateError });
 
     auto resolveCallbacks = std::exchange(m_resolveCallbacks, { });
     for (auto& callback : resolveCallbacks.values())
-        callback(Exception { InvalidStateError });
+        callback(Exception { ExceptionCode::InvalidStateError });
 
     auto stringCallbacks = std::exchange(m_stringCallbacks, { });
     for (auto& callback : stringCallbacks.values())
-        callback(Exception { InvalidStateError });
+        callback(Exception { ExceptionCode::InvalidStateError });
+
+    auto streamCallbacks = std::exchange(m_streamCallbacks, { });
+    for (auto& callback : streamCallbacks.values())
+        callback(Exception { ExceptionCode::InvalidStateError });
 
     m_scope = nullptr;
 }
@@ -96,13 +100,13 @@ void WorkerFileSystemStorageConnection::closeHandle(FileSystemHandleIdentifier i
 void WorkerFileSystemStorageConnection::isSameEntry(FileSystemHandleIdentifier identifier, FileSystemHandleIdentifier otherIdentifier, FileSystemStorageConnection::SameEntryCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_sameEntryCallbacks.add(callbackIdentifier, WTFMove(callback));
 
     callOnMainThread([callbackIdentifier, workerThread = Ref { m_scope->thread() }, mainThreadConnection = m_mainThreadConnection, identifier, otherIdentifier]() mutable {
-        auto mainThreadCallback = [callbackIdentifier, workerThread = WTFMove(workerThread)](auto&& result) mutable {
+        auto mainThreadCallback = [callbackIdentifier, workerThread = WTFMove(workerThread)](ExceptionOr<bool>&& result) mutable {
             workerThread->runLoop().postTaskForMode([callbackIdentifier, result = crossThreadCopy(WTFMove(result))] (auto& scope) mutable {
                 if (auto connection = downcast<WorkerGlobalScope>(scope).fileSystemStorageConnection())
                     connection->didIsSameEntry(callbackIdentifier, WTFMove(result));
@@ -122,7 +126,7 @@ void WorkerFileSystemStorageConnection::didIsSameEntry(CallbackIdentifier callba
 void WorkerFileSystemStorageConnection::getFileHandle(FileSystemHandleIdentifier identifier, const String& name, bool createIfNecessary, FileSystemStorageConnection::GetHandleCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_getHandleCallbacks.add(callbackIdentifier, WTFMove(callback));
@@ -142,7 +146,7 @@ void WorkerFileSystemStorageConnection::getFileHandle(FileSystemHandleIdentifier
 void WorkerFileSystemStorageConnection::getDirectoryHandle(FileSystemHandleIdentifier identifier, const String& name, bool createIfNecessary, FileSystemStorageConnection::GetHandleCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_getHandleCallbacks.add(callbackIdentifier, WTFMove(callback));
@@ -168,7 +172,7 @@ void WorkerFileSystemStorageConnection::didGetHandle(CallbackIdentifier callback
 void WorkerFileSystemStorageConnection::removeEntry(FileSystemHandleIdentifier identifier, const String& name, bool deleteRecursively, FileSystemStorageConnection::VoidCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_voidCallbacks.add(callbackIdentifier, WTFMove(callback));
@@ -188,7 +192,7 @@ void WorkerFileSystemStorageConnection::removeEntry(FileSystemHandleIdentifier i
 void WorkerFileSystemStorageConnection::resolve(FileSystemHandleIdentifier identifier, FileSystemHandleIdentifier otherIdentifier, FileSystemStorageConnection::ResolveCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_resolveCallbacks.add(callbackIdentifier, WTFMove(callback));
@@ -214,7 +218,7 @@ void WorkerFileSystemStorageConnection::didResolve(CallbackIdentifier callbackId
 void WorkerFileSystemStorageConnection::getFile(FileSystemHandleIdentifier identifier, StringCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_stringCallbacks.add(callbackIdentifier, WTFMove(callback));
@@ -252,7 +256,7 @@ void WorkerFileSystemStorageConnection::completeVoidCallback(CallbackIdentifier 
 void WorkerFileSystemStorageConnection::createSyncAccessHandle(FileSystemHandleIdentifier identifier, FileSystemStorageConnection::GetAccessHandleCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_getAccessHandlCallbacks.add(callbackIdentifier, WTFMove(callback));
@@ -313,10 +317,74 @@ void WorkerFileSystemStorageConnection::invalidateAccessHandle(WebCore::FileSyst
         handle->invalidate();
 }
 
+void WorkerFileSystemStorageConnection::createWritable(ScriptExecutionContextIdentifier contextIdentifier, FileSystemHandleIdentifier identifier, bool keepExistingData, StreamCallback&& callback)
+{
+    if (!m_scope)
+        return callback(Exception { ExceptionCode::InvalidStateError });
+
+    auto callbackIdentifier = CallbackIdentifier::generate();
+    m_streamCallbacks.add(callbackIdentifier, WTFMove(callback));
+
+    callOnMainThread([callbackIdentifier, workerThread = Ref { m_scope->thread() }, mainThreadConnection = m_mainThreadConnection, contextIdentifier, identifier, keepExistingData]() mutable {
+        auto mainThreadCallback = [callbackIdentifier, workerThread = WTFMove(workerThread)](auto&& result) mutable {
+            workerThread->runLoop().postTaskForMode([callbackIdentifier, result = crossThreadCopy(WTFMove(result))] (auto& scope) mutable {
+                if (RefPtr connection = downcast<WorkerGlobalScope>(scope).fileSystemStorageConnection()) {
+                    if (auto callback = connection->m_streamCallbacks.take(callbackIdentifier))
+                        callback(WTFMove(result));
+                }
+            }, WorkerRunLoop::defaultMode());
+        };
+
+        mainThreadConnection->createWritable(contextIdentifier, identifier, keepExistingData, WTFMove(mainThreadCallback));
+    });
+}
+
+void WorkerFileSystemStorageConnection::closeWritable(FileSystemHandleIdentifier identifier, FileSystemWritableFileStreamIdentifier streamIdentifier, FileSystemWriteCloseReason reason, VoidCallback&& callback)
+{
+    if (!m_scope)
+        return callback(Exception { ExceptionCode::InvalidStateError });
+
+    auto callbackIdentifier = CallbackIdentifier::generate();
+    m_voidCallbacks.add(callbackIdentifier, WTFMove(callback));
+
+    callOnMainThread([callbackIdentifier, workerThread = Ref { m_scope->thread() }, mainThreadConnection = m_mainThreadConnection, identifier, streamIdentifier, reason]() mutable {
+        auto mainThreadCallback = [callbackIdentifier, workerThread = WTFMove(workerThread)](auto&& result) mutable {
+            workerThread->runLoop().postTaskForMode([callbackIdentifier, result = crossThreadCopy(WTFMove(result))] (auto& scope) mutable {
+                if (RefPtr connection = downcast<WorkerGlobalScope>(scope).fileSystemStorageConnection())
+                    connection->completeVoidCallback(callbackIdentifier, WTFMove(result));
+            }, WorkerRunLoop::defaultMode());
+        };
+
+        mainThreadConnection->closeWritable(identifier, streamIdentifier, reason, WTFMove(mainThreadCallback));
+    });
+}
+
+void WorkerFileSystemStorageConnection::executeCommandForWritable(FileSystemHandleIdentifier identifier, FileSystemWritableFileStreamIdentifier streamIdentifier, FileSystemWriteCommandType type, std::optional<uint64_t> position, std::optional<uint64_t> size, std::span<const uint8_t> dataBytes, bool hasDataError, VoidCallback&& callback)
+{
+    if (!m_scope)
+        return callback(Exception { ExceptionCode::InvalidStateError });
+
+    auto callbackIdentifier = CallbackIdentifier::generate();
+    m_voidCallbacks.add(callbackIdentifier, WTFMove(callback));
+
+    Vector<uint8_t> bytes;
+    bytes.append(dataBytes);
+    callOnMainThread([callbackIdentifier, workerThread = Ref { m_scope->thread() }, mainThreadConnection = m_mainThreadConnection, identifier, streamIdentifier, type, position, size, bytes = WTFMove(bytes), hasDataError]() mutable {
+        auto mainThreadCallback = [callbackIdentifier, workerThread = WTFMove(workerThread)](auto&& result) mutable {
+            workerThread->runLoop().postTaskForMode([callbackIdentifier, result = crossThreadCopy(WTFMove(result))] (auto& scope) mutable {
+                if (RefPtr connection = downcast<WorkerGlobalScope>(scope).fileSystemStorageConnection())
+                    connection->completeVoidCallback(callbackIdentifier, WTFMove(result));
+            }, WorkerRunLoop::defaultMode());
+        };
+
+        mainThreadConnection->executeCommandForWritable(identifier, streamIdentifier, type, position, size, bytes.span(), hasDataError, WTFMove(mainThreadCallback));
+    });
+}
+
 void WorkerFileSystemStorageConnection::getHandleNames(FileSystemHandleIdentifier identifier, GetHandleNamesCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_getHandleNamesCallbacks.add(callbackIdentifier, WTFMove(callback));
@@ -342,7 +410,7 @@ void WorkerFileSystemStorageConnection::didGetHandleNames(CallbackIdentifier cal
 void WorkerFileSystemStorageConnection::getHandle(FileSystemHandleIdentifier identifier, const String& name, GetHandleCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_getHandleCallbacks.add(callbackIdentifier, WTFMove(callback));
@@ -362,7 +430,7 @@ void WorkerFileSystemStorageConnection::getHandle(FileSystemHandleIdentifier ide
 void WorkerFileSystemStorageConnection::move(FileSystemHandleIdentifier identifier, FileSystemHandleIdentifier destinationIdentifier, const String& newName, VoidCallback&& callback)
 {
     if (!m_scope)
-        return callback(Exception { InvalidStateError });
+        return callback(Exception { ExceptionCode::InvalidStateError });
 
     auto callbackIdentifier = CallbackIdentifier::generate();
     m_voidCallbacks.add(callbackIdentifier, WTFMove(callback));
@@ -390,8 +458,8 @@ std::optional<uint64_t> WorkerFileSystemStorageConnection::requestNewCapacityFor
     BinarySemaphore semaphore;
     std::optional<uint64_t> grantedCapacity;
     callOnMainThread([mainThreadConnection = m_mainThreadConnection, identifier, accessHandleIdentifier, newCapacity, &grantedCapacity, &semaphore]() {
-        auto mainThreadCallback = [&grantedCapacity, &semaphore](auto&& result) {
-            grantedCapacity = WTFMove(result);
+        auto mainThreadCallback = [&grantedCapacity, &semaphore](auto result) {
+            grantedCapacity = result;
             semaphore.signal();
         };
         mainThreadConnection->requestNewCapacityForSyncAccessHandle(identifier, accessHandleIdentifier, newCapacity, WTFMove(mainThreadCallback));

@@ -33,14 +33,19 @@
 #include "RenderElement.h"
 #include "SVGElement.h"
 #include "Text.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace Style {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Update);
 
 Update::Update(Document& document)
     : m_document(document)
 {
 }
+
+Update::~Update() = default;
 
 const ElementUpdate* Update::elementUpdate(const Element& element) const
 {
@@ -94,6 +99,9 @@ void Update::addElement(Element& element, Element* parent, ElementUpdate&& eleme
     m_roots.remove(&element);
     addPossibleRoot(parent);
 
+    if (elementUpdate.mayNeedRebuildRoot)
+        addPossibleRebuildRoot(element, parent);
+
     m_elements.add(&element, WTFMove(elementUpdate));
 }
 
@@ -131,6 +139,11 @@ void Update::addSVGRendererUpdate(SVGElement& element)
     element.setNeedsSVGRendererUpdate(true);
 }
 
+void Update::addInitialContainingBlockUpdate(std::unique_ptr<RenderStyle> style)
+{
+    m_initialContainingBlockUpdate = WTFMove(style);
+}
+
 void Update::addPossibleRoot(Element* element)
 {
     if (!element) {
@@ -140,6 +153,14 @@ void Update::addPossibleRoot(Element* element)
     if (element->needsSVGRendererUpdate() || m_elements.contains(element))
         return;
     m_roots.add(element);
+}
+
+void Update::addPossibleRebuildRoot(Element& element, Element* parent)
+{
+    if (parent && m_rebuildRoots.contains(parent))
+        return;
+
+    m_rebuildRoots.add(&element);
 }
 
 }

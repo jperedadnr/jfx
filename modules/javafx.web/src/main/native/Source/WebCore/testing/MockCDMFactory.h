@@ -35,13 +35,23 @@
 #include "MediaKeyEncryptionScheme.h"
 #include "MediaKeysRequirement.h"
 #include <wtf/HashMap.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
+class MockCDM;
+}
 
-class MockCDMFactory : public RefCounted<MockCDMFactory>, public CanMakeWeakPtr<MockCDMFactory>, private CDMFactory {
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::MockCDM> : std::true_type { };
+}
+
+namespace WebCore {
+
+class MockCDMFactory : public RefCountedAndCanMakeWeakPtr<MockCDMFactory>, private CDMFactory {
 public:
     static Ref<MockCDMFactory> create() { return adoptRef(*new MockCDMFactory); }
     ~MockCDMFactory();
@@ -83,7 +93,7 @@ public:
 
 private:
     MockCDMFactory();
-    std::unique_ptr<CDMPrivate> createCDM(const String&, const CDMPrivateClient&) final;
+    std::unique_ptr<CDMPrivate> createCDM(const String&, const String& mediaKeysHashSalt, const CDMPrivateClient&) final;
     bool supportsKeySystem(const String&) final;
 
     MediaKeysRequirement m_distinctiveIdentifiersRequirement { MediaKeysRequirement::Optional };
@@ -100,11 +110,12 @@ private:
 };
 
 class MockCDM : public CDMPrivate {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(MockCDM);
 public:
-    MockCDM(WeakPtr<MockCDMFactory>);
+    MockCDM(WeakPtr<MockCDMFactory>, const String&);
 
     MockCDMFactory* factory() { return m_factory.get(); }
+    const String& mediaKeysHashSalt() const { return m_mediaKeysHashSalt; }
 
 private:
     friend class MockCDMInstance;
@@ -126,6 +137,7 @@ private:
     std::optional<String> sanitizeSessionId(const String&) const final;
 
     WeakPtr<MockCDMFactory> m_factory;
+    String m_mediaKeysHashSalt;
 };
 
 class MockCDMInstance : public CDMInstance, public CanMakeWeakPtr<MockCDMInstance> {
@@ -154,7 +166,7 @@ public:
     MockCDMInstanceSession(WeakPtr<MockCDMInstance>&&);
 
 private:
-    void requestLicense(LicenseType, const AtomString& initDataType, Ref<SharedBuffer>&& initData, LicenseCallback&&) final;
+    void requestLicense(LicenseType, KeyGroupingStrategy, const AtomString& initDataType, Ref<SharedBuffer>&& initData, LicenseCallback&&) final;
     void updateLicense(const String&, LicenseType, Ref<SharedBuffer>&&, LicenseUpdateCallback&&) final;
     void loadSession(LicenseType, const String&, const String&, LoadSessionCallback&&) final;
     void closeSession(const String&, CloseSessionCallback&&) final;

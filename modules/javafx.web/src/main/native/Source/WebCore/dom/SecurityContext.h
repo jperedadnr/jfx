@@ -29,6 +29,7 @@
 
 #include "CrossOriginEmbedderPolicy.h"
 #include "CrossOriginOpenerPolicy.h"
+#include "SandboxFlags.h"
 #include <memory>
 #include <wtf/Forward.h>
 #include <wtf/OptionSet.h>
@@ -43,46 +44,26 @@ struct CrossOriginOpenerPolicy;
 struct PolicyContainer;
 enum class ReferrerPolicy : uint8_t;
 
-enum SandboxFlag {
-    // See http://www.whatwg.org/specs/web-apps/current-work/#attr-iframe-sandbox for a list of the sandbox flags.
-    SandboxNone                 = 0,
-    SandboxNavigation           = 1,
-    SandboxPlugins              = 1 << 1,
-    SandboxOrigin               = 1 << 2,
-    SandboxForms                = 1 << 3,
-    SandboxScripts              = 1 << 4,
-    SandboxTopNavigation        = 1 << 5,
-    SandboxPopups               = 1 << 6, // See https://www.w3.org/Bugs/Public/show_bug.cgi?id=12393
-    SandboxAutomaticFeatures    = 1 << 7,
-    SandboxPointerLock          = 1 << 8,
-    SandboxPropagatesToAuxiliaryBrowsingContexts = 1 << 9,
-    SandboxTopNavigationByUserActivation = 1 << 10,
-    SandboxDocumentDomain       = 1 << 11,
-    SandboxModals               = 1 << 12,
-    SandboxStorageAccessByUserActivation = 1 << 13,
-    SandboxTopNavigationToCustomProtocols = 1 << 14,
-    SandboxDownloads = 1 << 15,
-    SandboxAll                  = -1 // Mask with all bits set to 1.
-};
-
-typedef int SandboxFlags;
-
 class SecurityContext {
 public:
     // https://html.spec.whatwg.org/multipage/origin.html#determining-the-creation-sandboxing-flags
     SandboxFlags creationSandboxFlags() const { return m_creationSandboxFlags; }
 
     SandboxFlags sandboxFlags() const { return m_sandboxFlags; }
-    ContentSecurityPolicy* contentSecurityPolicy() { return m_contentSecurityPolicy.get(); }
+    WEBCORE_EXPORT ContentSecurityPolicy* contentSecurityPolicy();
+    CheckedPtr<ContentSecurityPolicy> checkedContentSecurityPolicy();
 
     bool isSecureTransitionTo(const URL&) const;
 
     enum class SandboxFlagsSource : bool { CSP, Other };
     void enforceSandboxFlags(SandboxFlags, SandboxFlagsSource = SandboxFlagsSource::Other);
 
-    bool isSandboxed(SandboxFlags mask) const { return m_sandboxFlags & mask; }
+    bool isSandboxed(SandboxFlag flag) const { return m_sandboxFlags.contains(flag); }
 
-    SecurityOriginPolicy* securityOriginPolicy() const { return m_securityOriginPolicy.get(); }
+    SecurityOriginPolicy* securityOriginPolicy() const;
+
+    bool hasEmptySecurityOriginPolicyAndContentSecurityPolicy() const { return m_hasEmptySecurityOriginPolicy && m_hasEmptyContentSecurityPolicy; }
+    bool hasInitializedSecurityOriginPolicyOrContentSecurityPolicy() const { return m_securityOriginPolicy || m_contentSecurityPolicy; }
 
     // Explicitly override the security origin for this security context.
     // Note: It is dangerous to change the security origin of a script context
@@ -93,6 +74,8 @@ public:
     // Note: It is dangerous to change the content security policy of a script
     //       context that already contains content.
     void setContentSecurityPolicy(std::unique_ptr<ContentSecurityPolicy>&&);
+
+    inline void setEmptySecurityOriginPolicyAndContentSecurityPolicy();
 
     const CrossOriginEmbedderPolicy& crossOriginEmbedderPolicy() const { return m_crossOriginEmbedderPolicy; }
     void setCrossOriginEmbedderPolicy(const CrossOriginEmbedderPolicy& crossOriginEmbedderPolicy) { m_crossOriginEmbedderPolicy = crossOriginEmbedderPolicy; }
@@ -107,6 +90,7 @@ public:
     virtual void inheritPolicyContainerFrom(const PolicyContainer&);
 
     WEBCORE_EXPORT SecurityOrigin* securityOrigin() const;
+    WEBCORE_EXPORT RefPtr<SecurityOrigin> protectedSecurityOrigin() const;
 
     static SandboxFlags parseSandboxPolicy(StringView policy, String& invalidTokensErrorMessage);
     static bool isSupportedSandboxPolicy(StringView);
@@ -141,20 +125,22 @@ protected:
     virtual ~SecurityContext();
 
     // It's only appropriate to call this during security context initialization; it's needed for
-    // flags that can't be disabled with allow-* attributes, such as SandboxNavigation.
-    void disableSandboxFlags(SandboxFlags mask) { m_sandboxFlags &= ~mask; }
+    // flags that can't be disabled with allow-* attributes, such as SandboxFlag::Navigation.
+    void disableSandboxFlags(SandboxFlags flags) { m_sandboxFlags.remove(flags); }
 
     void didFailToInitializeSecurityOrigin() { m_haveInitializedSecurityOrigin = false; }
 
 private:
+    virtual void securityOriginDidChange() { };
     void addSandboxFlags(SandboxFlags);
+    virtual std::unique_ptr<ContentSecurityPolicy> makeEmptyContentSecurityPolicy() = 0;
 
     RefPtr<SecurityOriginPolicy> m_securityOriginPolicy;
     std::unique_ptr<ContentSecurityPolicy> m_contentSecurityPolicy;
     CrossOriginEmbedderPolicy m_crossOriginEmbedderPolicy;
     CrossOriginOpenerPolicy m_crossOriginOpenerPolicy;
-    SandboxFlags m_creationSandboxFlags { SandboxNone };
-    SandboxFlags m_sandboxFlags { SandboxNone };
+    SandboxFlags m_creationSandboxFlags;
+    SandboxFlags m_sandboxFlags;
     ReferrerPolicy m_referrerPolicy { ReferrerPolicy::Default };
     OptionSet<MixedContentType> m_mixedContentTypes;
     bool m_haveInitializedSecurityOrigin { false };
@@ -163,6 +149,17 @@ private:
     bool m_isStrictMixedContentMode { false };
     bool m_usedLegacyTLS { false };
     bool m_wasPrivateRelayed { false };
+    bool m_hasEmptySecurityOriginPolicy { false };
+    bool m_hasEmptyContentSecurityPolicy { false };
 };
+
+void SecurityContext::setEmptySecurityOriginPolicyAndContentSecurityPolicy()
+{
+    ASSERT(!m_securityOriginPolicy);
+    ASSERT(!m_contentSecurityPolicy);
+    m_haveInitializedSecurityOrigin = true;
+    m_hasEmptySecurityOriginPolicy = true;
+    m_hasEmptyContentSecurityPolicy = true;
+}
 
 } // namespace WebCore

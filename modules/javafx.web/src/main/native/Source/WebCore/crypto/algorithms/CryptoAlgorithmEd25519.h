@@ -29,6 +29,9 @@
 #if ENABLE(WEB_CRYPTO)
 namespace WebCore {
 
+constexpr auto ed25519KeySize = 32;
+constexpr auto ed25519SignatureSize = ed25519KeySize * 2;
+
 class CryptoKeyOKP;
 
 class CryptoAlgorithmEd25519 final : public CryptoAlgorithm {
@@ -57,5 +60,4 @@ inline CryptoAlgorithmIdentifier CryptoAlgorithmEd25519::identifier() const
 }
 
 } // namespace WebCore
-
 #endif // ENABLE(WEB_CRYPTO)

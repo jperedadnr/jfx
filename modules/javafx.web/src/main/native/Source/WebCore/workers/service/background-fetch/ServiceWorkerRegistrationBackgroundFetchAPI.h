@@ -25,10 +25,9 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "Supplementable.h"
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -36,7 +35,7 @@ class BackgroundFetchManager;
 class ServiceWorkerRegistration;
 
 class ServiceWorkerRegistrationBackgroundFetchAPI : public Supplement<ServiceWorkerRegistration> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ServiceWorkerRegistrationBackgroundFetchAPI);
 public:
     explicit ServiceWorkerRegistrationBackgroundFetchAPI(ServiceWorkerRegistration&);
     ~ServiceWorkerRegistrationBackgroundFetchAPI();
@@ -48,12 +47,10 @@ public:
 
 private:
     static ServiceWorkerRegistrationBackgroundFetchAPI& from(ServiceWorkerRegistration&);
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
     ServiceWorkerRegistration& m_serviceWorkerRegistration;
     RefPtr<BackgroundFetchManager> m_backgroundFetchManager;
 };
 
 }
-
-#endif // ENABLE(SERVICE_WORKER)

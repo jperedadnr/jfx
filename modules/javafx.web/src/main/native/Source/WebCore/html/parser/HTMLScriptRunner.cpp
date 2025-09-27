@@ -27,6 +27,7 @@
 #include "config.h"
 #include "HTMLScriptRunner.h"
 
+#include "CSSTokenizerInputStream.h"
 #include "Element.h"
 #include "Event.h"
 #include "EventLoop.h"
@@ -42,8 +43,11 @@
 #include "NestingLevelIncrementer.h"
 #include "ScriptElement.h"
 #include "ScriptSourceCode.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLScriptRunner);
 
 using namespace HTMLNames;
 
@@ -260,9 +264,9 @@ void HTMLScriptRunner::runScript(ScriptElement& scriptElement, const TextPositio
             m_parserBlockingScript = PendingScript::create(scriptElement, scriptStartPosition);
         else {
             if (scriptElement.scriptType() == ScriptType::Classic)
-            scriptElement.executeClassicScript(ScriptSourceCode(scriptElement.element().textContent(), documentURLForScriptExecution(m_document.get()), scriptStartPosition, JSC::SourceProviderSourceType::Program, InlineClassicScript::create(scriptElement)));
+                scriptElement.executeClassicScript(ScriptSourceCode(scriptElement.element().textContent(), scriptElement.sourceTaintedOrigin(), documentURLForScriptExecution(m_document.get()), scriptStartPosition, JSC::SourceProviderSourceType::Program, InlineClassicScript::create(scriptElement)));
             else
-                scriptElement.registerImportMap(ScriptSourceCode(scriptElement.element().textContent(), documentURLForScriptExecution(m_document.get()), scriptStartPosition, JSC::SourceProviderSourceType::ImportMap));
+                scriptElement.registerImportMap(ScriptSourceCode(scriptElement.element().textContent(), scriptElement.sourceTaintedOrigin(), documentURLForScriptExecution(m_document.get()), scriptStartPosition, JSC::SourceProviderSourceType::ImportMap));
         }
     } else
         requestParsingBlockingScript(scriptElement);

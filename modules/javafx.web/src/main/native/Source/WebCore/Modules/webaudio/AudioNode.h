@@ -43,7 +43,7 @@ class AudioNodeOutput;
 class AudioParam;
 class BaseAudioContext;
 
-enum class NoiseInjectionPolicy : bool;
+enum class NoiseInjectionPolicy : uint8_t;
 
 // An AudioNode is the basic building block for handling audio within an AudioContext.
 // It may be an audio source, an intermediate processing module, or an audio destination.
@@ -58,7 +58,7 @@ class AudioNode
 #endif
 {
     WTF_MAKE_NONCOPYABLE(AudioNode);
-    WTF_MAKE_ISO_ALLOCATED(AudioNode);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(AudioNode);
 public:
     enum NodeType {
         NodeTypeDestination,
@@ -94,8 +94,8 @@ public:
     NodeType nodeType() const { return m_nodeType; }
 
     // Can be called from main thread or context's audio thread.
-    virtual void ref();
-    virtual void deref();
+    virtual void ref() const;
+    virtual void deref() const;
     void incrementConnectionCount();
     void decrementConnectionCount();
 
@@ -197,7 +197,8 @@ public:
     bool isTailProcessing() const { return m_isTailProcessing; }
     void setIsTailProcessing(bool isTailProcessing) { m_isTailProcessing = isTailProcessing; }
 
-    NoiseInjectionPolicy noiseInjectionPolicy() const;
+    OptionSet<NoiseInjectionPolicy> noiseInjectionPolicies() const;
+    virtual float noiseInjectionMultiplier() const { return 0; }
 
 protected:
     // Inputs and outputs must be created before the AudioNode is initialized.
@@ -205,7 +206,8 @@ protected:
     void addOutput(unsigned numberOfChannels);
 
     void markNodeForDeletionIfNecessary();
-    void derefWithLock();
+    void unmarkNodeForDeletionIfNecessary();
+    void derefWithLock() const;
 
     struct DefaultAudioNodeOptions {
         unsigned channelCount;
@@ -225,8 +227,8 @@ protected:
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger.get(); }
-    const void* logIdentifier() const final { return m_logIdentifier; }
-    const char* logClassName() const final { return "AudioNode"; }
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const final { return "AudioNode"_s; }
     WTFLogChannel& logChannel() const final;
 #endif
 
@@ -239,7 +241,7 @@ private:
     static WeakOrStrongContext toWeakOrStrongContext(BaseAudioContext&, NodeType);
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const override;
+    enum EventTargetInterfaceType eventTargetInterface() const override;
     ScriptExecutionContext* scriptExecutionContext() const final;
 
     volatile bool m_isInitialized { false };
@@ -255,7 +257,7 @@ private:
 
     // Ref-counting
     // start out with normal refCount == 1 (like WTF::RefCounted class).
-    std::atomic<int> m_normalRefCount { 1 };
+    mutable std::atomic<int> m_normalRefCount { 1 };
     std::atomic<int> m_connectionRefCount { 0 };
 
     bool m_isMarkedForDeletion { false };
@@ -273,7 +275,7 @@ private:
 
 #if !RELEASE_LOG_DISABLED
     mutable Ref<const Logger> m_logger;
-    const void* m_logIdentifier;
+    const uint64_t m_logIdentifier;
 #endif
 
     unsigned m_channelCount { 2 };

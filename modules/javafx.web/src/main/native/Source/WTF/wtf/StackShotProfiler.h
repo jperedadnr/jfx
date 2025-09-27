@@ -34,6 +34,8 @@
 #include <wtf/Threading.h>
 #include <wtf/WordLock.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WTF {
 
 class StackShotProfiler {
@@ -44,7 +46,7 @@ public:
         , m_framesToSkip(framesToSkip)
         , m_stacksToReport(stacksToReport)
     {
-        Thread::create("StackShotProfiler", [this] () { run(); });
+        Thread::create("StackShotProfiler"_s, [this] () { run(); });
     }
 
     // NEVER_INLINE so that framesToSkip is predictable.
@@ -92,3 +94,4 @@ private:
 
 } // namespace WTF
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

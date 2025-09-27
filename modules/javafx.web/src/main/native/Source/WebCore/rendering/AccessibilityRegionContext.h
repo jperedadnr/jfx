@@ -28,6 +28,7 @@
 #include "InlineIteratorTextBox.h"
 #include "LayoutRect.h"
 #include "RegionContext.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -36,7 +37,9 @@ class RenderBoxModelObject;
 class RenderText;
 class RenderView;
 
-class AccessibilityRegionContext : public RegionContext {
+class AccessibilityRegionContext final : public RegionContext {
+    WTF_MAKE_TZONE_ALLOCATED(AccessibilityRegionContext);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AccessibilityRegionContext);
 public:
     AccessibilityRegionContext() = default;
     virtual ~AccessibilityRegionContext();
@@ -82,7 +85,7 @@ private:
         return mappedRect;
     }
 
-    WeakHashMap<RenderText, FloatRect> m_accumulatedRenderTextRects;
+    SingleThreadWeakHashMap<RenderText, FloatRect> m_accumulatedRenderTextRects;
 }; // class AccessibilityRegionContext
 
 } // namespace WebCore

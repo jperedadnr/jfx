@@ -30,11 +30,13 @@
 #include "DragItem.h"
 #include "FloatPoint.h"
 #include "IntPoint.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 class DataTransfer;
 class Element;
+class Frame;
 class Image;
 class LocalFrame;
 
@@ -43,7 +45,7 @@ struct PromisedAttachmentInfo;
 #endif
 
 class DragClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(DragClient);
 public:
     virtual bool useLegacyDragClient() { return true; }
 
@@ -52,7 +54,7 @@ public:
     virtual void didConcludeEditDrag() { }
     virtual OptionSet<DragSourceAction> dragSourceActionMaskForPoint(const IntPoint& rootViewPoint) = 0;
 
-    virtual void startDrag(DragItem, DataTransfer&, LocalFrame&) = 0;
+    virtual void startDrag(DragItem, DataTransfer&, Frame&) = 0;
     virtual void dragEnded() { }
 
     virtual void beginDrag(DragItem, LocalFrame&, const IntPoint&, const IntPoint&, DataTransfer&, DragSourceAction) { }

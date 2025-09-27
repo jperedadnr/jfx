@@ -29,12 +29,15 @@
 #if USE(LIBWEBRTC)
 
 #include <wtf/MainThread.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LibWebRTCDTMFSenderBackend);
+
 static inline String toWTFString(const std::string& value)
 {
-    return String::fromUTF8(value.data(), value.length());
+    return String::fromUTF8(value);
 }
 
 LibWebRTCDTMFSenderBackend::LibWebRTCDTMFSenderBackend(rtc::scoped_refptr<webrtc::DtmfSenderInterface>&& sender)

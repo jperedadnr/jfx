@@ -30,6 +30,7 @@
 
 #include "CDMFactory.h"
 #include "CDMPrivate.h"
+#include "ContextDestructionObserverInlines.h"
 #include "Document.h"
 #include "InitDataRegistry.h"
 #include "MediaKeysRequirement.h"
@@ -58,23 +59,24 @@ bool CDM::supportsKeySystem(const String& keySystem)
     return false;
 }
 
-Ref<CDM> CDM::create(Document& document, const String& keySystem)
+Ref<CDM> CDM::create(Document& document, const String& keySystem, const String& mediaKeysHashSalt)
 {
-    return adoptRef(*new CDM(document, keySystem));
+    return adoptRef(*new CDM(document, keySystem, mediaKeysHashSalt));
 }
 
-CDM::CDM(Document& document, const String& keySystem)
+CDM::CDM(Document& document, const String& keySystem, const String& mediaKeysHashSalt)
     : ContextDestructionObserver(&document)
 #if !RELEASE_LOG_DISABLED
     , m_logger(document.logger())
     , m_logIdentifier(LoggerHelper::uniqueLogIdentifier())
 #endif
     , m_keySystem(keySystem)
+    , m_mediaKeysHashSalt { mediaKeysHashSalt }
 {
     ASSERT(supportsKeySystem(keySystem));
     for (auto* factory : CDMFactory::registeredFactories()) {
         if (factory->supportsKeySystem(keySystem)) {
-            m_private = factory->createCDM(keySystem, *this);
+            m_private = factory->createCDM(keySystem, m_mediaKeysHashSalt, *this);
 #if !RELEASE_LOG_DISABLED
             m_private->setLogIdentifier(m_logIdentifier);
 #endif
@@ -91,7 +93,7 @@ void CDM::getSupportedConfiguration(MediaKeySystemConfiguration&& candidateConfi
     // W3C Editor's Draft 09 November 2016
     // Implemented in CDMPrivate::getSupportedConfiguration()
 
-    Document* document = downcast<Document>(scriptExecutionContext());
+    RefPtr document = downcast<Document>(scriptExecutionContext());
     if (!document || !m_private) {
         callback(std::nullopt);
         return;
@@ -161,19 +163,8 @@ std::optional<String> CDM::sanitizeSessionId(const String& sessionId)
 
 String CDM::storageDirectory() const
 {
-    auto* document = downcast<Document>(scriptExecutionContext());
-    if (!document)
-        return emptyString();
-
-    auto* page = document->page();
-    if (!page || page->usesEphemeralSession())
-        return emptyString();
-
-    auto storageDirectory = document->settings().mediaKeysStorageDirectory();
-    if (storageDirectory.isEmpty())
-        return emptyString();
-
-    return FileSystem::pathByAppendingComponent(storageDirectory, document->securityOrigin().data().databaseIdentifier());
+    RefPtr document = downcast<Document>(scriptExecutionContext());
+    return document ? document->mediaKeysStorageDirectory() : emptyString();
 }
 
 }

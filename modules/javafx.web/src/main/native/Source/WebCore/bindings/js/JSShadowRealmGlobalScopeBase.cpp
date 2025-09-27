@@ -71,6 +71,9 @@ const GlobalObjectMethodTable* JSShadowRealmGlobalScopeBase::globalObjectMethodT
     nullptr,
 #endif
     &deriveShadowRealmGlobalObject,
+        &codeForEval,
+        &canCompileStrings,
+        &trustedScriptStructure,
     };
     return &table;
 };
@@ -147,7 +150,7 @@ JSC::ScriptExecutionStatus JSShadowRealmGlobalScopeBase::scriptExecutionStatus(J
     return incubating->globalObjectMethodTable()->scriptExecutionStatus(incubating, owner);
 }
 
-void JSShadowRealmGlobalScopeBase::reportViolationForUnsafeEval(JSC::JSGlobalObject* globalObject, JSC::JSString* msg)
+void JSShadowRealmGlobalScopeBase::reportViolationForUnsafeEval(JSC::JSGlobalObject* globalObject, const String& msg)
 {
     auto incubating = jsCast<JSShadowRealmGlobalScopeBase*>(globalObject)->incubatingRealm();
     incubating->globalObjectMethodTable()->reportViolationForUnsafeEval(incubating, msg);

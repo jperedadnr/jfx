@@ -27,14 +27,20 @@
 #include "config.h"
 #include "WorkerThread.h"
 
+#include "AdvancedPrivacyProtections.h"
 #include "IDBConnectionProxy.h"
 #include "ScriptSourceCode.h"
 #include "SecurityOrigin.h"
 #include "SocketProvider.h"
+#include "WorkerBadgeProxy.h"
+#include "WorkerDebuggerProxy.h"
 #include "WorkerGlobalScope.h"
+#include "WorkerLoaderProxy.h"
+#include "WorkerReportingProxy.h"
 #include "WorkerScriptFetcher.h"
 #include <JavaScriptCore/ScriptCallStack.h>
 #include <wtf/SetForScope.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Threading.h>
 
 #if PLATFORM(JAVA)
@@ -69,16 +75,16 @@ WorkerParameters WorkerParameters::isolatedCopy() const
         settingsValues.isolatedCopy(),
         workerThreadMode,
         sessionID,
-#if ENABLE(SERVICE_WORKER)
         crossThreadCopy(serviceWorkerData),
-#endif
         clientIdentifier,
+        advancedPrivacyProtections,
         noiseInjectionHashSalt
     };
 }
 
 struct WorkerThreadStartupData {
-    WTF_MAKE_NONCOPYABLE(WorkerThreadStartupData); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(WorkerThreadStartupData);
+    WTF_MAKE_NONCOPYABLE(WorkerThreadStartupData);
 public:
     WorkerThreadStartupData(const WorkerParameters& params, const ScriptBuffer& sourceCode, WorkerThreadStartMode, const SecurityOrigin& topOrigin);
 
@@ -118,11 +124,31 @@ WorkerThread::~WorkerThread()
     --workerThreadCounter;
 }
 
+WorkerLoaderProxy* WorkerThread::workerLoaderProxy()
+{
+    return m_workerLoaderProxy.get();
+}
+
+WorkerBadgeProxy* WorkerThread::workerBadgeProxy() const
+{
+    return m_workerBadgeProxy.get();
+}
+
+WorkerDebuggerProxy* WorkerThread::workerDebuggerProxy() const
+{
+    return m_workerDebuggerProxy.get();
+}
+
+WorkerReportingProxy* WorkerThread::workerReportingProxy() const
+{
+    return m_workerReportingProxy.get();
+}
+
 Ref<Thread> WorkerThread::createThread()
 {
     if (is<WorkerMainRunLoop>(runLoop())) {
         // This worker should run on the main thread.
-        RunLoop::main().dispatch([protectedThis = Ref { *this }] {
+        RunLoop::protectedMain()->dispatch([protectedThis = Ref { *this }] {
             protectedThis->workerOrWorkletThread();
         });
         ASSERT(isMainThread());
@@ -154,33 +180,35 @@ void WorkerThread::evaluateScriptIfNecessary(String& exceptionMessage)
     // We are currently holding only the initial script code. If the WorkerType is Module, we should fetch the entire graph before executing the rest of this.
     // We invoke module loader as if we are executing inline module script tag in Document.
 
+    Ref globalScope = *this->globalScope();
+
     WeakPtr<ScriptBufferSourceProvider> sourceProvider;
     if (m_startupData->params.workerType == WorkerType::Classic) {
         ScriptSourceCode sourceCode(m_startupData->sourceCode, URL(m_startupData->params.scriptURL));
         sourceProvider = static_cast<ScriptBufferSourceProvider&>(sourceCode.provider());
-        globalScope()->script()->evaluate(sourceCode, &exceptionMessage);
+        globalScope->script()->evaluate(sourceCode, &exceptionMessage);
         finishedEvaluatingScript();
     } else {
         auto parameters = ModuleFetchParameters::create(JSC::ScriptFetchParameters::Type::JavaScript, emptyString(), /* isTopLevelModule */ true);
-        auto scriptFetcher = WorkerScriptFetcher::create(WTFMove(parameters), globalScope()->credentials(), globalScope()->destination(), globalScope()->referrerPolicy());
+        auto scriptFetcher = WorkerScriptFetcher::create(WTFMove(parameters), globalScope->credentials(), globalScope->destination(), globalScope->referrerPolicy());
         ScriptSourceCode sourceCode(m_startupData->sourceCode, URL(m_startupData->params.scriptURL), { }, { }, JSC::SourceProviderSourceType::Module, scriptFetcher.copyRef());
         sourceProvider = static_cast<ScriptBufferSourceProvider&>(sourceCode.provider());
-        bool success = globalScope()->script()->loadModuleSynchronously(scriptFetcher.get(), sourceCode);
+        bool success = globalScope->script()->loadModuleSynchronously(scriptFetcher.get(), sourceCode);
         if (success) {
-            if (std::optional<LoadableScript::Error> error = scriptFetcher->error()) {
+            if (auto error = scriptFetcher->error()) {
                 if (std::optional<LoadableScript::ConsoleMessage> message = error->consoleMessage)
                     exceptionMessage = message->message;
                 else
                     exceptionMessage = "Importing a module script failed."_s;
-                globalScope()->reportException(exceptionMessage, { }, { }, { }, { }, { });
+                globalScope->reportErrorToWorkerObject(exceptionMessage);
             } else if (!scriptFetcher->wasCanceled()) {
-                globalScope()->script()->linkAndEvaluateModule(scriptFetcher.get(), sourceCode, &exceptionMessage);
+                globalScope->script()->linkAndEvaluateModule(scriptFetcher.get(), sourceCode, &exceptionMessage);
                 finishedEvaluatingScript();
             }
         }
     }
     if (sourceProvider)
-        globalScope()->setMainScriptSourceProvider(*sourceProvider);
+        globalScope->setMainScriptSourceProvider(*sourceProvider);
 
     // Free the startup data to cause its member variable deref's happen on the worker's thread (since
     // all ref/derefs of these objects are happening on the thread at this point). Note that
@@ -200,6 +228,7 @@ SocketProvider* WorkerThread::socketProvider()
 
 WorkerGlobalScope* WorkerThread::globalScope()
 {
+    ASSERT(!thread() || thread() == &Thread::current());
     return downcast<WorkerGlobalScope>(WorkerOrWorkletThread::globalScope());
 }
 

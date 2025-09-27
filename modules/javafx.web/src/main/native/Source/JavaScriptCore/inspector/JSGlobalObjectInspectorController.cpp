@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -49,15 +49,20 @@
 #include "ScriptCallStackFactory.h"
 #include <wtf/StackTrace.h>
 #include <wtf/Stopwatch.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(REMOTE_INSPECTOR)
 #include "JSGlobalObjectDebuggable.h"
 #include "RemoteInspector.h"
 #endif
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace Inspector {
 
 using namespace JSC;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(JSGlobalObjectInspectorController);
 
 JSGlobalObjectInspectorController::JSGlobalObjectInspectorController(JSGlobalObject& globalObject)
     : m_globalObject(globalObject)
@@ -165,9 +170,9 @@ void JSGlobalObjectInspectorController::appendAPIBacktrace(ScriptCallStack& call
     for (int i = 0; i < size; ++i) {
         auto demangled = StackTraceSymbolResolver::demangle(stack[i]);
         if (demangled)
-            callStack.append(ScriptCallFrame(String::fromLatin1(demangled->demangledName() ? demangled->demangledName() : demangled->mangledName()), "[native code]"_s, noSourceID, 0, 0));
+            callStack.append(ScriptCallFrame(String::fromLatin1(demangled->demangledName() ? demangled->demangledName() : demangled->mangledName()), "[native code]"_s, noSourceID, { }));
         else
-            callStack.append(ScriptCallFrame("?"_s, "[native code]"_s, noSourceID, 0, 0));
+            callStack.append(ScriptCallFrame("?"_s, "[native code]"_s, noSourceID, { }));
     }
 }
 
@@ -339,3 +344,5 @@ void JSGlobalObjectInspectorController::createLazyAgents()
 }
 
 } // namespace Inspector
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

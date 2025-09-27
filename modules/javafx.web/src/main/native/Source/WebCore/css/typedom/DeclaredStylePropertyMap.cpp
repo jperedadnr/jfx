@@ -27,6 +27,7 @@
 #include "DeclaredStylePropertyMap.h"
 
 #include "CSSCustomPropertyValue.h"
+#include "CSSSerializationContext.h"
 #include "CSSStyleRule.h"
 #include "CSSStyleSheet.h"
 #include "CSSUnparsedValue.h"
@@ -102,8 +103,7 @@ bool DeclaredStylePropertyMap::setShorthandProperty(CSSPropertyID propertyID, co
 
     CSSStyleSheet::RuleMutationScope mutationScope(m_ownerRule.get());
     bool didFailParsing = false;
-    bool important = false;
-    styleRule->mutableProperties().setProperty(propertyID, value, important, &didFailParsing);
+    styleRule->mutableProperties().setProperty(propertyID, value, IsImportant::No, &didFailParsing);
     return !didFailParsing;
 }
 
@@ -115,8 +115,7 @@ bool DeclaredStylePropertyMap::setProperty(CSSPropertyID propertyID, Ref<CSSValu
 
     CSSStyleSheet::RuleMutationScope mutationScope(m_ownerRule.get());
     bool didFailParsing = false;
-    bool important = false;
-    styleRule->mutableProperties().setProperty(propertyID, value->cssText(), important, &didFailParsing);
+    styleRule->mutableProperties().setProperty(propertyID, value->cssText(CSS::defaultSerializationContext()), IsImportant::No, &didFailParsing);
     return !didFailParsing;
 }
 
@@ -127,9 +126,8 @@ bool DeclaredStylePropertyMap::setCustomProperty(Document&, const AtomString& pr
         return false;
 
     CSSStyleSheet::RuleMutationScope mutationScope(m_ownerRule.get());
-    bool important = false;
     auto customPropertyValue = CSSCustomPropertyValue::createUnresolved(property, WTFMove(value));
-    styleRule->mutableProperties().addParsedProperty(CSSProperty(CSSPropertyCustom, WTFMove(customPropertyValue), important));
+    styleRule->mutableProperties().addParsedProperty(CSSProperty(CSSPropertyCustom, WTFMove(customPropertyValue)));
     return true;
 }
 

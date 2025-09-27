@@ -27,12 +27,18 @@
 #include "WorkerInspectorController.h"
 
 #include "CommandLineAPIHost.h"
+#include "InspectorClient.h"
+#include "InspectorController.h"
 #include "InstrumentingAgents.h"
 #include "JSExecState.h"
+#include "Page.h"
+#include "ServiceWorkerAgent.h"
+#include "ServiceWorkerGlobalScope.h"
 #include "WebHeapAgent.h"
 #include "WebInjectedScriptHost.h"
 #include "WebInjectedScriptManager.h"
 #include "WorkerAuditAgent.h"
+#include "WorkerCanvasAgent.h"
 #include "WorkerConsoleAgent.h"
 #include "WorkerDOMDebuggerAgent.h"
 #include "WorkerDebugger.h"
@@ -41,25 +47,23 @@
 #include "WorkerOrWorkletGlobalScope.h"
 #include "WorkerRuntimeAgent.h"
 #include "WorkerThread.h"
+#include "WorkerTimelineAgent.h"
 #include "WorkerToPageFrontendChannel.h"
+#include "WorkerWorkerAgent.h"
 #include <JavaScriptCore/InspectorAgentBase.h>
 #include <JavaScriptCore/InspectorBackendDispatcher.h>
 #include <JavaScriptCore/InspectorFrontendChannel.h>
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
 #include <JavaScriptCore/InspectorFrontendRouter.h>
-
-#if ENABLE(SERVICE_WORKER)
-#include "InspectorClient.h"
-#include "InspectorController.h"
-#include "Page.h"
-#include "ServiceWorkerAgent.h"
-#include "ServiceWorkerGlobalScope.h"
-#endif
+#include <JavaScriptCore/InspectorScriptProfilerAgent.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace JSC;
 using namespace Inspector;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerInspectorController);
 
 WorkerInspectorController::WorkerInspectorController(WorkerOrWorkletGlobalScope& globalScope)
     : m_instrumentingAgents(InstrumentingAgents::create(*this))
@@ -115,9 +119,7 @@ void WorkerInspectorController::connectFrontend()
     m_frontendRouter->connectFrontend(*m_forwardingChannel.get());
     m_agents.didCreateFrontendAndBackend(&m_frontendRouter.get(), &m_backendDispatcher.get());
 
-#if ENABLE(SERVICE_WORKER)
     updateServiceWorkerPageFrontendCount();
-#endif
 }
 
 void WorkerInspectorController::disconnectFrontend(Inspector::DisconnectReason reason)
@@ -135,18 +137,15 @@ void WorkerInspectorController::disconnectFrontend(Inspector::DisconnectReason r
     m_frontendRouter->disconnectFrontend(*m_forwardingChannel.get());
     m_forwardingChannel = nullptr;
 
-#if ENABLE(SERVICE_WORKER)
     updateServiceWorkerPageFrontendCount();
-#endif
 }
 
-#if ENABLE(SERVICE_WORKER)
 void WorkerInspectorController::updateServiceWorkerPageFrontendCount()
 {
     if (!is<ServiceWorkerGlobalScope>(m_globalScope))
         return;
 
-    auto serviceWorkerPage = downcast<ServiceWorkerGlobalScope>(m_globalScope).serviceWorkerPage();
+    auto serviceWorkerPage = downcast<ServiceWorkerGlobalScope>(m_globalScope.get()).serviceWorkerPage();
     if (!serviceWorkerPage)
         return;
 
@@ -160,7 +159,6 @@ void WorkerInspectorController::updateServiceWorkerPageFrontendCount()
 
     inspectorClient->frontendCountChanged(m_frontendRouter->frontendCount());
 }
-#endif
 
 void WorkerInspectorController::dispatchMessageFromFrontend(const String& message)
 {
@@ -204,12 +202,10 @@ void WorkerInspectorController::createLazyAgents()
 
     m_agents.append(makeUnique<WorkerRuntimeAgent>(workerContext));
 
-#if ENABLE(SERVICE_WORKER)
     if (is<ServiceWorkerGlobalScope>(m_globalScope)) {
         m_agents.append(makeUnique<ServiceWorkerAgent>(workerContext));
         m_agents.append(makeUnique<WorkerNetworkAgent>(workerContext));
     }
-#endif
 
     m_agents.append(makeUnique<WebHeapAgent>(workerContext));
 
@@ -219,6 +215,13 @@ void WorkerInspectorController::createLazyAgents()
 
     m_agents.append(makeUnique<WorkerDOMDebuggerAgent>(workerContext, debuggerAgentPtr));
     m_agents.append(makeUnique<WorkerAuditAgent>(workerContext));
+    m_agents.append(makeUnique<WorkerCanvasAgent>(workerContext));
+    m_agents.append(makeUnique<WorkerTimelineAgent>(workerContext));
+    m_agents.append(makeUnique<WorkerWorkerAgent>(workerContext));
+
+    auto scriptProfilerAgentPtr = makeUnique<InspectorScriptProfilerAgent>(workerContext);
+    m_instrumentingAgents->setPersistentScriptProfilerAgent(scriptProfilerAgentPtr.get());
+    m_agents.append(WTFMove(scriptProfilerAgentPtr));
 
     if (auto& commandLineAPIHost = m_injectedScriptManager->commandLineAPIHost())
         commandLineAPIHost->init(m_instrumentingAgents.copyRef());
@@ -247,7 +250,7 @@ JSC::Debugger* WorkerInspectorController::debugger()
 
 VM& WorkerInspectorController::vm()
 {
-    return m_globalScope.vm();
+    return m_globalScope->vm();
 }
 
 } // namespace WebCore

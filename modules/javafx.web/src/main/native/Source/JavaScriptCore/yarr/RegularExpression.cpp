@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004, 2008, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Collabora Ltd.
  * Copyright (C) 2011 Peter Varga (pvarga@webkit.org), University of Szeged
  *
@@ -32,8 +32,13 @@
 #include "YarrInterpreter.h"
 #include <wtf/Assertions.h>
 #include <wtf/BumpPointerAllocator.h>
+#include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace Yarr {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RegularExpression);
 
 class RegularExpression::Private : public RefCounted<RegularExpression::Private> {
 public:
@@ -82,9 +87,7 @@ RegularExpression::RegularExpression(const RegularExpression& re)
 {
 }
 
-RegularExpression::~RegularExpression()
-{
-}
+RegularExpression::~RegularExpression() = default;
 
 RegularExpression& RegularExpression::operator=(const RegularExpression& re)
 {
@@ -183,3 +186,5 @@ bool RegularExpression::isValid() const
 }
 
 } } // namespace JSC::Yarr
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

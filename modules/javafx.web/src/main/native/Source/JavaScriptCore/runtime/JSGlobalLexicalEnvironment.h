@@ -54,17 +54,14 @@ public:
     static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
 
     static void destroy(JSCell*);
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     bool isEmpty() const { return !symbolTable()->size(); }
     bool isConstVariable(UniquedStringImpl*);
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject)
-    {
-        return Structure::create(vm, globalObject, jsNull(), TypeInfo(GlobalLexicalEnvironmentType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*);
 
 private:
     JSGlobalLexicalEnvironment(VM& vm, Structure* structure, JSScope* scope)

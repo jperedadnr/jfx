@@ -27,16 +27,17 @@
 
 #pragma once
 
+#include "AnchorPositionEvaluator.h"
 #include "LayoutSize.h"
 #include "StyleScopeOrdinal.h"
 #include "Timer.h"
 #include <memory>
 #include <wtf/CheckedPtr.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakHashMap.h>
@@ -65,9 +66,12 @@ namespace Style {
 
 class CustomPropertyRegistry;
 class Resolver;
+class RuleSet;
+struct MatchResult;
 
-class Scope : public CanMakeWeakPtr<Scope> {
-    WTF_MAKE_FAST_ALLOCATED;
+class Scope final : public CanMakeWeakPtr<Scope>, public CanMakeCheckedPtr<Scope> {
+    WTF_MAKE_TZONE_ALLOCATED(Scope);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Scope);
 public:
     explicit Scope(Document&);
     explicit Scope(ShadowRoot&);
@@ -82,7 +86,6 @@ public:
     void addStyleSheetCandidateNode(Node&, bool createdByParser);
     void removeStyleSheetCandidateNode(Node&);
 
-    String preferredStylesheetSetName() const { return m_preferredStylesheetSetName; }
     void setPreferredStylesheetSetName(const String&);
 
     void addPendingSheet(const Element&);
@@ -99,7 +102,7 @@ public:
     bool usesStyleBasedEditability() const { return m_usesStyleBasedEditability; }
     bool usesHasPseudoClass() const { return m_usesHasPseudoClass; }
 
-    bool activeStyleSheetsContains(const CSSStyleSheet*) const;
+    bool activeStyleSheetsContains(const CSSStyleSheet&) const;
 
     void evaluateMediaQueriesForViewportChange();
     void evaluateMediaQueriesForAccessibilitySettingsChange();
@@ -129,6 +132,11 @@ public:
     void clearResolver();
     void releaseMemory();
 
+    void clearViewTransitionStyles();
+
+    const MatchResult* cachedMatchResult(const Element&);
+    void updateCachedMatchResult(const Element&, const MatchResult&);
+
     const Document& document() const { return m_document; }
     Document& document() { return m_document; }
     const ShadowRoot* shadowRoot() const { return m_shadowRoot; }
@@ -138,15 +146,21 @@ public:
     static const Scope& forNode(const Node&);
     static Scope* forOrdinal(Element&, ScopeOrdinal);
 
-    struct QueryContainerUpdateContext {
-        HashSet<Element*> invalidatedContainers;
+    struct LayoutDependencyUpdateContext {
+        UncheckedKeyHashSet<CheckedRef<const Element>> invalidatedContainers;
+        UncheckedKeyHashSet<CheckedRef<const Element>> invalidatedAnchorPositioned;
     };
-    bool updateQueryContainerState(QueryContainerUpdateContext&);
+    bool invalidateForLayoutDependencies(LayoutDependencyUpdateContext&);
 
     const CustomPropertyRegistry& customPropertyRegistry() const { return m_customPropertyRegistry.get(); }
     CustomPropertyRegistry& customPropertyRegistry() { return m_customPropertyRegistry.get(); }
     const CSSCounterStyleRegistry& counterStyleRegistry() const { return m_counterStyleRegistry.get(); }
     CSSCounterStyleRegistry& counterStyleRegistry() { return m_counterStyleRegistry.get(); }
+
+    AnchorPositionedStates& anchorPositionedStates() { return m_anchorPositionedStates; }
+    const AnchorPositionedStates& anchorPositionedStates() const { return m_anchorPositionedStates; }
+    void resetAnchorPositioningStateBeforeStyleResolution();
+    void updateAnchorPositioningStateAfterStyleResolution();
 
 private:
     Scope& documentScope();
@@ -158,7 +172,7 @@ private:
     void updateActiveStyleSheets(UpdateType);
     void scheduleUpdate(UpdateType);
 
-    using ResolverScopes = HashMap<Ref<Resolver>, Vector<WeakPtr<Scope>>>;
+    using ResolverScopes = UncheckedKeyHashMap<Ref<Resolver>, Vector<WeakPtr<Scope>>>;
     ResolverScopes collectResolverScopes();
     template <typename TestFunction> void evaluateMediaQueries(TestFunction&&);
 
@@ -179,7 +193,7 @@ private:
     };
     struct StyleSheetChange {
         ResolverUpdateType resolverUpdateType;
-        Vector<StyleSheetContents*> addedSheets { };
+        Vector<Ref<StyleSheetContents>> addedSheets { };
     };
     StyleSheetChange analyzeStyleSheetChange(const Vector<RefPtr<CSSStyleSheet>>& newStylesheets);
     void invalidateStyleAfterStyleSheetChange(const StyleSheetChange&);
@@ -200,7 +214,11 @@ private:
     using MediaQueryViewportState = std::tuple<IntSize, float, bool>;
     static MediaQueryViewportState mediaQueryViewportStateForDocument(const Document&);
 
-    Document& m_document;
+    bool invalidateForContainerDependencies(LayoutDependencyUpdateContext&);
+    bool invalidateForAnchorDependencies(LayoutDependencyUpdateContext&);
+    bool invalidateForPositionTryFallbacks(LayoutDependencyUpdateContext&);
+
+    CheckedRef<Document> m_document;
     ShadowRoot* m_shadowRoot { nullptr };
 
     RefPtr<Resolver> m_resolver;
@@ -208,9 +226,11 @@ private:
     Vector<RefPtr<StyleSheet>> m_styleSheetsForStyleSheetList;
     Vector<RefPtr<CSSStyleSheet>> m_activeStyleSheets;
 
+    mutable RefPtr<RuleSet> m_dynamicViewTransitionsStyle;
+
     Timer m_pendingUpdateTimer;
 
-    mutable HashSet<const CSSStyleSheet*> m_weakCopyOfActiveStyleSheetListForFastLookup;
+    mutable UncheckedKeyHashSet<SingleThreadWeakRef<const CSSStyleSheet>> m_weakCopyOfActiveStyleSheetListForFastLookup;
 
     // Track the currently loading top-level stylesheets needed for rendering.
     // Sheets loaded using the @import directive are not included in this count.
@@ -232,13 +252,19 @@ private:
     bool m_isUpdatingStyleResolver { false };
 
     std::optional<MediaQueryViewportState> m_viewportStateOnPreviousMediaQueryEvaluation;
-    WeakHashMap<Element, LayoutSize, WeakPtrImplWithEventTargetData> m_queryContainerStates;
+    WeakHashMap<Element, LayoutSize, WeakPtrImplWithEventTargetData> m_queryContainerDimensionsOnLastUpdate;
+
+    SingleThreadWeakHashMap<const RenderBoxModelObject, LayoutRect> m_anchorRectsOnLastUpdate;
+
+    mutable WeakHashMap<const Element, UniqueRef<MatchResult>, WeakPtrImplWithEventTargetData> m_cachedMatchResults;
 
     UniqueRef<CustomPropertyRegistry> m_customPropertyRegistry;
     UniqueRef<CSSCounterStyleRegistry> m_counterStyleRegistry;
 
     // FIXME: These (and some things above) are only relevant for the root scope.
-    HashMap<ResolverSharingKey, Ref<Resolver>> m_sharedShadowTreeResolvers;
+    UncheckedKeyHashMap<ResolverSharingKey, Ref<Resolver>> m_sharedShadowTreeResolvers;
+
+    AnchorPositionedStates m_anchorPositionedStates;
 };
 
 HTMLSlotElement* assignedSlotForScopeOrdinal(const Element&, ScopeOrdinal);

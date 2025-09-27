@@ -29,6 +29,8 @@
 #include "DataView.h"
 #include "TypedArrayInlines.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 ArrayBufferView::ArrayBufferView(TypedArrayType type, RefPtr<ArrayBuffer>&& buffer, size_t byteOffset, std::optional<size_t> byteLength)
@@ -51,7 +53,7 @@ ArrayBufferView::ArrayBufferView(TypedArrayType type, RefPtr<ArrayBuffer>&& buff
         ASSERT(isAutoLength());
 
     if (m_buffer)
-        m_baseAddress = BaseAddress(static_cast<char*>(m_buffer->data()) + m_byteOffset, m_byteLength);
+        m_baseAddress = BaseAddress(static_cast<char*>(m_buffer->data()) + m_byteOffset);
 }
 
 template<typename Visitor> constexpr decltype(auto) ArrayBufferView::visitDerived(Visitor&& visitor)
@@ -107,3 +109,5 @@ void ArrayBufferView::setDetachable(bool flag)
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

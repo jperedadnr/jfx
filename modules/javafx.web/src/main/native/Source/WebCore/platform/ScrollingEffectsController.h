@@ -38,6 +38,7 @@
 #include <wtf/Deque.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -51,7 +52,7 @@ class WheelEventTestMonitor;
 struct ScrollExtents;
 
 class ScrollingEffectsControllerTimer : public RunLoop::TimerBase {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ScrollingEffectsControllerTimer);
 public:
     ScrollingEffectsControllerTimer(RunLoop& runLoop, Function<void()>&& callback)
         : RunLoop::TimerBase(runLoop)
@@ -107,8 +108,8 @@ public:
     virtual void rubberBandingStateChanged(bool) { }
 #endif
 
-    virtual void deferWheelEventTestCompletionForReason(WheelEventTestMonitor::ScrollableAreaIdentifier, WheelEventTestMonitor::DeferReason) const { /* Do nothing */ }
-    virtual void removeWheelEventTestCompletionDeferralForReason(WheelEventTestMonitor::ScrollableAreaIdentifier, WheelEventTestMonitor::DeferReason) const { /* Do nothing */ }
+    virtual void deferWheelEventTestCompletionForReason(ScrollingNodeID, WheelEventTestMonitor::DeferReason) const { /* Do nothing */ }
+    virtual void removeWheelEventTestCompletionDeferralForReason(ScrollingNodeID, WheelEventTestMonitor::DeferReason) const { /* Do nothing */ }
 
     virtual FloatPoint scrollOffset() const = 0;
 
@@ -124,6 +125,7 @@ public:
     virtual float pageScaleFactor() const = 0;
     virtual ScrollExtents scrollExtents() const = 0;
     virtual bool scrollAnimationEnabled() const { return true; }
+    virtual ScrollingNodeID scrollingNodeIDForTesting() const = 0;
 };
 
 class ScrollingEffectsController : public ScrollAnimationClient {
@@ -146,7 +148,7 @@ public:
 
     void stopKeyboardScrolling();
 
-    bool startMomentumScrollWithInitialVelocity(const FloatPoint& initialOffset, const FloatSize& initialVelocity, const FloatSize& initialDelta, const Function<FloatPoint(const FloatPoint&)>& destinationModifier);
+    bool startMomentumScrollWithInitialVelocity(const FloatPoint& initialOffset, const FloatSize& initialVelocity, const FloatSize& initialDelta, NOESCAPE const Function<FloatPoint(const FloatPoint&)>& destinationModifier);
 
     void willBeginKeyboardScrolling();
     void didStopKeyboardScrolling();
@@ -238,6 +240,8 @@ private:
     FloatPoint scrollOffset(ScrollAnimation&) final;
 
     void adjustDeltaForSnappingIfNeeded(float& deltaX, float& deltaY);
+
+    void clampDeltaForAllowedAxes(const PlatformWheelEvent&, FloatSize&);
 
 #if ENABLE(KINETIC_SCROLLING) && !PLATFORM(MAC)
     // Returns true if handled.

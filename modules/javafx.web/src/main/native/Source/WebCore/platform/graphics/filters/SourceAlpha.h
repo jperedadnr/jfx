@@ -24,14 +24,16 @@
 
 namespace WebCore {
 
-class SourceAlpha : public FilterEffect {
+class SourceAlpha final : public FilterEffect {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SourceAlpha);
 public:
     WEBCORE_EXPORT static Ref<SourceAlpha> create(const DestinationColorSpace& = DestinationColorSpace::SRGB());
 
     static AtomString effectName() { return FilterEffect::sourceAlphaName(); }
 
 private:
-    explicit SourceAlpha(const DestinationColorSpace&);
+    explicit SourceAlpha(DestinationColorSpace);
 
     std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
 
@@ -40,4 +42,4 @@ private:
 
 } //namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_FILTER_EFFECT(SourceAlpha)
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(SourceAlpha)

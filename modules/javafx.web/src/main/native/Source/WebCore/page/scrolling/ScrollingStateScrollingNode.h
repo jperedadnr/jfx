@@ -42,11 +42,7 @@ struct ScrollbarHoverState {
     bool mouseIsOverHorizontalScrollbar { false };
     bool mouseIsOverVerticalScrollbar { false };
 
-    bool operator==(const ScrollbarHoverState& other) const
-    {
-        return mouseIsOverHorizontalScrollbar == other.mouseIsOverHorizontalScrollbar
-            && mouseIsOverVerticalScrollbar == other.mouseIsOverVerticalScrollbar;
-    }
+    friend bool operator==(const ScrollbarHoverState&, const ScrollbarHoverState&) = default;
 };
 
 struct MouseLocationState {
@@ -60,6 +56,7 @@ struct ScrollbarEnabledState {
 };
 
 class ScrollingStateScrollingNode : public ScrollingStateNode {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ScrollingStateScrollingNode, WEBCORE_EXPORT);
 public:
     virtual ~ScrollingStateScrollingNode();
 
@@ -140,7 +137,49 @@ public:
     WEBCORE_EXPORT void setMouseMovedInContentArea(const MouseLocationState&);
     const MouseLocationState& mouseLocationState() const { return m_mouseLocationState; }
 
+    WEBCORE_EXPORT void setScrollbarLayoutDirection(UserInterfaceLayoutDirection);
+    UserInterfaceLayoutDirection scrollbarLayoutDirection() const { return m_scrollbarLayoutDirection; }
+
+    WEBCORE_EXPORT void setScrollbarWidth(ScrollbarWidth);
+    ScrollbarWidth scrollbarWidth() const { return m_scrollbarWidth; }
+
+    WEBCORE_EXPORT void setUseDarkAppearanceForScrollbars(bool);
+    bool useDarkAppearanceForScrollbars() const { return m_useDarkAppearanceForScrollbars; }
+
 protected:
+    ScrollingStateScrollingNode(
+        ScrollingNodeType,
+        ScrollingNodeID,
+        Vector<Ref<ScrollingStateNode>>&&,
+        OptionSet<ScrollingStateNodeProperty>,
+        std::optional<PlatformLayerIdentifier>,
+        FloatSize scrollableAreaSize,
+        FloatSize totalContentsSize,
+        FloatSize reachableContentsSize,
+        FloatPoint scrollPosition,
+        IntPoint scrollOrigin,
+        ScrollableAreaParameters&&,
+#if ENABLE(SCROLLING_THREAD)
+        OptionSet<SynchronousScrollingReason>,
+#endif
+        RequestedScrollData&&,
+        FloatScrollSnapOffsetsInfo&&,
+        std::optional<unsigned> currentHorizontalSnapPointIndex,
+        std::optional<unsigned> currentVerticalSnapPointIndex,
+        bool isMonitoringWheelEvents,
+        std::optional<PlatformLayerIdentifier> scrollContainerLayer,
+        std::optional<PlatformLayerIdentifier> scrolledContentsLayer,
+        std::optional<PlatformLayerIdentifier> horizontalScrollbarLayer,
+        std::optional<PlatformLayerIdentifier> verticalScrollbarLayer,
+        bool mouseIsOverContentArea,
+        MouseLocationState&&,
+        ScrollbarHoverState&&,
+        ScrollbarEnabledState&&,
+        UserInterfaceLayoutDirection,
+        ScrollbarWidth,
+        bool useDarkAppearanceForScrollbars,
+        RequestedKeyboardScrollData&&
+    );
     ScrollingStateScrollingNode(ScrollingStateTree&, ScrollingNodeType, ScrollingNodeID);
     ScrollingStateScrollingNode(const ScrollingStateScrollingNode&, ScrollingStateTree&);
 
@@ -178,6 +217,10 @@ private:
 #if ENABLE(SCROLLING_THREAD)
     OptionSet<SynchronousScrollingReason> m_synchronousScrollingReasons;
 #endif
+    UserInterfaceLayoutDirection m_scrollbarLayoutDirection { UserInterfaceLayoutDirection::LTR };
+    ScrollbarWidth m_scrollbarWidth { ScrollbarWidth::Auto };
+
+    bool m_useDarkAppearanceForScrollbars { false };
     bool m_isMonitoringWheelEvents { false };
     bool m_mouseIsOverContentArea { false };
 

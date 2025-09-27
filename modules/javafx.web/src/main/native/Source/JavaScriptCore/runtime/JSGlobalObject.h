@@ -1,6 +1,8 @@
 /*
  *  Copyright (C) 2007 Eric Seidel <eric@webkit.org>
- *  Copyright (C) 2007-2022 Apple Inc. All rights reserved.
+ *  Copyright (C) 2007-2023 Apple Inc. All rights reserved.
+ *  Copyright (C) 2024 Sosuke Suzuki <aosukeke@gmail.com>.
+ *  Copyright (C) 2024 Tetsuharu Ohzeki <tetsuharu.ohzeki@gmail.com>.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -21,6 +23,7 @@
 
 #pragma once
 
+#include "DeferredWorkTimer.h"
 #include "JSSegmentedVariableObject.h"
 #include "LazyClassStructure.h"
 #include "RegExpGlobalData.h"
@@ -51,6 +54,8 @@ namespace Inspector {
 class JSGlobalObjectInspectorController;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 class ArrayAllocationProfile;
@@ -58,6 +63,7 @@ class ArrayConstructor;
 class ArrayIteratorPrototype;
 class ArrayPrototype;
 class AsyncFunctionPrototype;
+class AsyncFromSyncIteratorPrototype;
 class AsyncGeneratorFunctionPrototype;
 class AsyncGeneratorPrototype;
 class AsyncIteratorPrototype;
@@ -72,13 +78,16 @@ class GetterSetter;
 class ImportMap;
 class IntlCollator;
 class IntlNumberFormat;
-class IteratorPrototype;
 class JSArrayBuffer;
 class JSCallee;
 class JSCustomGetterFunction;
 class JSCustomSetterFunction;
 class JSGlobalObjectDebuggable;
 class JSInternalPromise;
+class JSIterator;
+class JSIteratorConstructor;
+class JSIteratorHelperPrototype;
+class JSIteratorPrototype;
 class JSModuleLoader;
 class JSModuleRecord;
 class JSPromise;
@@ -96,18 +105,22 @@ class ObjectConstructor;
 class ObjectPrototype;
 class RegExpConstructor;
 class RegExpPrototype;
+class RegExpStringIteratorPrototype;
 class SetIteratorPrototype;
 class SetPrototype;
 class ShadowRealmConstructor;
 class ShadowRealmPrototype;
+class SourceCodeKey;
 class SourceOrigin;
 class StringConstructor;
 class WrapperMap;
+class WrapForValidIteratorPrototype;
 
 enum class ArrayBufferSharingMode : bool;
 enum class CodeGenerationMode : uint8_t;
 enum class ErrorType : uint8_t;
 enum class LinkTimeConstant : int32_t;
+enum class FunctionConstructionMode : uint8_t;
 
 struct GlobalObjectMethodTable;
 
@@ -119,6 +132,14 @@ enum class ScriptExecutionStatus {
     Stopped,
 };
 
+enum class BindingCreationContext : bool { Global, Eval };
+
+enum class CompilationType {
+    Function,
+    DirectEval,
+    IndirectEval,
+};
+
 constexpr bool typeExposedByDefault = true;
 
 #define DEFINE_STANDARD_BUILTIN(macro, upperName, lowerName) macro(upperName, lowerName, lowerName, JS ## upperName, upperName, object, typeExposedByDefault)
@@ -127,6 +148,7 @@ constexpr bool typeExposedByDefault = true;
     macro(String, string, stringObject, StringObject, String, object, typeExposedByDefault) \
     macro(JSPromise, promise, promise, JSPromise, Promise, object, typeExposedByDefault) \
     macro(BigInt, bigInt, bigIntObject, BigIntObject, BigInt, object, typeExposedByDefault) \
+    macro(Symbol, symbol, symbolObject, SymbolObject, Symbol, object, typeExposedByDefault) \
     macro(WeakObjectRef, weakObjectRef, weakObjectRef, JSWeakObjectRef, WeakRef, object, typeExposedByDefault) \
     macro(FinalizationRegistry, finalizationRegistry, finalizationRegistry, JSFinalizationRegistry, FinalizationRegistry, object, typeExposedByDefault) \
 
@@ -145,7 +167,6 @@ constexpr bool typeExposedByDefault = true;
     macro(Map, map, map, JSMap, Map, object, typeExposedByDefault) \
     macro(Number, number, numberObject, NumberObject, Number, object, typeExposedByDefault) \
     macro(Set, set, set, JSSet, Set, object, typeExposedByDefault) \
-    macro(Symbol, symbol, symbolObject, SymbolObject, Symbol, object, typeExposedByDefault) \
     DEFINE_STANDARD_BUILTIN(macro, WeakMap, weakMap) \
     DEFINE_STANDARD_BUILTIN(macro, WeakSet, weakSet) \
 
@@ -155,7 +176,7 @@ constexpr bool typeExposedByDefault = true;
 
 #if ENABLE(WEBASSEMBLY)
 #define FOR_EACH_WEBASSEMBLY_CONSTRUCTOR_TYPE(macro) \
-    macro(WebAssemblyArray,        webAssemblyArray,        webAssemblyArray,        JSWebAssemblyArray,        Array,        object, Options::useWebAssemblyGC()) \
+    macro(WebAssemblyArray,        webAssemblyArray,        webAssemblyArray,        JSWebAssemblyArray,        Array,        null,   typeExposedByDefault) \
     macro(WebAssemblyCompileError, webAssemblyCompileError, webAssemblyCompileError, ErrorInstance,             CompileError, error,  typeExposedByDefault) \
     macro(WebAssemblyException,    webAssemblyException,    webAssemblyException,    JSWebAssemblyException,    Exception,    object, typeExposedByDefault) \
     macro(WebAssemblyGlobal,       webAssemblyGlobal,       webAssemblyGlobal,       JSWebAssemblyGlobal,       Global,       object, typeExposedByDefault) \
@@ -164,7 +185,7 @@ constexpr bool typeExposedByDefault = true;
     macro(WebAssemblyMemory,       webAssemblyMemory,       webAssemblyMemory,       JSWebAssemblyMemory,       Memory,       object, typeExposedByDefault) \
     macro(WebAssemblyModule,       webAssemblyModule,       webAssemblyModule,       JSWebAssemblyModule,       Module,       object, typeExposedByDefault) \
     macro(WebAssemblyRuntimeError, webAssemblyRuntimeError, webAssemblyRuntimeError, ErrorInstance,             RuntimeError, error,  typeExposedByDefault) \
-    macro(WebAssemblyStruct,       webAssemblyStruct,       webAssemblyStruct,       JSWebAssemblyStruct,       Struct,       object, Options::useWebAssemblyGC()) \
+    macro(WebAssemblyStruct,       webAssemblyStruct,       webAssemblyStruct,       JSWebAssemblyStruct,       Struct,       null,   typeExposedByDefault) \
     macro(WebAssemblyTable,        webAssemblyTable,        webAssemblyTable,        JSWebAssemblyTable,        Table,        object, typeExposedByDefault) \
     macro(WebAssemblyTag,          webAssemblyTag,          webAssemblyTag,          JSWebAssemblyTag,          Tag,          object, typeExposedByDefault)
 #else
@@ -199,7 +220,7 @@ public:
     WriteBarrier<JSGlobalLexicalEnvironment> m_globalLexicalEnvironment;
     WriteBarrier<JSScope> m_globalScopeExtension;
     WriteBarrier<JSCallee> m_globalCallee;
-    WriteBarrier<JSCallee> m_stackOverflowFrameCallee;
+    WriteBarrier<JSCallee> m_partiallyInitializedFrameCallee;
 
     JS_GLOBAL_OBJECT_ADDITIONS_1;
 
@@ -218,6 +239,7 @@ public:
     WriteBarrier<FunctionConstructor> m_functionConstructor;
     WriteBarrier<JSPromiseConstructor> m_promiseConstructor;
     WriteBarrier<JSInternalPromiseConstructor> m_internalPromiseConstructor;
+    WriteBarrier<JSIteratorConstructor> m_iteratorConstructor;
     WriteBarrier<StringConstructor> m_stringConstructor;
 
     LazyProperty<JSGlobalObject, IntlCollator> m_defaultCollator;
@@ -253,12 +275,18 @@ public:
     LazyProperty<JSGlobalObject, JSFunction> m_objectProtoToStringFunction;
     LazyProperty<JSGlobalObject, JSFunction> m_arrayProtoToStringFunction;
     LazyProperty<JSGlobalObject, JSFunction> m_arrayProtoValuesFunction;
-    LazyProperty<JSGlobalObject, JSFunction> m_evalFunction;
     LazyProperty<JSGlobalObject, JSFunction> m_promiseResolveFunction;
     LazyProperty<JSGlobalObject, JSFunction> m_numberProtoToStringFunction;
-    LazyProperty<JSGlobalObject, JSFunction> m_typedArrayProtoSort;
     WriteBarrier<JSFunction> m_objectProtoValueOfFunction;
     WriteBarrier<JSFunction> m_functionProtoHasInstanceSymbolFunction;
+    WriteBarrier<JSFunction> m_performProxyObjectHasFunction;
+    WriteBarrier<JSFunction> m_performProxyObjectHasByValFunction;
+    WriteBarrier<JSFunction> m_performProxyObjectGetFunction;
+    WriteBarrier<JSFunction> m_performProxyObjectGetByValFunction;
+    WriteBarrier<JSFunction> m_performProxyObjectSetStrictFunction;
+    WriteBarrier<JSFunction> m_performProxyObjectSetSloppyFunction;
+    WriteBarrier<JSFunction> m_performProxyObjectSetByValStrictFunction;
+    WriteBarrier<JSFunction> m_performProxyObjectSetByValSloppyFunction;
     WriteBarrier<JSObject> m_regExpProtoSymbolReplace;
     LazyProperty<JSGlobalObject, GetterSetter> m_throwTypeErrorArgumentsCalleeGetterSetter;
 
@@ -269,7 +297,8 @@ public:
     WriteBarrier<ArrayPrototype> m_arrayPrototype;
     WriteBarrier<ShadowRealmPrototype> m_shadowRealmPrototype;
     WriteBarrier<RegExpPrototype> m_regExpPrototype;
-    WriteBarrier<IteratorPrototype> m_iteratorPrototype;
+    WriteBarrier<JSIteratorPrototype> m_iteratorPrototype;
+    WriteBarrier<JSIteratorHelperPrototype> m_iteratorHelperPrototype;
     WriteBarrier<AsyncIteratorPrototype> m_asyncIteratorPrototype;
     WriteBarrier<GeneratorFunctionPrototype> m_generatorFunctionPrototype;
     WriteBarrier<GeneratorPrototype> m_generatorPrototype;
@@ -285,6 +314,7 @@ public:
     LazyProperty<JSGlobalObject, Structure> m_callbackConstructorStructure;
     LazyProperty<JSGlobalObject, Structure> m_callbackFunctionStructure;
     LazyProperty<JSGlobalObject, Structure> m_callbackObjectStructure;
+    LazyProperty<JSGlobalObject, Structure> m_rawJSONObjectStructure;
 #if JSC_OBJC_API_ENABLED
     LazyProperty<JSGlobalObject, Structure> m_objcCallbackFunctionStructure;
     LazyProperty<JSGlobalObject, Structure> m_objcWrapperObjectStructure;
@@ -325,16 +355,22 @@ public:
     WriteBarrierStructureID m_regExpStructure;
 
     WriteBarrierStructureID m_asyncFunctionStructure;
+    LazyProperty<JSGlobalObject, Structure> m_asyncFromSyncIteratorStructure;
     WriteBarrierStructureID m_asyncGeneratorFunctionStructure;
     WriteBarrierStructureID m_generatorFunctionStructure;
     WriteBarrierStructureID m_generatorStructure;
     WriteBarrierStructureID m_asyncGeneratorStructure;
+    WriteBarrierStructureID m_iteratorStructure;
+    WriteBarrierStructureID m_iteratorHelperStructure;
     WriteBarrierStructureID m_arrayIteratorStructure;
     WriteBarrierStructureID m_mapIteratorStructure;
     WriteBarrierStructureID m_setIteratorStructure;
+    LazyProperty<JSGlobalObject, Structure> m_wrapForValidIteratorStructure;
     WriteBarrierStructureID m_regExpMatchesArrayStructure;
     WriteBarrierStructureID m_regExpMatchesArrayWithIndicesStructure;
     WriteBarrierStructureID m_regExpMatchesIndicesArrayStructure;
+    LazyProperty<JSGlobalObject, Structure> m_regExpStringIteratorStructure;
+    WriteBarrierStructureID m_trustedScriptStructure;
 
     LazyProperty<JSGlobalObject, Structure> m_customGetterFunctionStructure;
     LazyProperty<JSGlobalObject, Structure> m_customSetterFunctionStructure;
@@ -380,7 +416,10 @@ public:
 #undef DEFINE_STORAGE_FOR_SIMPLE_TYPE_STRUCTURE
 #undef DEFINE_STORAGE_FOR_LAZY_TYPE
 
-    WriteBarrier<GetterSetter> m_speciesGetterSetter;
+    WriteBarrier<GetterSetter> m_arraySpeciesGetterSetter;
+    WriteBarrier<GetterSetter> m_typedArraySpeciesGetterSetter;
+    WriteBarrier<GetterSetter> m_arrayBufferSpeciesGetterSetter;
+    WriteBarrier<GetterSetter> m_sharedArrayBufferSpeciesGetterSetter;
 
     LazyProperty<JSGlobalObject, JSTypedArrayViewPrototype> m_typedArrayProto;
     LazyProperty<JSGlobalObject, JSTypedArrayViewConstructor> m_typedArraySuperConstructor;
@@ -390,8 +429,6 @@ public:
     LazyProperty<JSGlobalObject, Structure> m_resizableOrGrowableSharedTypedArray ## name ## Structure;
     FOR_EACH_TYPED_ARRAY_TYPE(DECLARE_TYPED_ARRAY_TYPE_STRUCTURE)
 #undef DECLARE_TYPED_ARRAY_TYPE_STRUCTURE
-
-    LazyProperty<JSGlobalObject, JSInternalPromise> m_importMapStatusPromise;
 
     FixedVector<LazyProperty<JSGlobalObject, JSCell>> m_linkTimeConstants;
 
@@ -406,7 +443,7 @@ public:
 #if ENABLE(REMOTE_INSPECTOR)
     // FIXME: <http://webkit.org/b/246237> Local inspection should be controlled by `inspectable` API.
     std::unique_ptr<Inspector::JSGlobalObjectInspectorController> m_inspectorController;
-    std::unique_ptr<JSGlobalObjectDebuggable> m_inspectorDebuggable;
+    RefPtr<JSGlobalObjectDebuggable> m_inspectorDebuggable;
 #endif
 
     Ref<WatchpointSet> m_masqueradesAsUndefinedWatchpointSet;
@@ -414,6 +451,7 @@ public:
     Ref<WatchpointSet> m_varInjectionWatchpointSet;
     Ref<WatchpointSet> m_varReadOnlyWatchpointSet;
     Ref<WatchpointSet> m_regExpRecompiledWatchpointSet;
+    Ref<WatchpointSet> m_arrayBufferDetachWatchpointSet;
 
     struct RareData;
     std::unique_ptr<RareData> m_rareData;
@@ -433,6 +471,8 @@ public:
     InlineWatchpointSet m_setAddWatchpointSet { IsWatched };
     InlineWatchpointSet m_arraySpeciesWatchpointSet { ClearWatchpoint };
     InlineWatchpointSet m_arrayJoinWatchpointSet { IsWatched };
+    InlineWatchpointSet m_arrayNegativeOneWatchpointSet { IsWatched };
+    InlineWatchpointSet m_arrayIsConcatSpreadableWatchpointSet { IsWatched };
     InlineWatchpointSet m_arrayPrototypeChainIsSaneWatchpointSet { IsWatched };
     InlineWatchpointSet m_objectPrototypeChainIsSaneWatchpointSet { IsWatched };
     InlineWatchpointSet m_stringPrototypeChainIsSaneWatchpointSet { IsWatched };
@@ -442,6 +482,7 @@ public:
     InlineWatchpointSet m_sharedArrayBufferSpeciesWatchpointSet { ClearWatchpoint };
     InlineWatchpointSet m_typedArrayConstructorSpeciesWatchpointSet { IsWatched };
     InlineWatchpointSet m_typedArrayPrototypeIteratorProtocolWatchpointSet { IsWatched };
+    InlineWatchpointSet m_propertyDescriptorFastPathWatchpointSet { ClearWatchpoint };
 #define DECLARE_TYPED_ARRAY_TYPE_SPECIES_WATCHPOINT_SET(name) \
     InlineWatchpointSet m_typedArray ## name ## SpeciesWatchpointSet { ClearWatchpoint }; \
     InlineWatchpointSet m_typedArray ## name ## IteratorProtocolWatchpointSet { ClearWatchpoint };
@@ -466,8 +507,18 @@ public:
     std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_stringIteratorPrototypeNextWatchpoint;
     std::unique_ptr<ObjectAdaptiveStructureWatchpoint> m_stringPrototypeSymbolReplaceMissWatchpoint;
     std::unique_ptr<ObjectAdaptiveStructureWatchpoint> m_objectPrototypeSymbolReplaceMissWatchpoint;
+    std::unique_ptr<ObjectAdaptiveStructureWatchpoint> m_arrayPrototypeNegativeOneMissWatchpoint;
+    std::unique_ptr<ObjectAdaptiveStructureWatchpoint> m_objectPrototypeNegativeOneMissWatchpoint;
+    std::unique_ptr<ObjectAdaptiveStructureWatchpoint> m_arrayPrototypeIsConcatSpreadableMissWatchpoint;
+    std::unique_ptr<ObjectAdaptiveStructureWatchpoint> m_objectPrototypeIsConcatSpreadableMissWatchpoint;
     std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeExecWatchpoint;
+    std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeFlagsWatchpoint;
+    std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeDotAllWatchpoint;
     std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeGlobalWatchpoint;
+    std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeHasIndicesWatchpoint;
+    std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeIgnoreCaseWatchpoint;
+    std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeMultilineWatchpoint;
+    std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeStickyWatchpoint;
     std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeUnicodeWatchpoint;
     std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeUnicodeSetsWatchpoint;
     std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_regExpPrototypeSymbolReplaceWatchpoint;
@@ -484,13 +535,18 @@ public:
     std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>> m_typedArray ## name ## PrototypeConstructorWatchpoint;
     FOR_EACH_TYPED_ARRAY_TYPE(DECLARE_TYPED_ARRAY_TYPE_WATCHPOINT)
 #undef DECLARE_TYPED_ARRAY_TYPE_WATCHPOINT
+    Vector<std::unique_ptr<ObjectAdaptiveStructureWatchpoint>> m_missWatchpoints;
+
+    void addWeakTicket(DeferredWorkTimer::Ticket);
+    void clearWeakTickets();
+    std::unique_ptr<ThreadSafeWeakHashSet<DeferredWorkTimer::TicketData>> m_weakTickets;
 
     inline std::unique_ptr<ObjectAdaptiveStructureWatchpoint>& typedArrayConstructorSpeciesAbsenceWatchpoint(TypedArrayType);
     inline std::unique_ptr<ObjectAdaptiveStructureWatchpoint>& typedArrayPrototypeSymbolIteratorAbsenceWatchpoint(TypedArrayType);
     inline std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>>& typedArrayPrototypeConstructorWatchpoint(TypedArrayType);
 
 public:
-    JSCallee* stackOverflowFrameCallee() const { return m_stackOverflowFrameCallee.get(); }
+    JSCallee* partiallyInitializedFrameCallee() const { return m_partiallyInitializedFrameCallee.get(); }
 
     InlineWatchpointSet& arrayIteratorProtocolWatchpointSet() { return m_arrayIteratorProtocolWatchpointSet; }
     InlineWatchpointSet& mapIteratorProtocolWatchpointSet() { return m_mapIteratorProtocolWatchpointSet; }
@@ -505,6 +561,8 @@ public:
     InlineWatchpointSet& objectPrototypeChainIsSaneWatchpointSet() { return m_objectPrototypeChainIsSaneWatchpointSet; }
     InlineWatchpointSet& stringPrototypeChainIsSaneWatchpointSet() { return m_stringPrototypeChainIsSaneWatchpointSet; }
     InlineWatchpointSet& arrayJoinWatchpointSet() { return m_arrayJoinWatchpointSet; }
+    InlineWatchpointSet& arrayNegativeOneWatchpointSet() { return m_arrayNegativeOneWatchpointSet; }
+    InlineWatchpointSet& arrayIsConcatSpreadableWatchpointSet() { return m_arrayIsConcatSpreadableWatchpointSet; }
     InlineWatchpointSet& numberToStringWatchpointSet()
     {
         RELEASE_ASSERT(Options::useJIT());
@@ -517,6 +575,7 @@ public:
     inline InlineWatchpointSet& typedArrayIteratorProtocolWatchpointSet(TypedArrayType);
     InlineWatchpointSet& typedArrayConstructorSpeciesWatchpointSet() { return m_typedArrayConstructorSpeciesWatchpointSet; }
     InlineWatchpointSet& typedArrayPrototypeIteratorProtocolWatchpointSet() { return m_typedArrayPrototypeIteratorProtocolWatchpointSet; }
+    InlineWatchpointSet& propertyDescriptorFastPathWatchpointSet() { return m_propertyDescriptorFastPathWatchpointSet; }
 
     bool isArrayPrototypeIteratorProtocolFastAndNonObservable();
     bool isTypedArrayPrototypeIteratorProtocolFastAndNonObservable(TypedArrayType);
@@ -528,13 +587,14 @@ public:
     bool isArgumentsPrototypeIteratorProtocolFastAndNonObservable();
 
 #if ENABLE(DFG_JIT)
-    using ReferencedGlobalPropertyWatchpointSets = HashMap<RefPtr<UniquedStringImpl>, Ref<WatchpointSet>, IdentifierRepHash>;
+    using ReferencedGlobalPropertyWatchpointSets = UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, Ref<WatchpointSet>, IdentifierRepHash>;
     ReferencedGlobalPropertyWatchpointSets m_referencedGlobalPropertyWatchpointSets;
     ConcurrentJSLock m_referencedGlobalPropertyWatchpointSetsLock;
 #endif
 
     bool m_evalEnabled { true };
     bool m_webAssemblyEnabled { true };
+    bool m_requiresTrustedTypes { true };
     bool m_needsSiteSpecificQuirks { false };
     unsigned m_globalLexicalBindingEpoch { 1 };
     String m_evalDisabledErrorMessage;
@@ -542,6 +602,7 @@ public:
     RuntimeFlags m_runtimeFlags;
     WeakPtr<ConsoleClient> m_consoleClient;
     std::optional<unsigned> m_stackTraceLimit;
+    Weak<FunctionExecutable> m_executableForCachedFunctionExecutableForFunctionConstructor;
 
     template<typename T>
     struct WeakCustomGetterOrSetterHash {
@@ -552,13 +613,16 @@ public:
         static constexpr bool safeToCompareToEmptyOrDeleted = false;
     };
 
-    WeakGCSet<JSCustomGetterFunction, WeakCustomGetterOrSetterHash<JSCustomGetterFunction>> m_customGetterFunctionSet;
-    WeakGCSet<JSCustomSetterFunction, WeakCustomGetterOrSetterHash<JSCustomSetterFunction>> m_customSetterFunctionSet;
+    using WeakGCSetJSCustomGetterFunction = WeakGCSet<JSCustomGetterFunction, WeakCustomGetterOrSetterHash<JSCustomGetterFunction>>;
+    using WeakGCSetJSCustomSetterFunction = WeakGCSet<JSCustomSetterFunction, WeakCustomGetterOrSetterHash<JSCustomSetterFunction>>;
 
-    WeakGCSet<JSCustomGetterFunction, WeakCustomGetterOrSetterHash<JSCustomGetterFunction>>& customGetterFunctionSet() { return m_customGetterFunctionSet; }
-    WeakGCSet<JSCustomSetterFunction, WeakCustomGetterOrSetterHash<JSCustomSetterFunction>>& customSetterFunctionSet() { return m_customSetterFunctionSet; }
+    WeakGCSetJSCustomGetterFunction m_customGetterFunctionSet;
+    WeakGCSetJSCustomSetterFunction m_customSetterFunctionSet;
 
-    Ref<ImportMap> m_importMap;
+    WeakGCSetJSCustomGetterFunction& customGetterFunctionSet() { return m_customGetterFunctionSet; }
+    WeakGCSetJSCustomSetterFunction& customSetterFunctionSet() { return m_customSetterFunctionSet; }
+
+    const Ref<ImportMap> m_importMap;
 
 #if ASSERT_ENABLED
     const JSGlobalObject* m_globalObjectAtDebuggerEntry { nullptr };
@@ -572,7 +636,7 @@ public:
     using Base = JSSegmentedVariableObject;
     static constexpr unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable | OverridesGetOwnPropertySlot | OverridesPut | IsImmutablePrototypeExoticObject;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     template<typename CellType, SubspaceAccess mode>
     static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
@@ -603,7 +667,7 @@ protected:
 
     JS_EXPORT_PRIVATE void finishCreation(VM&, JSObject*);
 
-    void addGlobalVar(const Identifier&);
+    void addSymbolTableEntry(const Identifier&);
 
 public:
     JS_EXPORT_PRIVATE ~JSGlobalObject();
@@ -615,8 +679,11 @@ public:
     JS_EXPORT_PRIVATE static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
     JS_EXPORT_PRIVATE static bool defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
 
-    inline void addVar(JSGlobalObject*, const Identifier&);
-    void addFunction(JSGlobalObject*, const Identifier&);
+    bool canDeclareGlobalFunction(const Identifier&);
+    template<BindingCreationContext> void createGlobalFunctionBinding(const Identifier&);
+
+    inline bool canDeclareGlobalVar(const Identifier&);
+    template<BindingCreationContext> inline void createGlobalVarBinding(const Identifier&);
 
     inline JSScope* globalScope();
     JSGlobalLexicalEnvironment* globalLexicalEnvironment() { return m_globalLexicalEnvironment.get(); }
@@ -630,7 +697,8 @@ public:
     // The following accessors return pristine values, even if a script
     // replaces the global object's associated property.
 
-    GetterSetter* speciesGetterSetter() const { return m_speciesGetterSetter.get(); }
+    GetterSetter* arraySpeciesGetterSetter() const { return m_arraySpeciesGetterSetter.get(); }
+    GetterSetter* typedArraySpeciesGetterSetter() const { return m_typedArraySpeciesGetterSetter.get(); }
 
     ArrayConstructor* arrayConstructor() const { return m_arrayConstructor.get(); }
     RegExpConstructor* regExpConstructor() const { return m_regExpConstructor.get(); }
@@ -638,6 +706,7 @@ public:
     FunctionConstructor* functionConstructor() const { return m_functionConstructor.get(); }
     JSPromiseConstructor* promiseConstructor() const { return m_promiseConstructor.get(); }
     JSInternalPromiseConstructor* internalPromiseConstructor() const { return m_internalPromiseConstructor.get(); }
+    JSIteratorConstructor* iteratorConstructor() const { return m_iteratorConstructor.get(); }
 
     IntlCollator* defaultCollator() const { return m_defaultCollator.get(this); }
     IntlNumberFormat* defaultNumberFormat() const { return m_defaultNumberFormat.get(this); }
@@ -649,7 +718,7 @@ public:
     JSFunction* parseIntFunction() const { return m_parseIntFunction.get(this); }
     JSFunction* parseFloatFunction() const { return m_parseFloatFunction.get(this); }
 
-    JSFunction* evalFunction() const { return m_evalFunction.get(this); }
+    JSFunction* evalFunction() const;
     JSFunction* throwTypeErrorFunction() const;
     JSFunction* objectProtoToStringFunction() const { return m_objectProtoToStringFunction.get(this); }
     JSFunction* objectProtoToStringFunctionConcurrently() const { return m_objectProtoToStringFunction.getConcurrently(); }
@@ -667,9 +736,11 @@ public:
     JSFunction* numberProtoToStringFunction() const { return m_numberProtoToStringFunction.getInitializedOnMainThread(this); }
     JSFunction* functionProtoHasInstanceSymbolFunction() const { return m_functionProtoHasInstanceSymbolFunction.get(); }
     JSFunction* regExpProtoExecFunction() const;
-    JSFunction* typedArrayProtoSort() const { return m_typedArrayProtoSort.get(this); }
     JSFunction* stringProtoSubstringFunction() const;
     JSFunction* performProxyObjectHasFunction() const;
+    JSFunction* performProxyObjectHasFunctionConcurrently() const;
+    JSFunction* performProxyObjectHasByValFunction() const;
+    JSFunction* performProxyObjectHasByValFunctionConcurrently() const;
     JSFunction* performProxyObjectGetFunction() const;
     JSFunction* performProxyObjectGetFunctionConcurrently() const;
     JSFunction* performProxyObjectGetByValFunction() const;
@@ -678,8 +749,18 @@ public:
     JSFunction* performProxyObjectSetSloppyFunctionConcurrently() const;
     JSFunction* performProxyObjectSetStrictFunction() const;
     JSFunction* performProxyObjectSetStrictFunctionConcurrently() const;
+    JSFunction* performProxyObjectSetByValSloppyFunction() const;
+    JSFunction* performProxyObjectSetByValSloppyFunctionConcurrently() const;
+    JSFunction* performProxyObjectSetByValStrictFunction() const;
+    JSFunction* performProxyObjectSetByValStrictFunctionConcurrently() const;
     JSObject* regExpProtoSymbolReplaceFunction() const { return m_regExpProtoSymbolReplace.get(); }
+    GetterSetter* regExpProtoFlagsGetter() const;
+    GetterSetter* regExpProtoDotAllGetter() const;
     GetterSetter* regExpProtoGlobalGetter() const;
+    GetterSetter* regExpProtoHasIndicesGetter() const;
+    GetterSetter* regExpProtoIgnoreCaseGetter() const;
+    GetterSetter* regExpProtoMultilineGetter() const;
+    GetterSetter* regExpProtoStickyGetter() const;
     GetterSetter* regExpProtoUnicodeGetter() const;
     GetterSetter* regExpProtoUnicodeSetsGetter() const;
     GetterSetter* throwTypeErrorArgumentsCalleeGetterSetter() const { return m_throwTypeErrorArgumentsCalleeGetterSetter.get(this); }
@@ -694,11 +775,12 @@ public:
     JSObject* numberPrototype() const { return m_numberObjectStructure.prototypeInitializedOnMainThread(this); }
     BigIntPrototype* bigIntPrototype() const { return m_bigIntPrototype.get(); }
     JSObject* datePrototype() const { return m_dateStructure.prototype(this); }
-    JSObject* symbolPrototype() const { return m_symbolObjectStructure.prototypeInitializedOnMainThread(this); }
+    SymbolPrototype* symbolPrototype() const { return m_symbolPrototype.get(); }
     ShadowRealmPrototype* shadowRealmPrototype() const { return m_shadowRealmPrototype.get(); }
     RegExpPrototype* regExpPrototype() const { return m_regExpPrototype.get(); }
     JSObject* errorPrototype() const { return m_errorStructure.prototype(this); }
-    IteratorPrototype* iteratorPrototype() const { return m_iteratorPrototype.get(); }
+    JSIteratorPrototype* iteratorPrototype() const { return m_iteratorPrototype.get(); }
+    JSIteratorHelperPrototype* iteratorHelperPrototype() const { return m_iteratorHelperPrototype.get(); }
     AsyncIteratorPrototype* asyncIteratorPrototype() const { return m_asyncIteratorPrototype.get(); }
     GeneratorFunctionPrototype* generatorFunctionPrototype() const { return m_generatorFunctionPrototype.get(); }
     GeneratorPrototype* generatorPrototype() const { return m_generatorPrototype.get(); }
@@ -712,6 +794,7 @@ public:
     JSPromisePrototype* promisePrototype() const { return m_promisePrototype.get(); }
     AsyncGeneratorPrototype* asyncGeneratorPrototype() const { return m_asyncGeneratorPrototype.get(); }
     AsyncGeneratorFunctionPrototype* asyncGeneratorFunctionPrototype() const { return m_asyncGeneratorFunctionPrototype.get(); }
+    JSValue nullPrototype() const { return jsNull(); }
 
     Structure* debuggerScopeStructure() const { return m_debuggerScopeStructure.get(this); }
     Structure* withScopeStructure() const { return m_withScopeStructure.get(this); }
@@ -745,6 +828,7 @@ public:
     Structure* callbackConstructorStructure() const { return m_callbackConstructorStructure.get(this); }
     Structure* callbackFunctionStructure() const { return m_callbackFunctionStructure.get(this); }
     Structure* callbackObjectStructure() const { return m_callbackObjectStructure.get(this); }
+    Structure* rawJSONObjectStructure() const { return m_rawJSONObjectStructure.get(this); }
 #if JSC_OBJC_API_ENABLED
     Structure* objcCallbackFunctionStructure() const { return m_objcCallbackFunctionStructure.get(this); }
     Structure* objcWrapperObjectStructure() const { return m_objcWrapperObjectStructure.get(this); }
@@ -754,7 +838,6 @@ public:
     Structure* glibWrapperObjectStructure() const { return m_glibWrapperObjectStructure.get(this); }
 #endif
     Structure* dateStructure() const { return m_dateStructure.get(this); }
-    Structure* symbolObjectStructure() const { return m_symbolObjectStructure.get(this); }
     Structure* nullPrototypeObjectStructure() const { return m_nullPrototypeObjectStructure.get(); }
     Structure* errorStructure() const { return m_errorStructure.get(this); }
     inline Structure* errorStructure(ErrorType) const;
@@ -790,20 +873,26 @@ public:
     Structure* regExpStructure() const { return m_regExpStructure.get(); }
     Structure* shadowRealmStructure() const { return m_shadowRealmObjectStructure.get(); }
     Structure* generatorStructure() const { return m_generatorStructure.get(); }
+    Structure* asyncFromSyncIteratorStructure() const { return m_asyncFromSyncIteratorStructure.get(this); }
     Structure* asyncGeneratorStructure() const { return m_asyncGeneratorStructure.get(); }
     Structure* generatorFunctionStructure() const { return m_generatorFunctionStructure.get(); }
     Structure* asyncFunctionStructure() const { return m_asyncFunctionStructure.get(); }
     Structure* asyncGeneratorFunctionStructure() const { return m_asyncGeneratorFunctionStructure.get(); }
+    Structure* iteratorStructure() const { return m_iteratorStructure.get(); }
+    Structure* iteratorHelperStructure() const { return m_iteratorHelperStructure.get(); }
     Structure* arrayIteratorStructure() const { return m_arrayIteratorStructure.get(); }
     Structure* mapIteratorStructure() const { return m_mapIteratorStructure.get(); }
     Structure* setIteratorStructure() const { return m_setIteratorStructure.get(); }
+    Structure* wrapForValidIteratorStructure() const { return m_wrapForValidIteratorStructure.get(this); }
     Structure* stringObjectStructure() const { return m_stringObjectStructure.get(); }
+    Structure* symbolObjectStructure() const { return m_symbolObjectStructure.get(); }
     Structure* iteratorResultObjectStructure() const { return m_iteratorResultObjectStructure.get(this); }
     Structure* dataPropertyDescriptorObjectStructure() const { return m_dataPropertyDescriptorObjectStructure.get(this); }
     Structure* accessorPropertyDescriptorObjectStructure() const { return m_accessorPropertyDescriptorObjectStructure.get(this); }
     Structure* regExpMatchesArrayStructure() const { return m_regExpMatchesArrayStructure.get(); }
     Structure* regExpMatchesArrayWithIndicesStructure() const { return m_regExpMatchesArrayWithIndicesStructure.get(); }
     Structure* regExpMatchesIndicesArrayStructure() const { return m_regExpMatchesIndicesArrayStructure.get(); }
+    Structure* regExpStringIteratorStructure() const { return m_regExpStringIteratorStructure.get(this); }
     Structure* remoteFunctionStructure() const { return m_remoteFunctionStructure.get(this); }
     Structure* moduleRecordStructure() const { return m_moduleRecordStructure.get(this); }
     Structure* syntheticModuleRecordStructure() const { return m_syntheticModuleRecordStructure.get(this); }
@@ -830,6 +919,7 @@ public:
     Structure* segmentIteratorStructure() { return m_segmentIteratorStructure.get(this); }
     Structure* segmenterStructure() { return m_segmenterStructure.get(this); }
     Structure* segmentsStructure() { return m_segmentsStructure.get(this); }
+    Structure* trustedScriptStructure() { return m_trustedScriptStructure.get(); }
 
     JSObject* dateTimeFormatConstructor() { return m_dateTimeFormatStructure.constructor(this); }
     JSObject* dateTimeFormatPrototype() { return m_dateTimeFormatStructure.prototype(this); }
@@ -850,29 +940,41 @@ public:
     void setIsITML();
 
     RegExpGlobalData& regExpGlobalData() { return m_regExpGlobalData; }
-    static ptrdiff_t regExpGlobalDataOffset() { return OBJECT_OFFSETOF(JSGlobalObject, m_regExpGlobalData); }
+    static constexpr ptrdiff_t regExpGlobalDataOffset() { return OBJECT_OFFSETOF(JSGlobalObject, m_regExpGlobalData); }
 
-    static ptrdiff_t offsetOfGlobalThis() { return OBJECT_OFFSETOF(JSGlobalObject, m_globalThis); }
-    static ptrdiff_t offsetOfVM() { return OBJECT_OFFSETOF(JSGlobalObject, m_vm); }
-    static ptrdiff_t offsetOfGlobalLexicalEnvironment() { return OBJECT_OFFSETOF(JSGlobalObject, m_globalLexicalEnvironment); }
-    static ptrdiff_t offsetOfGlobalLexicalBindingEpoch() { return OBJECT_OFFSETOF(JSGlobalObject, m_globalLexicalBindingEpoch); }
-    static ptrdiff_t offsetOfVarInjectionWatchpoint() { return OBJECT_OFFSETOF(JSGlobalObject, m_varInjectionWatchpointSet); }
-    static ptrdiff_t offsetOfVarReadOnlyWatchpoint() { return OBJECT_OFFSETOF(JSGlobalObject, m_varReadOnlyWatchpointSet); }
-    static ptrdiff_t offsetOfFunctionProtoHasInstanceSymbolFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_functionProtoHasInstanceSymbolFunction); }
+    static constexpr ptrdiff_t offsetOfGlobalThis() { return OBJECT_OFFSETOF(JSGlobalObject, m_globalThis); }
+    static constexpr ptrdiff_t offsetOfVM() { return OBJECT_OFFSETOF(JSGlobalObject, m_vm); }
+    static constexpr ptrdiff_t offsetOfGlobalLexicalEnvironment() { return OBJECT_OFFSETOF(JSGlobalObject, m_globalLexicalEnvironment); }
+    static constexpr ptrdiff_t offsetOfGlobalLexicalBindingEpoch() { return OBJECT_OFFSETOF(JSGlobalObject, m_globalLexicalBindingEpoch); }
+    static constexpr ptrdiff_t offsetOfVarInjectionWatchpoint() { return OBJECT_OFFSETOF(JSGlobalObject, m_varInjectionWatchpointSet); }
+    static constexpr ptrdiff_t offsetOfVarReadOnlyWatchpoint() { return OBJECT_OFFSETOF(JSGlobalObject, m_varReadOnlyWatchpointSet); }
+    static constexpr ptrdiff_t offsetOfFunctionProtoHasInstanceSymbolFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_functionProtoHasInstanceSymbolFunction); }
+    static constexpr ptrdiff_t offsetOfPerformProxyObjectHasFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_performProxyObjectHasFunction); }
+    static constexpr ptrdiff_t offsetOfPerformProxyObjectHasByValFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_performProxyObjectHasByValFunction); }
+    static constexpr ptrdiff_t offsetOfPerformProxyObjectGetFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_performProxyObjectGetFunction); }
+    static constexpr ptrdiff_t offsetOfPerformProxyObjectGetByValFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_performProxyObjectGetByValFunction); }
+    static constexpr ptrdiff_t offsetOfPerformProxyObjectSetStrictFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_performProxyObjectSetStrictFunction); }
+    static constexpr ptrdiff_t offsetOfPerformProxyObjectSetSloppyFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_performProxyObjectSetSloppyFunction); }
+    static constexpr ptrdiff_t offsetOfPerformProxyObjectSetByValStrictFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_performProxyObjectSetByValStrictFunction); }
+    static constexpr ptrdiff_t offsetOfPerformProxyObjectSetByValSloppyFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_performProxyObjectSetByValSloppyFunction); }
+    static constexpr ptrdiff_t offsetOfNullSetterStrictFunction() { return OBJECT_OFFSETOF(JSGlobalObject, m_nullSetterStrictFunction); }
+    static constexpr ptrdiff_t offsetOfStringPrototype() { return OBJECT_OFFSETOF(JSGlobalObject, m_stringPrototype); }
+    static constexpr ptrdiff_t offsetOfBigIntPrototype() { return OBJECT_OFFSETOF(JSGlobalObject, m_bigIntPrototype); }
+    static constexpr ptrdiff_t offsetOfSymbolPrototype() { return OBJECT_OFFSETOF(JSGlobalObject, m_symbolPrototype); }
 
 #if ENABLE(REMOTE_INSPECTOR)
     // FIXME: <http://webkit.org/b/246237> Local inspection should be controlled by `inspectable` API.
     Inspector::JSGlobalObjectInspectorController& inspectorController() const { return *m_inspectorController.get(); }
-    JSGlobalObjectDebuggable& inspectorDebuggable() { return *m_inspectorDebuggable.get(); }
+    JSGlobalObjectDebuggable& inspectorDebuggable() { return *m_inspectorDebuggable; }
 #endif
 
     void bumpGlobalLexicalBindingEpoch(VM&);
     unsigned globalLexicalBindingEpoch() const { return m_globalLexicalBindingEpoch; }
-    static ptrdiff_t globalLexicalBindingEpochOffset() { return OBJECT_OFFSETOF(JSGlobalObject, m_globalLexicalBindingEpoch); }
+    static constexpr ptrdiff_t globalLexicalBindingEpochOffset() { return OBJECT_OFFSETOF(JSGlobalObject, m_globalLexicalBindingEpoch); }
     unsigned* addressOfGlobalLexicalBindingEpoch() { return &m_globalLexicalBindingEpoch; }
 
     JS_EXPORT_PRIVATE void setConsoleClient(WeakPtr<ConsoleClient>&&);
-    WeakPtr<ConsoleClient> consoleClient() const { return m_consoleClient; }
+    JS_EXPORT_PRIVATE WeakPtr<ConsoleClient> consoleClient() const;
 
     void setName(const String&);
     const String& name() const { return m_name; }
@@ -885,12 +987,16 @@ public:
     static void reportUncaughtExceptionAtEventLoop(JSGlobalObject*, Exception*);
     static JSObject* currentScriptExecutionOwner(JSGlobalObject* global) { return global; }
     static ScriptExecutionStatus scriptExecutionStatus(JSGlobalObject*, JSObject*) { return ScriptExecutionStatus::Running; }
-    static void reportViolationForUnsafeEval(JSGlobalObject*, JSString*) { }
+    static void reportViolationForUnsafeEval(JSGlobalObject*, const String&) { }
+    static String codeForEval(JSGlobalObject*, JSValue) { return nullString(); }
+    static bool canCompileStrings(JSGlobalObject*, CompilationType, String, const ArgList&) { return true; }
+    static Structure* trustedScriptStructure(JSGlobalObject*) { return nullptr; }
 
     inline JSObject* arrayBufferPrototype(ArrayBufferSharingMode) const;
     inline Structure* arrayBufferStructure(ArrayBufferSharingMode) const;
     template<ArrayBufferSharingMode sharingMode> Structure* arrayBufferStructureWithSharingMode() const { return arrayBufferStructure(sharingMode); }
     inline JSObject* arrayBufferConstructor(ArrayBufferSharingMode) const;
+    inline GetterSetter* arrayBufferSpeciesGetterSetter(ArrayBufferSharingMode) const;
 
 #define DEFINE_ACCESSORS_FOR_SIMPLE_TYPE(capitalName, lowerName, properName, instanceType, jsName, prototypeBase, featureFlag) \
     Structure* properName ## Structure() { return m_ ## properName ## Structure.get(); }
@@ -902,6 +1008,7 @@ public:
 
 #define DEFINE_ACCESSORS_FOR_LAZY_TYPE(capitalName, lowerName, properName, instanceType, jsName, prototypeBase, featureFlag) \
     Structure* properName ## Structure() { return m_ ## properName ## Structure.get(this); } \
+    Structure* properName ## StructureConcurrently() { return m_ ## properName ## Structure.getConcurrently(); } \
     JSObject* properName ## Constructor() { return m_ ## properName ## Structure.constructor(this); }
 
     FOR_EACH_LAZY_BUILTIN_TYPE(DEFINE_ACCESSORS_FOR_LAZY_TYPE)
@@ -930,6 +1037,7 @@ public:
     WatchpointSet& varInjectionWatchpointSet() { return m_varInjectionWatchpointSet.get(); }
     WatchpointSet& varReadOnlyWatchpointSet() { return m_varReadOnlyWatchpointSet.get(); }
     WatchpointSet& regExpRecompiledWatchpointSet() { return m_regExpRecompiledWatchpointSet.get(); }
+    WatchpointSet& arrayBufferDetachWatchpointSet() { return m_arrayBufferDetachWatchpointSet.get(); }
 
     bool isHavingABadTime() const
     {
@@ -937,6 +1045,14 @@ public:
     }
 
     void haveABadTime(VM&);
+
+    void notifyArrayBufferDetaching()
+    {
+        if (!m_arrayBufferDetachWatchpointSet->isStillValid())
+            return;
+        notifyArrayBufferDetachingSlow();
+    }
+
     void clearStructureCache(VM&);
 
     static bool objectPrototypeIsSaneConcurrently(Structure* objectPrototypeStructure);
@@ -970,10 +1086,11 @@ public:
     JS_EXPORT_PRIVATE void queueMicrotask(Ref<Microtask>&&);
     JS_EXPORT_PRIVATE void queueMicrotask(JSValue job, JSValue, JSValue, JSValue, JSValue);
 
-    static void reportViolationForUnsafeEval(const JSGlobalObject*, JSString*) { }
+    static void reportViolationForUnsafeEval(const JSGlobalObject*, const String&) { }
 
     bool evalEnabled() const { return m_evalEnabled; }
     bool webAssemblyEnabled() const { return m_webAssemblyEnabled; }
+    bool requiresTrustedTypes() const { return m_requiresTrustedTypes; }
     const String& evalDisabledErrorMessage() const { return m_evalDisabledErrorMessage; }
     const String& webAssemblyDisabledErrorMessage() const { return m_webAssemblyDisabledErrorMessage; }
     void setEvalEnabled(bool enabled, const String& errorMessage = String())
@@ -985,6 +1102,10 @@ public:
     {
         m_webAssemblyEnabled = enabled;
         m_webAssemblyDisabledErrorMessage = errorMessage;
+    }
+    void setRequiresTrustedTypes(bool required)
+    {
+        m_requiresTrustedTypes = required;
     }
 
 #if ASSERT_ENABLED
@@ -999,6 +1120,9 @@ public:
     WriteBarrier<JSObject>* addressOfGlobalThis() { return &m_globalThis; }
     OptionSet<CodeGenerationMode> defaultCodeGenerationMode() const;
 
+    FunctionExecutable* tryGetCachedFunctionExecutableForFunctionConstructor(const Identifier& name, const SourceCode&, LexicallyScopedFeatures, FunctionConstructionMode);
+    void cachedFunctionExecutableForFunctionConstructor(FunctionExecutable*);
+
     static inline Structure* createStructure(VM&, JSValue prototype);
     static inline Structure* createStructureForShadowRealm(VM&, JSValue prototype);
 
@@ -1007,7 +1131,7 @@ public:
 
     inline std::unique_ptr<OpaqueJSClassContextData>& contextData(OpaqueJSClass*);
 
-    static ptrdiff_t weakRandomOffset() { return OBJECT_OFFSETOF(JSGlobalObject, m_weakRandom); }
+    static constexpr ptrdiff_t weakRandomOffset() { return OBJECT_OFFSETOF(JSGlobalObject, m_weakRandom); }
     double weakRandomNumber() { return m_weakRandom.get(); }
     unsigned weakRandomInteger() { return m_weakRandom.getUint32(); }
     WeakRandom& weakRandom() { return m_weakRandom; }
@@ -1034,24 +1158,15 @@ public:
     void installTypedArrayIteratorProtocolWatchpoint(JSObject* prototype, TypedArrayType);
     void installTypedArrayConstructorSpeciesWatchpoint(JSTypedArrayViewConstructor*);
     void installTypedArrayPrototypeIteratorProtocolWatchpoint(JSTypedArrayViewPrototype*);
+    void tryInstallPropertyDescriptorFastPathWatchpoint();
 
     const ImportMap& importMap() const { return m_importMap.get(); }
     ImportMap& importMap() { return m_importMap.get(); }
-    JSInternalPromise* importMapStatusPromise() const
-    {
-        if (m_importMapStatusPromise.isInitialized())
-            return m_importMapStatusPromise.get(this);
-        return nullptr;
-    }
-    JS_EXPORT_PRIVATE bool isAcquiringImportMaps() const;
-    JS_EXPORT_PRIVATE void setAcquiringImportMaps();
-    JS_EXPORT_PRIVATE void setPendingImportMaps();
-    JS_EXPORT_PRIVATE void clearPendingImportMaps();
 
 protected:
     enum class HasSpeciesProperty : bool { No, Yes };
     template<typename SpeciesWatchpoint>
-    void tryInstallSpeciesWatchpoint(JSObject* prototype, JSObject* constructor, std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>>& constructorWatchpoint, std::unique_ptr<SpeciesWatchpoint>&, InlineWatchpointSet&, HasSpeciesProperty);
+    void tryInstallSpeciesWatchpoint(JSObject* prototype, JSObject* constructor, std::unique_ptr<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>>& constructorWatchpoint, std::unique_ptr<SpeciesWatchpoint>&, InlineWatchpointSet&, HasSpeciesProperty, GetterSetter*);
 
     struct GlobalPropertyInfo;
     JS_EXPORT_PRIVATE void addStaticGlobals(GlobalPropertyInfo*, int count);
@@ -1063,6 +1178,7 @@ private:
 
     static const GlobalObjectMethodTable* baseGlobalObjectMethodTable();
 
+    void notifyArrayBufferDetachingSlow();
     void fireWatchpointAndMakeAllArrayStructuresSlowPut(VM&);
     void setGlobalThis(VM&, JSObject* globalThis);
 
@@ -1096,3 +1212,5 @@ inline JSObject* JSGlobalObject::globalThis() const
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

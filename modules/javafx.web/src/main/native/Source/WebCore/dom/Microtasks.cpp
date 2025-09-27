@@ -32,8 +32,11 @@
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SetForScope.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MicrotaskQueue);
 
 MicrotaskQueue::MicrotaskQueue(JSC::VM& vm, EventLoop& eventLoop)
     : m_vm(vm)
@@ -54,12 +57,12 @@ void MicrotaskQueue::performMicrotaskCheckpoint()
         return;
 
     SetForScope change(m_performingMicrotaskCheckpoint, true);
-    JSC::VM& vm = this->vm();
+    Ref vm = this->vm();
     JSC::JSLockHolder locker(vm);
     auto catchScope = DECLARE_CATCH_SCOPE(vm);
 
     Vector<std::unique_ptr<EventLoopTask>> toKeep;
-    while (!m_microtaskQueue.isEmpty() && !vm.executionForbidden()) {
+    while (!m_microtaskQueue.isEmpty() && !vm->executionForbidden()) {
         Vector<std::unique_ptr<EventLoopTask>> queue = WTFMove(m_microtaskQueue);
         for (auto& task : queue) {
             auto* group = task->group();
@@ -75,10 +78,10 @@ void MicrotaskQueue::performMicrotaskCheckpoint()
         }
     }
 
-    vm.finalizeSynchronousJSExecution();
+    vm->finalizeSynchronousJSExecution();
     m_microtaskQueue = WTFMove(toKeep);
 
-    if (!vm.executionForbidden()) {
+    if (!vm->executionForbidden()) {
     auto checkpointTasks = std::exchange(m_checkpointTasks, { });
     for (auto& checkpointTask : checkpointTasks) {
         auto* group = checkpointTask->group();
@@ -97,13 +100,11 @@ void MicrotaskQueue::performMicrotaskCheckpoint()
     }
 
     // https://html.spec.whatwg.org/multipage/webappapis.html#perform-a-microtask-checkpoint (step 4).
-    auto* vmPtr = &vm;
-    m_eventLoop->forEachAssociatedContext([vmPtr](auto& context) {
-        auto& vm = *vmPtr;
-        if (UNLIKELY(vm.executionForbidden()))
+    Ref { *m_eventLoop }->forEachAssociatedContext([vm = vm.copyRef()](auto& context) {
+        if (UNLIKELY(vm->executionForbidden()))
             return;
         auto catchScope = DECLARE_CATCH_SCOPE(vm);
-        if (auto* tracker = context.rejectedPromiseTracker())
+        if (CheckedPtr tracker = context.rejectedPromiseTracker())
             tracker->processQueueSoon();
         catchScope.clearExceptionExceptTermination();
     });
@@ -115,6 +116,14 @@ void MicrotaskQueue::performMicrotaskCheckpoint()
 void MicrotaskQueue::addCheckpointTask(std::unique_ptr<EventLoopTask>&& task)
 {
     m_checkpointTasks.append(WTFMove(task));
+}
+
+bool MicrotaskQueue::hasMicrotasksForFullyActiveDocument() const
+{
+    return m_microtaskQueue.containsIf([](auto& task) {
+        auto group = task->group();
+        return group && !group->isStoppedPermanently() && !group->isSuspended();
+    });
 }
 
 } // namespace WebCore

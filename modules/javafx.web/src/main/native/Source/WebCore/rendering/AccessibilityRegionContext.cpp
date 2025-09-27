@@ -34,8 +34,11 @@
 #include "RenderStyleInlines.h"
 #include "RenderText.h"
 #include "RenderView.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AccessibilityRegionContext);
 
 AccessibilityRegionContext::~AccessibilityRegionContext()
 {
@@ -53,8 +56,8 @@ void AccessibilityRegionContext::takeBounds(const RenderInline& renderInline, La
 
 void AccessibilityRegionContext::takeBounds(const RenderBox& renderBox, LayoutPoint paintOffset)
 {
-    if (UNLIKELY(is<RenderView>(renderBox))) {
-        takeBounds(downcast<RenderView>(renderBox), WTFMove(paintOffset));
+    if (CheckedPtr renderView = dynamicDowncast<RenderView>(renderBox); UNLIKELY(renderView)) {
+        takeBounds(*renderView, WTFMove(paintOffset));
         return;
     }
     auto mappedPaintRect = enclosingIntRect(mapRect(LayoutRect(paintOffset, renderBox.size())));
@@ -91,13 +94,6 @@ void AccessibilityRegionContext::takeBoundsInternal(const RenderBoxModelObject& 
 void AccessibilityRegionContext::takeBounds(const RenderText& renderText, FloatRect paintRect)
 {
     auto mappedPaintRect = enclosingIntRect(mapRect(WTFMove(paintRect)));
-    if (renderText.style().isVerticalWritingMode()) {
-        // This is a hack we shouldn't need to do, but have to for some reason because the paintRect isn't flipped.
-        // For vertical text, swap the width and height, and move `y` by the line width.
-        mappedPaintRect.setSize({ mappedPaintRect.height(), mappedPaintRect.width() });
-        mappedPaintRect.setY(mappedPaintRect.y() + mappedPaintRect.width());
-    }
-
     if (auto* view = renderText.document().view())
         mappedPaintRect = view->contentsToRootView(mappedPaintRect);
 

@@ -37,6 +37,9 @@ class ScriptExecutionContext;
 
 class DOMCache final : public RefCounted<DOMCache>, public ActiveDOMObject {
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<DOMCache> create(ScriptExecutionContext&, String&&, DOMCacheIdentifier, Ref<CacheStorageConnection>&&);
     ~DOMCache();
 
@@ -70,7 +73,6 @@ private:
 
     // ActiveDOMObject
     void stop() final;
-    const char* activeDOMObjectName() const final;
 
     void putWithResponseData(DOMPromiseDeferred<void>&&, Ref<FetchRequest>&&, Ref<FetchResponse>&&, ExceptionOr<RefPtr<SharedBuffer>>&&);
 

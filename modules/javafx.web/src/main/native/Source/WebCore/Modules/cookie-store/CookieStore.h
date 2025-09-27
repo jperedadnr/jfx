@@ -26,9 +26,13 @@
 #pragma once
 
 #include "ActiveDOMObject.h"
+#include "CookieChangeListener.h"
+#include "CookieJar.h"
 #include "EventTarget.h"
 #include <wtf/Forward.h>
-#include <wtf/IsoMalloc.h>
+#include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -37,11 +41,17 @@ struct CookieStoreDeleteOptions;
 struct CookieStoreGetOptions;
 class Document;
 class DeferredPromise;
+class ScriptExecutionContext;
 
-class CookieStore final : public RefCounted<CookieStore>, public EventTarget, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(CookieStore);
+class CookieStore final : public RefCounted<CookieStore>, public EventTarget, public ActiveDOMObject, public CookieChangeListener {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(CookieStore);
 public:
-    static Ref<CookieStore> create(Document*);
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
+    static Ref<CookieStore> create(ScriptExecutionContext*);
     ~CookieStore();
 
     void get(String&& name, Ref<DeferredPromise>&&);
@@ -56,20 +66,35 @@ public:
     void remove(String&& name, Ref<DeferredPromise>&&);
     void remove(CookieStoreDeleteOptions&&, Ref<DeferredPromise>&&);
 
-    using RefCounted::ref;
-    using RefCounted::deref;
-
 private:
-    explicit CookieStore(Document*);
+    explicit CookieStore(ScriptExecutionContext*);
+
+    // CookieChangeListener
+    void cookiesAdded(const String& host, const Vector<Cookie>&) final;
+    void cookiesDeleted(const String& host, const Vector<Cookie>&) final;
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
+    void stop() final;
+    bool virtualHasPendingActivity() const final;
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const final;
+    enum EventTargetInterfaceType eventTargetInterface() const final;
     ScriptExecutionContext* scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
+    void eventListenersDidChange() final;
+
+    RefPtr<DeferredPromise> takePromise(uint64_t promiseIdentifier);
+
+    class MainThreadBridge;
+    Ref<MainThreadBridge> m_mainThreadBridge;
+    Ref<MainThreadBridge> protectedMainThreadBridge() const;
+
+    bool m_hasChangeEventListener { false };
+    WeakPtr<CookieJar> m_cookieJar;
+    String m_host;
+    uint64_t m_nextPromiseIdentifier { 0 };
+    HashMap<uint64_t, Ref<DeferredPromise>> m_promises;
 };
 
 }

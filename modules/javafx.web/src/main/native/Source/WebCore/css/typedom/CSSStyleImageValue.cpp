@@ -30,13 +30,14 @@
 #include "config.h"
 #include "CSSStyleImageValue.h"
 
+#include "CSSSerializationContext.h"
 #include "Document.h"
 
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(CSSStyleImageValue);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(CSSStyleImageValue);
 
 CSSStyleImageValue::CSSStyleImageValue(Ref<CSSImageValue>&& cssValue, Document* document)
     : m_cssValue(WTFMove(cssValue))
@@ -46,7 +47,7 @@ CSSStyleImageValue::CSSStyleImageValue(Ref<CSSImageValue>&& cssValue, Document* 
 
 void CSSStyleImageValue::serialize(StringBuilder& builder, OptionSet<SerializationArguments>) const
 {
-    builder.append(m_cssValue->cssText());
+    builder.append(m_cssValue->cssText(CSS::defaultSerializationContext()));
 }
 
 Document* CSSStyleImageValue::document() const

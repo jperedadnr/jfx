@@ -26,13 +26,14 @@
 #include "CachedHTMLCollectionInlines.h"
 #include "HTMLNames.h"
 #include "NodeRareDataInlines.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLCollection);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CollectionNamedElementCache);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLCollection);
 
 inline auto HTMLCollection::rootTypeFromCollectionType(CollectionType type) -> RootType
 {
@@ -49,7 +50,7 @@ inline auto HTMLCollection::rootTypeFromCollectionType(CollectionType type) -> R
     case CollectionType::DocumentNamedItems:
     case CollectionType::DocumentAllNamedItems:
     case CollectionType::FormControls:
-        return HTMLCollection::IsRootedAtTreeScope;
+        return HTMLCollection::RootType::AtTreeScope;
     case CollectionType::AllDescendants:
     case CollectionType::ByClass:
     case CollectionType::ByTag:
@@ -64,10 +65,10 @@ inline auto HTMLCollection::rootTypeFromCollectionType(CollectionType type) -> R
     case CollectionType::SelectedOptions:
     case CollectionType::DataListOptions:
     case CollectionType::MapAreas:
-        return HTMLCollection::IsRootedAtNode;
+        return HTMLCollection::RootType::AtNode;
     }
     ASSERT_NOT_REACHED();
-    return HTMLCollection::IsRootedAtNode;
+    return HTMLCollection::RootType::AtNode;
 }
 
 static NodeListInvalidationType invalidationTypeExcludingIdAndNameAttributes(CollectionType type)
@@ -115,7 +116,7 @@ static NodeListInvalidationType invalidationTypeExcludingIdAndNameAttributes(Col
 HTMLCollection::HTMLCollection(ContainerNode& ownerNode, CollectionType type)
     : m_collectionType(static_cast<unsigned>(type))
     , m_invalidationType(static_cast<unsigned>(invalidationTypeExcludingIdAndNameAttributes(type)))
-    , m_rootType(rootTypeFromCollectionType(type))
+    , m_rootType(static_cast<unsigned>(rootTypeFromCollectionType(type)))
     , m_ownerNode(ownerNode)
 {
     ASSERT(m_rootType == static_cast<unsigned>(rootTypeFromCollectionType(type)));
@@ -165,14 +166,14 @@ Element* HTMLCollection::namedItemSlow(const AtomString& name) const
     updateNamedElementCache();
     ASSERT(m_namedElementCache);
 
-    if (const Vector<Element*>* idResults = m_namedElementCache->findElementsWithId(name)) {
+    if (auto* idResults = m_namedElementCache->findElementsWithId(name)) {
         if (idResults->size())
-            return idResults->at(0);
+            return idResults->at(0).ptr();
     }
 
-    if (const Vector<Element*>* nameResults = m_namedElementCache->findElementsWithName(name)) {
+    if (auto* nameResults = m_namedElementCache->findElementsWithName(name)) {
         if (nameResults->size())
-            return nameResults->at(0);
+            return nameResults->at(0).ptr();
     }
 
     return nullptr;
@@ -213,10 +214,11 @@ void HTMLCollection::updateNamedElementCache() const
         const AtomString& id = element.getIdAttribute();
         if (!id.isEmpty())
             cache->appendToIdCache(id, element);
-        if (!is<HTMLElement>(element))
+        auto* htmlElement = dynamicDowncast<HTMLElement>(element);
+        if (!htmlElement)
             continue;
         const AtomString& name = element.getNameAttribute();
-        if (!name.isEmpty() && id != name && (type() != CollectionType::DocAll || nameShouldBeVisibleInDocumentAll(downcast<HTMLElement>(element))))
+        if (!name.isEmpty() && id != name && (type() != CollectionType::DocAll || nameShouldBeVisibleInDocumentAll(*htmlElement)))
             cache->appendToNameCache(name, element);
     }
 
@@ -242,12 +244,14 @@ Vector<Ref<Element>> HTMLCollection::namedItems(const AtomString& name) const
     elements.reserveInitialCapacity((elementsWithId ? elementsWithId->size() : 0) + (elementsWithName ? elementsWithName->size() : 0));
 
     if (elementsWithId) {
-        for (auto& element : *elementsWithId)
-            elements.uncheckedAppend(*element);
+        elements.appendContainerWithMapping(*elementsWithId, [](auto& element) {
+            return Ref { element.get() };
+        });
     }
     if (elementsWithName) {
-        for (auto& element : *elementsWithName)
-            elements.uncheckedAppend(*element);
+        elements.appendContainerWithMapping(*elementsWithName, [](auto& element) {
+            return Ref { element.get() };
+        });
     }
 
     return elements;

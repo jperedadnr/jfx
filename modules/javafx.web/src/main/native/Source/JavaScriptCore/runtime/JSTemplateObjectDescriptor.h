@@ -36,7 +36,7 @@ public:
     using Base = JSCell;
 
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     template<typename CellType, SubspaceAccess mode>
     static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
@@ -46,10 +46,7 @@ public:
 
     static JSTemplateObjectDescriptor* create(VM&, Ref<TemplateObjectDescriptor>&&, int);
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(CellType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     const TemplateObjectDescriptor& descriptor() const { return m_descriptor.get(); }
 

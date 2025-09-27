@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,11 +22,13 @@
 
 #include <optional>
 #include <variant>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Int128.h>
+#include <wtf/RefPtr.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/URL.h>
 #include <wtf/text/AtomString.h>
-#include <wtf/text/StringHasher.h>
+#include <wtf/text/SuperFastHash.h>
 
 namespace WTF {
 
@@ -67,7 +69,7 @@ public:
     }
 
 private:
-    StringHasher m_underlyingHasher;
+    SuperFastHash m_underlyingHasher;
 };
 
 template<typename UnsignedInteger> std::enable_if_t<std::is_unsigned<UnsignedInteger>::value && sizeof(UnsignedInteger) == sizeof(uint64_t), void> add(Hasher& hasher, UnsignedInteger integer)
@@ -97,17 +99,17 @@ inline void add(Hasher& hasher, bool boolean)
 
 inline void add(Hasher& hasher, double number)
 {
-    add(hasher, bitwise_cast<uint64_t>(number));
+    add(hasher, std::bit_cast<uint64_t>(number));
 }
 
 inline void add(Hasher& hasher, float number)
 {
-    add(hasher, bitwise_cast<uint32_t>(number));
+    add(hasher, std::bit_cast<uint32_t>(number));
 }
 
 template<typename T> inline void add(Hasher& hasher, T* ptr)
 {
-    add(hasher, bitwise_cast<uintptr_t>(ptr));
+    add(hasher, std::bit_cast<uintptr_t>(ptr));
 }
 
 inline void add(Hasher& hasher, const String& string)
@@ -124,7 +126,18 @@ inline void add(Hasher& hasher, const String& string)
 inline void add(Hasher& hasher, const AtomString& string)
 {
     // Chose to hash the pointer here. Assuming this is better than hashing the characters or hashing the already-computed hash of the characters.
-    add(hasher, bitwise_cast<uintptr_t>(string.impl()));
+    add(hasher, std::bit_cast<uintptr_t>(string.impl()));
+}
+
+inline void add(Hasher& hasher, ASCIILiteral literal)
+{
+    // Chose to hash the characters here. Assuming this is better than hashing the possibly-already-computed hash of the characters.
+    bool remainder = literal.length() & 1;
+    unsigned roundedLength = literal.length() - remainder;
+    for (unsigned i = 0; i < roundedLength; i += 2)
+        add(hasher, (literal[i] << 16) | literal[i + 1]);
+    if (remainder)
+        add(hasher, literal[roundedLength]);
 }
 
 inline void add(Hasher& hasher, const URL& url)
@@ -200,6 +213,16 @@ template<typename T> void add(Hasher& hasher, std::initializer_list<T> values)
 {
     for (auto& value : values)
         add(hasher, value);
+}
+
+template<typename T, typename U, typename V> void add(Hasher& hasher, const RefPtr<T, U, V>& refPtr)
+{
+    add(hasher, refPtr.get());
+}
+
+template<typename T, typename U> void add(Hasher& hasher, const CheckedPtr<T, U>& checkedPtr)
+{
+    add(hasher, checkedPtr.get());
 }
 
 } // namespace WTF

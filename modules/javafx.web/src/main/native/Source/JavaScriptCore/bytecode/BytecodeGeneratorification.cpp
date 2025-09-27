@@ -78,7 +78,7 @@ public:
                 auto bytecode = instruction->as<OpYield>();
                 unsigned liveCalleeLocalsIndex = bytecode.m_yieldPoint;
                 if (liveCalleeLocalsIndex >= m_yields.size())
-                    m_yields.resize(liveCalleeLocalsIndex + 1);
+                    m_yields.grow(liveCalleeLocalsIndex + 1);
                 YieldData& data = m_yields[liveCalleeLocalsIndex];
                 data.point = instruction.offset();
                 data.argument = bytecode.m_argument;
@@ -147,7 +147,7 @@ private:
         // It means that, the register can be retrieved even if the immediate previous op_save does not save it.
 
         if (m_storages.size() <= index)
-            m_storages.resize(index + 1);
+            m_storages.grow(index + 1);
         if (std::optional<Storage> storage = m_storages[index])
             return *storage;
 
@@ -224,9 +224,10 @@ void BytecodeGeneratorification::run()
         jumpTable.add(0, nextToEnterPoint.offset());
         for (unsigned i = 0; i < m_yields.size(); ++i)
             jumpTable.add(i + 1, m_yields[i].point);
+        jumpTable.m_defaultOffset = nextToEnterPoint.offset();
 
         rewriter.insertFragmentBefore(nextToEnterPoint, [&] (BytecodeRewriter::Fragment& fragment) {
-            fragment.appendInstruction<OpSwitchImm>(switchTableIndex, BoundLabel(nextToEnterPoint.offset()), state);
+            fragment.appendInstruction<OpSwitchImm>(switchTableIndex, state);
         });
     }
 
@@ -266,7 +267,8 @@ void BytecodeGeneratorification::run()
                     storage.identifierIndex, // identifier
                     GetPutInfo(DoNotThrowIfNotFound, ResolvedClosureVar, InitializationMode::NotInitialization, m_bytecodeGenerator.ecmaMode()), // info
                     0, // local scope depth
-                    storage.scopeOffset.offset() // scope offset
+                    storage.scopeOffset.offset(), // scope offset
+                    m_bytecodeGenerator.nextValueProfileIndex()
                 );
             });
         });

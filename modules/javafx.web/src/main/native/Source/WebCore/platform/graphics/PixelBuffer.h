@@ -27,7 +27,7 @@
 
 #include "IntSize.h"
 #include "PixelBufferFormat.h"
-#include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeRefCounted.h>
 
 namespace WTF {
 class TextStream;
@@ -35,9 +35,13 @@ class TextStream;
 
 namespace WebCore {
 
-class PixelBuffer : public RefCounted<PixelBuffer> {
+class PixelBuffer : public ThreadSafeRefCounted<PixelBuffer> {
     WTF_MAKE_NONCOPYABLE(PixelBuffer);
 public:
+    static CheckedUint32 computePixelCount(const IntSize&);
+    static CheckedUint32 computePixelComponentCount(PixelFormat, const IntSize&);
+    WEBCORE_EXPORT static CheckedUint32 computeBufferSize(PixelFormat, const IntSize&);
+
     WEBCORE_EXPORT static bool supportedPixelFormat(PixelFormat);
 
     WEBCORE_EXPORT virtual ~PixelBuffer();
@@ -45,29 +49,32 @@ public:
     const PixelBufferFormat& format() const { return m_format; }
     const IntSize& size() const { return m_size; }
 
-    uint8_t* bytes() const { return m_bytes; }
-    size_t sizeInBytes() const { return m_sizeInBytes; }
+    std::span<uint8_t> bytes() const { return m_bytes; }
 
-    virtual bool isByteArrayPixelBuffer() const { return false; }
+    enum class Type {
+        ByteArray,
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+        Float16Array,
+#endif
+        Other
+    };
+    virtual Type type() const { return Type::Other; }
     virtual RefPtr<PixelBuffer> createScratchPixelBuffer(const IntSize&) const = 0;
 
-    bool setRange(const uint8_t* data, size_t dataByteLength, size_t byteOffset);
-    bool zeroRange(size_t byteOffset, size_t rangeByteLength);
-    void zeroFill() { zeroRange(0, sizeInBytes()); }
+    bool setRange(std::span<const uint8_t> data, size_t byteOffset);
+    WEBCORE_EXPORT bool zeroRange(size_t byteOffset, size_t rangeByteLength);
+    void zeroFill() { zeroRange(0, bytes().size()); }
 
     WEBCORE_EXPORT uint8_t item(size_t index) const;
     void set(size_t index, double value);
 
 protected:
-    WEBCORE_EXPORT PixelBuffer(const PixelBufferFormat&, const IntSize&, uint8_t* bytes, size_t sizeInBytes);
-
-    WEBCORE_EXPORT static CheckedUint32 computeBufferSize(const PixelBufferFormat&, const IntSize&);
+    WEBCORE_EXPORT PixelBuffer(const PixelBufferFormat&, const IntSize&, std::span<uint8_t> bytes);
 
     PixelBufferFormat m_format;
     IntSize m_size;
 
-    uint8_t* m_bytes { nullptr };
-    size_t m_sizeInBytes { 0 };
+    std::span<uint8_t> m_bytes;
 };
 
 } // namespace WebCore

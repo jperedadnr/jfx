@@ -49,6 +49,9 @@ public:
     static Ref<SceneKitModelPlayer> create(ModelPlayerClient&);
     virtual ~SceneKitModelPlayer();
 
+#if ENABLE(MODEL_PROCESS)
+    WebCore::ModelPlayerIdentifier identifier() const final;
+#endif
 private:
     SceneKitModelPlayer(ModelPlayerClient&);
 
@@ -58,6 +61,7 @@ private:
     void load(Model&, LayoutSize) override;
     void sizeDidChange(LayoutSize) override;
     CALayer *layer() override;
+    std::optional<LayerHostingContextIdentifier> layerHostingContextIdentifier() override;
     void enterFullscreen() override;
     void handleMouseDown(const LayoutPoint&, MonotonicTime) override;
     void handleMouseMove(const LayoutPoint&, MonotonicTime) override;
@@ -86,6 +90,9 @@ private:
     RefPtr<SceneKitModel> m_model;
 
     RetainPtr<SCNMetalLayer> m_layer;
+#if ENABLE(MODEL_PROCESS)
+    WebCore::ModelPlayerIdentifier m_id;
+#endif
 };
 
 }

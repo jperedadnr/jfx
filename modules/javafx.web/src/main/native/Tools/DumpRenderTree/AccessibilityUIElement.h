@@ -181,8 +181,6 @@ public:
     int hierarchicalLevel() const;
     double clickPointX();
     double clickPointY();
-    JSRetainPtr<JSStringRef> documentEncoding();
-    JSRetainPtr<JSStringRef> documentURI();
     JSRetainPtr<JSStringRef> url();
     JSRetainPtr<JSStringRef> classList() const;
     JSRetainPtr<JSStringRef> domIdentifier() const;
@@ -221,8 +219,8 @@ public:
     JSRetainPtr<JSStringRef> customContent() const;
 #endif
 
-    // ARIA Drag and Drop
-    bool ariaIsGrabbed() const;
+    // Drag and drop
+    bool isGrabbed() const;
     // A space concatentated string of all the drop effects.
     JSRetainPtr<JSStringRef> ariaDropEffects() const;
 
@@ -253,7 +251,6 @@ public:
     bool scrollPageLeft();
     bool scrollPageRight();
 
-    bool hasContainedByFieldsetTrait();
     bool hasTextEntryTrait();
     AccessibilityUIElement fieldsetAncestorElement();
     JSRetainPtr<JSStringRef> attributedStringForElement();

@@ -31,9 +31,11 @@
 #include "HTMLTokenizer.h"
 #include "PendingScriptClient.h"
 #include "ScriptableDocumentParser.h"
+#include <wtf/CheckedRef.h>
 
 namespace WebCore {
 
+class CustomElementRegistry;
 class DocumentFragment;
 class Element;
 class HTMLDocument;
@@ -45,13 +47,22 @@ class HTMLResourcePreloader;
 class PumpSession;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(HTMLDocumentParser);
-class HTMLDocumentParser : public ScriptableDocumentParser, private HTMLScriptRunnerHost, private PendingScriptClient {
+class HTMLDocumentParser : public ScriptableDocumentParser, private HTMLScriptRunnerHost, private PendingScriptClient, public CanMakeCheckedPtr<HTMLDocumentParser> {
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(HTMLDocumentParser);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLDocumentParser);
 public:
     static Ref<HTMLDocumentParser> create(HTMLDocument&, OptionSet<ParserContentPolicy> = DefaultParserContentPolicy);
     virtual ~HTMLDocumentParser();
 
-    static void parseDocumentFragment(const String&, DocumentFragment&, Element& contextElement, OptionSet<ParserContentPolicy> = { ParserContentPolicy::AllowScriptingContent, ParserContentPolicy::AllowPluginContent });
+    // CheckedPtr interface
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+
+    HTMLDocumentParser* asHTMLDocumentParser() final { return this; }
+
+    static void parseDocumentFragment(const String&, DocumentFragment&, Element& contextElement, OptionSet<ParserContentPolicy> = { ParserContentPolicy::AllowScriptingContent }, CustomElementRegistry* = nullptr);
 
     // For HTMLParserScheduler.
     void resumeParsingAfterYield();
@@ -59,6 +70,8 @@ public:
     // For HTMLTreeBuilder.
     HTMLTokenizer& tokenizer();
     TextPosition textPosition() const final;
+
+    bool isOnStackOfOpenElements(Element&) const;
 
 protected:
     explicit HTMLDocumentParser(HTMLDocument&, OptionSet<ParserContentPolicy> = DefaultParserContentPolicy);
@@ -71,8 +84,8 @@ protected:
     HTMLTreeBuilder& treeBuilder();
 
 private:
-    HTMLDocumentParser(DocumentFragment&, Element& contextElement, OptionSet<ParserContentPolicy>);
-    static Ref<HTMLDocumentParser> create(DocumentFragment&, Element& contextElement, OptionSet<ParserContentPolicy>);
+    HTMLDocumentParser(DocumentFragment&, Element& contextElement, OptionSet<ParserContentPolicy>, CustomElementRegistry*);
+    static Ref<HTMLDocumentParser> create(DocumentFragment&, Element& contextElement, OptionSet<ParserContentPolicy>, CustomElementRegistry* = nullptr);
 
     // DocumentParser
     void detach() final;
@@ -133,7 +146,7 @@ private:
     std::unique_ptr<HTMLTreeBuilder> m_treeBuilder;
     std::unique_ptr<HTMLPreloadScanner> m_preloadScanner;
     std::unique_ptr<HTMLPreloadScanner> m_insertionPreloadScanner;
-    std::unique_ptr<HTMLParserScheduler> m_parserScheduler;
+    RefPtr<HTMLParserScheduler> m_parserScheduler;
     TextPosition m_textPosition;
 
     std::unique_ptr<HTMLResourcePreloader> m_preloader;

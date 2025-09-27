@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,6 @@
 
 #import "GlassMacros.h"
 #import "GlassWindow.h"
-#import "GlassTouches.h"
 #import "GlassWindow+Java.h"
 #import "GlassWindow+Overrides.h"
 #import "GlassViewDelegate.h"
@@ -62,11 +61,6 @@
 
 - (void)windowDidBecomeKey:(NSNotification *)notification
 {
-    if (self->fullscreenWindow)
-    {
-        return;
-    }
-
     GET_MAIN_JENV;
     if (!self->isEnabled)
     {
@@ -86,15 +80,12 @@
 
 - (void)windowDidResignKey:(NSNotification *)notification
 {
-    if (self->fullscreenWindow)
-    {
-        return;
-    }
-
     [self _ungrabFocus];
 
-    GET_MAIN_JENV;
-    (*env)->CallVoidMethod(env, self->jWindow, jWindowNotifyFocus, com_sun_glass_events_WindowEvent_FOCUS_LOST);
+    GET_MAIN_JENV_NOWARN;
+    if (env != NULL) {
+        (*env)->CallVoidMethod(env, self->jWindow, jWindowNotifyFocus, com_sun_glass_events_WindowEvent_FOCUS_LOST);
+    }
 }
 
 - (void)windowWillClose:(NSNotification *)notification
@@ -190,8 +181,6 @@
         return NO;
     }
 
-    (*env)->CallVoidMethod(env, jWindow, jWindowNotifyResize, com_sun_glass_events_WindowEvent_MAXIMIZE, (int)newFrame.size.width, (int)newFrame.size.height);
-
     return YES;
 }
 
@@ -202,6 +191,15 @@
     NSUInteger mask = [self->nsWindow styleMask];
     self->isWindowResizable = ((mask & NSWindowStyleMaskResizable) != 0);
     [[self->view delegate] setResizableForFullscreen:YES];
+
+    // When we switch to full-screen mode, we always need the standard window buttons to be shown.
+    [[self->nsWindow standardWindowButton:NSWindowCloseButton] setHidden:NO];
+    [[self->nsWindow standardWindowButton:NSWindowMiniaturizeButton] setHidden:NO];
+    [[self->nsWindow standardWindowButton:NSWindowZoomButton] setHidden:NO];
+
+    if (nsWindow.toolbar != nil) {
+        nsWindow.toolbar.visible = NO;
+    }
 }
 
 - (void)windowDidEnterFullScreen:(NSNotification *)notification
@@ -214,11 +212,22 @@
 - (void)windowWillExitFullScreen:(NSNotification *)notification
 {
     //NSLog(@"windowWillExitFullScreen");
+
+    // When we exit full-screen mode, hide the standard window buttons if they were previously hidden.
+    if (!self->isStandardButtonsVisible) {
+        [[self->nsWindow standardWindowButton:NSWindowCloseButton] setHidden:YES];
+        [[self->nsWindow standardWindowButton:NSWindowMiniaturizeButton] setHidden:YES];
+        [[self->nsWindow standardWindowButton:NSWindowZoomButton] setHidden:YES];
+    }
 }
 
 - (void)windowDidExitFullScreen:(NSNotification *)notification
 {
     //NSLog(@"windowDidExitFullScreen");
+
+    if (nsWindow.toolbar != nil) {
+        nsWindow.toolbar.visible = YES;
+    }
 
     GlassViewDelegate* delegate = (GlassViewDelegate*)[self->view delegate];
     [delegate setResizableForFullscreen:self->isWindowResizable];
@@ -231,8 +240,10 @@
 {
     if (self->isEnabled)
     {
-        GET_MAIN_JENV;
-        (*env)->CallVoidMethod(env, jWindow, jWindowNotifyClose);
+        GET_MAIN_JENV_NOWARN;
+        if (env != NULL) {
+            (*env)->CallVoidMethod(env, jWindow, jWindowNotifyClose);
+        }
     }
 
     // it's up to app to decide if the window should be closed

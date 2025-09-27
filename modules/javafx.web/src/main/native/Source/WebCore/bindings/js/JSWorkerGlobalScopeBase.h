@@ -28,14 +28,9 @@
 
 #include "JSDOMGlobalObject.h"
 #include "JSDOMWrapper.h"
-
-#if ENABLE(SERVICE_WORKER)
 #include "ServiceWorkerGlobalScope.h"
-#endif
 
 namespace WebCore {
-
-class WorkerGlobalScope;
 
 class JSWorkerGlobalScopeBase : public JSDOMGlobalObject {
 public:
@@ -62,7 +57,7 @@ public:
     static JSC::RuntimeFlags javaScriptRuntimeFlags(const JSC::JSGlobalObject*);
     static JSC::ScriptExecutionStatus scriptExecutionStatus(JSC::JSGlobalObject*, JSC::JSObject*);
     static void queueMicrotaskToEventLoop(JSC::JSGlobalObject&, Ref<JSC::Microtask>&&);
-    static void reportViolationForUnsafeEval(JSC::JSGlobalObject*, JSC::JSString*);
+    static void reportViolationForUnsafeEval(JSC::JSGlobalObject*, const String&);
 
 protected:
     JSWorkerGlobalScopeBase(JSC::VM&, JSC::Structure*, RefPtr<WorkerGlobalScope>&&);

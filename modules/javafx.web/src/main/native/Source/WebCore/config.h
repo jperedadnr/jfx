@@ -45,12 +45,10 @@
 #undef new
 #undef delete
 #include <wtf/FastMalloc.h>
-
-#include <ciso646>
+#include <wtf/IsoMalloc.h>
+#include <wtf/TZoneMalloc.h>
 
 #endif
-
-#include <wtf/DisallowCType.h>
 
 #if USE(CG)
 #ifndef CGFLOAT_DEFINED

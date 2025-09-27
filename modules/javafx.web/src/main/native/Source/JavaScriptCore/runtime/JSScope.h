@@ -35,7 +35,7 @@ class ScopeChainIterator;
 class SymbolTable;
 class WatchpointSet;
 
-using TDZEnvironment = HashSet<RefPtr<UniquedStringImpl>, IdentifierRepHash>;
+using TDZEnvironment = UncheckedKeyHashSet<RefPtr<UniquedStringImpl>, IdentifierRepHash>;
 
 class JSScope : public JSNonFinalObject {
 public:
@@ -114,7 +114,7 @@ public:
 
     // postfix ++ intentionally omitted
 
-    bool operator==(const ScopeChainIterator& other) const { return m_node == other.m_node; }
+    friend bool operator==(const ScopeChainIterator&, const ScopeChainIterator&) = default;
 
 private:
     JSScope* m_node;

@@ -38,19 +38,18 @@
 #include "RenderTheme.h"
 #include "ScriptDisallowedScope.h"
 #include "ScrollbarTheme.h"
-#include "ShadowPseudoIds.h"
-#include "WheelEvent.h"
-#include <wtf/IsoMallocInlines.h>
+#include "UserAgentParts.h"
 #include <wtf/Ref.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SpinButtonElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SpinButtonElement);
 
 using namespace HTMLNames;
 
 inline SpinButtonElement::SpinButtonElement(Document& document, SpinButtonOwner& spinButtonOwner)
-    : HTMLDivElement(divTag, document, CreateSpinButtonElement)
+    : HTMLDivElement(divTag, document, TypeFlag::HasCustomStyleResolveCallbacks)
     , m_spinButtonOwner(spinButtonOwner)
     , m_capturing(false)
     , m_upDownState(Indeterminate)
@@ -63,7 +62,7 @@ Ref<SpinButtonElement> SpinButtonElement::create(Document& document, SpinButtonO
 {
     auto element = adoptRef(*new SpinButtonElement(document, spinButtonOwner));
     ScriptDisallowedScope::EventAllowedScope eventAllowedScope { element };
-    element->setPseudo(ShadowPseudoIds::webkitInnerSpinButton());
+    element->setUserAgentPart(UserAgentParts::webkitInnerSpinButton());
     return element;
 }
 
@@ -74,7 +73,8 @@ void SpinButtonElement::willDetachRenderers()
 
 void SpinButtonElement::defaultEventHandler(Event& event)
 {
-    if (!is<MouseEvent>(event)) {
+    auto* mouseEvent = dynamicDowncast<MouseEvent>(event);
+    if (!mouseEvent) {
         if (!event.defaultHandled())
             HTMLDivElement::defaultEventHandler(event);
         return;
@@ -93,9 +93,8 @@ void SpinButtonElement::defaultEventHandler(Event& event)
         return;
     }
 
-    MouseEvent& mouseEvent = downcast<MouseEvent>(event);
-    IntPoint local = roundedIntPoint(box->absoluteToLocal(mouseEvent.absoluteLocation(), UseTransforms));
-    if (mouseEvent.type() == eventNames().mousedownEvent && mouseEvent.button() == LeftButton) {
+    IntPoint local = roundedIntPoint(box->absoluteToLocal(mouseEvent->absoluteLocation(), UseTransforms));
+    if (mouseEvent->type() == eventNames().mousedownEvent && mouseEvent->button() == MouseButton::Left) {
         if (box->borderBoxRect().contains(local)) {
             // The following functions of HTMLInputElement may run JavaScript
             // code which detaches this shadow node. We need to take a reference
@@ -114,11 +113,11 @@ void SpinButtonElement::defaultEventHandler(Event& event)
                     doStepAction(m_upDownState == Up ? 1 : -1);
                 }
             }
-            mouseEvent.setDefaultHandled();
+            mouseEvent->setDefaultHandled();
         }
-    } else if (mouseEvent.type() == eventNames().mouseupEvent && mouseEvent.button() == LeftButton)
+    } else if (mouseEvent->type() == eventNames().mouseupEvent && mouseEvent->button() == MouseButton::Left)
         stopRepeatingTimer();
-    else if (mouseEvent.type() == eventNames().mousemoveEvent) {
+    else if (mouseEvent->type() == eventNames().mousemoveEvent) {
         if (box->borderBoxRect().contains(local)) {
             if (!m_capturing) {
                 if (RefPtr frame = document().frame()) {
@@ -148,29 +147,14 @@ void SpinButtonElement::defaultEventHandler(Event& event)
         }
     }
 
-    if (!mouseEvent.defaultHandled())
-        HTMLDivElement::defaultEventHandler(mouseEvent);
+    if (!mouseEvent->defaultHandled())
+        HTMLDivElement::defaultEventHandler(*mouseEvent);
 }
 
 void SpinButtonElement::willOpenPopup()
 {
     releaseCapture();
     m_upDownState = Indeterminate;
-}
-
-void SpinButtonElement::forwardEvent(Event& event)
-{
-    if (!is<WheelEvent>(event))
-        return;
-
-    if (!m_spinButtonOwner)
-        return;
-
-    if (!m_spinButtonOwner->shouldSpinButtonRespondToWheelEvents())
-        return;
-
-    doStepAction(downcast<WheelEvent>(event).wheelDeltaY());
-    event.setDefaultHandled();
 }
 
 bool SpinButtonElement::willRespondToMouseMoveEvents() const

@@ -32,37 +32,36 @@
 #include "PathSegment.h"
 #include "PlatformPath.h"
 #include "WindRule.h"
-#include <wtf/FastMalloc.h>
-
-#include <wtf/UniqueRef.h>
-
+#include <wtf/DataRef.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
+
 class GraphicsContext;
 class PathTraversalState;
 class RoundedRect;
+
 class Path {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Path);
 public:
     Path() = default;
     WEBCORE_EXPORT Path(PathSegment&&);
     WEBCORE_EXPORT Path(Vector<PathSegment>&&);
     explicit Path(const Vector<FloatPoint>& points);
-    Path(UniqueRef<PathImpl>&&);
+    Path(Ref<PathImpl>&&);
 
     WEBCORE_EXPORT Path(const Path&);
     Path(Path&&) = default;
-    WEBCORE_EXPORT Path& operator=(const Path&);
+    Path& operator=(const Path&) = default;
     Path& operator=(Path&&) = default;
 
-    WEBCORE_EXPORT bool operator==(const Path&) const;
+    WEBCORE_EXPORT bool definitelyEqual(const Path&) const;
 
-    // FIXME: Remove this method when the call of it from WebKitAdditions in is removed.
-    static Path polygonPathFromPoints(const Vector<FloatPoint>&);
     WEBCORE_EXPORT void moveTo(const FloatPoint&);
+
     WEBCORE_EXPORT void addLineTo(const FloatPoint&);
     WEBCORE_EXPORT void addQuadCurveTo(const FloatPoint& controlPoint, const FloatPoint& endPoint);
-    void addBezierCurveTo(const FloatPoint& controlPoint1, const FloatPoint& controlPoint2, const FloatPoint& endPoint);
+    WEBCORE_EXPORT void addBezierCurveTo(const FloatPoint& controlPoint1, const FloatPoint& controlPoint2, const FloatPoint& endPoint);
     void addArcTo(const FloatPoint& point1, const FloatPoint& point2, float radius);
 
     void addArc(const FloatPoint&, float radius, float startAngle, float endAngle, RotationDirection);
@@ -73,6 +72,7 @@ public:
 
     WEBCORE_EXPORT void addRoundedRect(const FloatRoundedRect&, PathRoundedRect::Strategy = PathRoundedRect::Strategy::PreferNative);
     void addRoundedRect(const FloatRect&, const FloatSize& roundingRadii, PathRoundedRect::Strategy = PathRoundedRect::Strategy::PreferNative);
+    void addContinuousRoundedRect(const FloatRect&, float cornerWidth, float cornerHeight);
     void addRoundedRect(const RoundedRect&);
 
     WEBCORE_EXPORT void closeSubpath();
@@ -90,10 +90,15 @@ public:
     static constexpr float circleControlPoint() { return PathImpl::circleControlPoint(); }
     WEBCORE_EXPORT std::optional<PathSegment> singleSegment() const;
     std::optional<PathDataLine> singleDataLine() const;
+    std::optional<PathRect> singleRect() const;
+    std::optional<PathRoundedRect> singleRoundedRect() const;
+    std::optional<PathContinuousRoundedRect> singleContinuousRoundedRect() const;
     std::optional<PathArc> singleArc() const;
+    std::optional<PathClosedArc> singleClosedArc() const;
     std::optional<PathDataQuadCurve> singleQuadCurve() const;
     std::optional<PathDataBezierCurve> singleBezierCurve() const;
     WEBCORE_EXPORT bool isEmpty() const;
+    bool definitelySingleLine() const;
     WEBCORE_EXPORT PlatformPathPtr platformPath() const;
 
     const PathSegment* singleSegmentIfExists() const { return asSingle(); }
@@ -102,20 +107,23 @@ public:
 
     float length() const;
     bool isClosed() const;
+    bool hasSubpaths() const;
     FloatPoint currentPoint() const;
     PathTraversalState traversalStateAtLength(float length) const;
     FloatPoint pointAtLength(float length) const;
 
     bool contains(const FloatPoint&, WindRule = WindRule::NonZero) const;
-    bool strokeContains(const FloatPoint&, const Function<void(GraphicsContext&)>& strokeStyleApplier) const;
+    bool strokeContains(const FloatPoint&, NOESCAPE const Function<void(GraphicsContext&)>& strokeStyleApplier) const;
 
     WEBCORE_EXPORT FloatRect fastBoundingRect() const;
-    FloatRect boundingRect() const;
-    FloatRect strokeBoundingRect(const Function<void(GraphicsContext&)>& strokeStyleApplier = { }) const;
+    WEBCORE_EXPORT FloatRect boundingRect() const;
+    FloatRect strokeBoundingRect(NOESCAPE const Function<void(GraphicsContext&)>& strokeStyleApplier = { }) const;
+
+    WEBCORE_EXPORT void ensureImplForTesting();
 
 private:
     PlatformPathImpl& ensurePlatformPathImpl();
-    PathImpl& setImpl(UniqueRef<PathImpl>);
+    PathImpl& setImpl(Ref<PathImpl>&&);
     PathImpl& ensureImpl();
     PathSegment* asSingle() { return std::get_if<PathSegment>(&m_data); }
     const PathSegment* asSingle() const { return std::get_if<PathSegment>(&m_data); }
@@ -125,9 +133,9 @@ private:
     const PathImpl* asImpl() const;
 
     const PathMoveTo* asSingleMoveTo() const;
+    const PathArc* asSingleArc() const;
 
-
-    std::variant<std::monostate, PathSegment, UniqueRef<PathImpl>> m_data;
+    std::variant<std::monostate, PathSegment, DataRef<PathImpl>> m_data;
 };
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const Path&);

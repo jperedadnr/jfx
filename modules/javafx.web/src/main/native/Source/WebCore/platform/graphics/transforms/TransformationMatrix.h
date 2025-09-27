@@ -29,16 +29,23 @@
 #include "FloatPoint.h"
 #include "FloatPoint3D.h"
 #include "IntPoint.h"
+#include "Quaternion.h"
 #include <array>
 #include <string.h> //for memcpy
-#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 #if USE(CA)
 typedef struct CATransform3D CATransform3D;
 #endif
 #if USE(CG)
 typedef struct CGAffineTransform CGAffineTransform;
+#endif
+#if PLATFORM(COCOA)
+#include <simd/simd.h>
+#endif
+#if USE(SKIA)
+class SkM44;
 #endif
 
 #if PLATFORM(WIN) || (PLATFORM(GTK) && OS(WINDOWS))
@@ -73,46 +80,42 @@ class FloatQuad;
 #endif
 
 class TransformationMatrix {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(TransformationMatrix, WEBCORE_EXPORT);
 public:
 
 #if (PLATFORM(IOS_FAMILY) && CPU(ARM_THUMB2)) || defined(TRANSFORMATION_MATRIX_USE_X86_64_SSE2)
-#if COMPILER(MSVC)
-    __declspec(align(16)) typedef double Matrix4[4][4];
+    typedef std::array<std::array<double, 4>, 4> Matrix4 __attribute__((aligned (16)));
 #else
-    typedef double Matrix4[4][4] __attribute__((aligned (16)));
-#endif
-#else
-    typedef double Matrix4[4][4];
+    typedef std::array<std::array<double, 4>, 4> Matrix4;
 #endif
 
     constexpr TransformationMatrix()
-        : m_matrix {
+        : m_matrix { {
             { 1, 0, 0, 0 },
             { 0, 1, 0, 0 },
             { 0, 0, 1, 0 },
             { 0, 0, 0, 1 },
-        }
+        } }
     {
     }
 
     constexpr TransformationMatrix(double a, double b, double c, double d, double e, double f)
-        : m_matrix {
+        : m_matrix { {
             { a, b, 0, 0 },
             { c, d, 0, 0 },
             { 0, 0, 1, 0 },
             { e, f, 0, 1 },
-        }
+        } }
     {
     }
 
     constexpr TransformationMatrix(double tx, double ty)
-        : m_matrix {
+        : m_matrix { {
             { 1, 0, 0, 0 },
             { 0, 1, 0, 0 },
             { 0, 0, 1, 0 },
             { tx, ty, 0, 1 },
-        }
+        } }
     {
     }
 
@@ -121,24 +124,24 @@ public:
         double m21, double m22, double m23, double m24,
         double m31, double m32, double m33, double m34,
         double m41, double m42, double m43, double m44)
-        : m_matrix {
+        : m_matrix { {
             { m11, m12, m13, m14 },
             { m21, m22, m23, m24 },
             { m31, m32, m33, m34 },
             { m41, m42, m43, m44 },
-        }
+        } }
     {
     }
 
     WEBCORE_EXPORT TransformationMatrix(const AffineTransform&);
 
-    static TransformationMatrix fromQuaternion(double qx, double qy, double qz, double qw);
+    static TransformationMatrix fromQuaternion(const Quaternion&);
 
     // Field of view in radians
     static TransformationMatrix fromProjection(double fovUp, double fovDown, double fovLeft, double fovRight, double depthNear, double depthFar);
     static TransformationMatrix fromProjection(double fovy, double aspect, double depthNear, double depthFar);
 
-    static const TransformationMatrix identity;
+    WEBCORE_EXPORT static const TransformationMatrix identity;
 
     void setMatrix(double a, double b, double c, double d, double e, double f)
     {
@@ -326,30 +329,17 @@ public:
         double angle;
         double m11, m12, m21, m22;
 
-        bool operator==(const Decomposed2Type& other) const
-        {
-            return scaleX == other.scaleX && scaleY == other.scaleY
-                && translateX == other.translateX && translateY == other.translateY
-                && angle == other.angle
-                && m11 == other.m11 && m12 == other.m12 && m21 == other.m21 && m22 == other.m22;
-        }
+        friend bool operator==(const Decomposed2Type&, const Decomposed2Type&) = default;
     };
 
     struct Decomposed4Type {
         double scaleX, scaleY, scaleZ;
         double skewXY, skewXZ, skewYZ;
-        double quaternionX, quaternionY, quaternionZ, quaternionW;
+        Quaternion quaternion;
         double translateX, translateY, translateZ;
         double perspectiveX, perspectiveY, perspectiveZ, perspectiveW;
 
-        bool operator==(const Decomposed4Type& other) const
-        {
-            return scaleX == other.scaleX && scaleY == other.scaleY && scaleZ == other.scaleZ
-                && skewXY == other.skewXY && skewXZ == other.skewXZ && skewYZ == other.skewYZ
-                && quaternionX == other.quaternionX && quaternionY == other.quaternionY && quaternionZ == other.quaternionZ && quaternionW == other.quaternionW
-                && translateX == other.translateX && translateY == other.translateY && translateZ == other.translateZ
-                && perspectiveX == other.perspectiveX && perspectiveY == other.perspectiveY && perspectiveZ == other.perspectiveZ && perspectiveW == other.perspectiveW;
-        }
+        friend bool operator==(const Decomposed4Type&, const Decomposed4Type&) = default;
     };
 
     bool decompose2(Decomposed2Type&) const WARN_UNUSED_RETURN;
@@ -370,6 +360,11 @@ public:
 
     // Throw away the non-affine parts of the matrix (lossy!).
     WEBCORE_EXPORT void makeAffine();
+
+    // Sets the 3rd row and column to (0, 0, 1, 0).
+    // Should produce the same results as mapping points into 2d before
+    // applying the next matrix.
+    WEBCORE_EXPORT void flatten();
 
     WEBCORE_EXPORT AffineTransform toAffineTransform() const;
 
@@ -415,6 +410,14 @@ public:
     WEBCORE_EXPORT TransformationMatrix(const CGAffineTransform&);
     WEBCORE_EXPORT operator CGAffineTransform() const;
 #endif
+#if PLATFORM(COCOA)
+    WEBCORE_EXPORT TransformationMatrix(const simd_float4x4&);
+    WEBCORE_EXPORT operator simd_float4x4() const;
+#endif
+#if USE(SKIA)
+    TransformationMatrix(const SkM44&);
+    operator SkM44() const;
+#endif
 
 #if PLATFORM(WIN) || (PLATFORM(GTK) && OS(WINDOWS))
     WEBCORE_EXPORT operator XFORM() const;
@@ -436,13 +439,15 @@ public:
     TransformationMatrix to2dTransform() const;
 
     using FloatMatrix4 = std::array<float, 16>;
-    FloatMatrix4 toColumnMajorFloatArray() const;
+    WEBCORE_EXPORT FloatMatrix4 toColumnMajorFloatArray() const;
 
     // A local-space layer is implicitly defined at the z = 0 plane, with its front side
     // facing the positive z-axis (i.e. a camera looking along the negative z-axis sees
     // the front side of the layer). This function checks if the transformed layer's back
     // face would be visible to a camera looking along the negative z-axis in the target space.
     bool isBackFaceVisible() const;
+
+    TransformationMatrix transpose() const;
 
 private:
     // multiply passed 2D point by matrix (assume z=0)

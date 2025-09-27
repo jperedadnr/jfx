@@ -38,13 +38,13 @@ class VTTCue;
 class VTTCueBox;
 
 class RenderVTTCue final : public RenderBlockFlow {
-    WTF_MAKE_ISO_ALLOCATED(RenderVTTCue);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderVTTCue);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderVTTCue);
 public:
     RenderVTTCue(VTTCueBox&, RenderStyle&&);
+    virtual ~RenderVTTCue();
 
 private:
-    bool isRenderVTTCue() const final { return true; }
-
     void layout() override;
 
     bool isOutside() const;
@@ -65,8 +65,8 @@ private:
     void repositionCueSnapToLinesNotSet();
     void repositionGenericCue();
 
-    RenderBlockFlow& backdropBox() const;
-    RenderInline& cueBox() const;
+    RenderBlockFlow* backdropBox() const;
+    RenderInline* cueBox() const;
 
     VTTCue* m_cue;
     FloatPoint m_fallbackPosition;

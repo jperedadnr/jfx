@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2024, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,21 +24,50 @@
  */
 package com.oracle.tools.fx.monkey.sheets;
 
+import java.io.File;
+import java.util.ArrayList;
+import javafx.beans.binding.Bindings;
+import javafx.beans.binding.ObjectBinding;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.IntegerProperty;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.Property;
+import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
+import javafx.geometry.BoundingBox;
+import javafx.geometry.Bounds;
+import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextField;
+import javafx.scene.image.Image;
 import javafx.scene.layout.Background;
+import javafx.scene.layout.BackgroundFill;
+import javafx.scene.layout.CornerRadii;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
+import javafx.scene.paint.CycleMethod;
+import javafx.scene.paint.ImagePattern;
+import javafx.scene.paint.LinearGradient;
+import javafx.scene.paint.RadialGradient;
+import javafx.scene.paint.Stop;
+import javafx.scene.shape.ClosePath;
+import javafx.scene.shape.CubicCurveTo;
+import javafx.scene.shape.Ellipse;
+import javafx.scene.shape.MoveTo;
+import javafx.scene.shape.Path;
+import javafx.scene.shape.PathElement;
+import javafx.scene.shape.Shape;
+import javafx.stage.FileChooser;
 import com.oracle.tools.fx.monkey.options.DoubleOption;
 import com.oracle.tools.fx.monkey.options.IntOption;
 import com.oracle.tools.fx.monkey.options.ObjectOption;
 import com.oracle.tools.fx.monkey.options.TextChoiceOption;
+import com.oracle.tools.fx.monkey.util.FX;
+import com.oracle.tools.fx.monkey.util.ImageTools;
 import com.oracle.tools.fx.monkey.util.ObjectSelector;
 import com.oracle.tools.fx.monkey.util.TextTemplates;
 import com.oracle.tools.fx.monkey.util.Utils;
@@ -75,15 +104,30 @@ public class Options {
         return DoubleOption.of(name, p, 0, 1, 1.5, 4, 10, 20, 33.33, 100);
     }
 
+    public static ObjectOption<Image> createImageOption(String name, ObjectProperty<Image> p) {
+        ObjectOption<Image> op = new ObjectOption<>(name, p);
+        op.addChoice("<null>", null);
+        op.addChoice("1x1", ImageTools.createImage(1, 1));
+        op.addChoice("16 x 16", ImageTools.createImage(16, 16));
+        op.addChoice("32 x 32", ImageTools.createImage(32, 32));
+        op.addChoice("64 x 64", ImageTools.createImage(64, 64));
+        op.addChoiceSupplier("128 x 16", () -> ImageTools.createImage(128, 16));
+        op.addChoiceSupplier("16 x 128", () -> ImageTools.createImage(16, 128));
+        op.addChoiceSupplier("256 x 256", () -> ImageTools.createImage(256, 256));
+        op.addChoiceSupplier("4096 x 4096", () -> ImageTools.createImage(4096, 4096));
+        op.selectFirst();
+        return op;
+    }
+
     public static Node tabPaneConstraints(String name, DoubleProperty p) {
         DoubleOption d = new DoubleOption(name, p);
-        d.addChoice("0", Double.valueOf(0));
-        d.addChoice("10", 10.0);
-        d.addChoice("33.3", 33.3);
-        d.addChoice("100", 100.0);
+        d.addChoice(0);
+        d.addChoice(10.0);
+        d.addChoice(33.3);
+        d.addChoice(100.0);
         d.addChoice("Double.MAX_VALUE", Double.MAX_VALUE);
         d.addChoice("Double.POSITIVE_INFINITY", Double.POSITIVE_INFINITY);
-        d.addChoice("Double.NaN", Double.NaN);
+        d.addChoice("NaN", Double.NaN);
         d.selectInitialValue();
         return d;
     }
@@ -99,8 +143,22 @@ public class Options {
         d.addChoice("Double.MAX_VALUE", Double.MAX_VALUE);
         d.addChoice("Double.MIN_VALUE", Double.MIN_VALUE);
         d.addChoice("Double.POSITIVE_INFINITY", Double.POSITIVE_INFINITY);
-        d.addChoice("Double.NaN", Double.NaN);
+        d.addChoice("NaN", Double.NaN);
         d.selectInitialValue();
+        return d;
+    }
+
+    public static Node doubleOption(String name, Property<Number> p) {
+        DoubleOption d = new DoubleOption(name, p);
+        d.addChoice("0", Double.valueOf(0));
+        d.addChoice("10", 10.0);
+        d.addChoice("33.3", 33.3);
+        d.addChoice("100", 100.0);
+        d.addChoice("Double.MAX_VALUE", Double.MAX_VALUE);
+        d.addChoice("Double.MIN_VALUE", Double.MIN_VALUE);
+        d.addChoice("Double.POSITIVE_INFINITY", Double.POSITIVE_INFINITY);
+        d.addChoice("NaN", Double.NaN);
+        d.select(p.getValue(), true);
         return d;
     }
 
@@ -110,6 +168,7 @@ public class Options {
 
     public static Node background(Node owner, String name, Property<Background> p) {
         ObjectOption<Background> op = new ObjectOption<>(name, p);
+        op.addChoice("<null>", null);
         op.addChoiceSupplier("Black", () -> {
             return Background.fill(Color.BLACK);
         });
@@ -119,19 +178,33 @@ public class Options {
         op.addChoiceSupplier("White", () -> {
             return Background.fill(Color.WHITE);
         });
-        // TODO let background property track focused and focusWithin properties to change the bg
-        // also make sure to removeListener when the background is set to another value
-//        op.addChoiceSupplier("Focus(Green), NoFocus(Gray)", () -> {
-//            BooleanBinding b = Bindings.createBooleanBinding(
-//                () -> {
-//                },
-//                owner.focusTraversableProperty(),
-//                owner.focusedProperty(),
-//                owner.focusWithinProperty()
-//            );
-//            Background bg = new Background();
-//        });
-        op.addChoice("<null>", null);
+        op.addChoiceSupplier("Linear Gradient", () -> {
+            LinearGradient g = new LinearGradient(
+                0, 0, 30, 30, false,
+                CycleMethod.REFLECT,
+                new Stop(0, Color.RED), new Stop(30, Color.GREEN)
+            );
+            return Background.fill(g);
+        });
+        op.addChoiceSupplier("Radial Gradient", () -> {
+            RadialGradient g = new RadialGradient(
+                45, 0, 50, 10, 10, false,
+                CycleMethod.REFLECT,
+                new Stop(0, Color.RED), new Stop(10, Color.GREEN)
+            );
+            return Background.fill(g);
+        });
+        op.addChoiceSupplier("Image Pattern", () -> {
+            ImagePattern g = new ImagePattern(
+                ImageTools.createImage(50, 50),
+                0, 0, 50, 50, false
+            );
+            return Background.fill(g);
+        });
+        op.addChoiceSupplier("Negative Insets", () -> {
+            BackgroundFill f = new BackgroundFill(Color.rgb(0, 0, 255, 0.5), new CornerRadii(10), new Insets(-10, -10, -10, -10));
+            return new Background(f);
+        });
         op.selectInitialValue();
         return op;
     }
@@ -163,5 +236,145 @@ public class Options {
                 e.printStackTrace();
             }
         });
+    }
+
+    public static Node forColumnWidth(String name, double defaultValue, DoubleProperty p) {
+        DoubleOption d = new DoubleOption(name, p);
+        d.addChoice("0", Double.valueOf(0));
+        d.addChoice("10", 10.0);
+        d.addChoice("33.3", 33.3);
+        d.addChoice("100", 100.0);
+        d.addChoice("Double.MAX_VALUE", Double.MAX_VALUE);
+        d.addChoice("Double.MIN_VALUE", Double.MIN_VALUE);
+        d.addChoice("Double.POSITIVE_INFINITY", Double.POSITIVE_INFINITY);
+        d.addChoice("NaN", Double.NaN);
+        d.addChoice("<default: " + defaultValue + ">", defaultValue);
+        d.selectInitialValue();
+        return d;
+    }
+
+    public static Node boundsOption(String name, ObjectProperty<Bounds> p) {
+        Bounds[] bounds = {
+            b(0, 0, 0, 0),
+            b(0, 0, 10, 10),
+            b(0, 0, 1000, 1000),
+            b(-500, -500, 1000, 1000)
+        };
+
+        ObjectOption<Bounds> op = new ObjectOption<>(name, p);
+        op.addChoice("<null>", null);
+        for(Bounds b: bounds) {
+            String s =
+                "@" + b.getMinX() + "," + b.getMinY() +
+                "  [" + b.getWidth() + "x" + b.getHeight() + "]";
+            op.addChoice(s, b);
+        }
+        op.selectInitialValue();
+        return op;
+    }
+
+    private static Bounds b(double x, double y, double w, double h) {
+        return new BoundingBox(x, y, 0.0, w, h, 0.0);
+    }
+
+    public static Node shape(String name, Node n, ObjectProperty<Shape> prop) {
+        ObjectOption<Shape> op = new ObjectOption<>(name, prop);
+        op.addChoice("<null>", null);
+        op.addChoiceSupplier("Leaf", () -> new LeafShape(n));
+        op.selectInitialValue();
+        return op;
+    }
+
+    public static Node clip(String name, Node n, ObjectProperty<Node> prop) {
+        ObjectOption<Node> op = new ObjectOption<>(name, prop);
+        op.addChoice("<null>", null);
+        op.addChoiceSupplier("Ellipse", () -> {
+            return new EllipseClip(n);
+        });
+        op.selectInitialValue();
+        return op;
+    }
+
+    private static class EllipseClip extends Ellipse {
+        private final Node owner;
+        private final ObjectBinding<Bounds> binding;
+
+        public EllipseClip(Node n) {
+            this.owner = n;
+            binding = Bindings.createObjectBinding(n::getLayoutBounds, n.layoutBoundsProperty());
+            binding.addListener((p) -> {
+                update();
+            });
+            update();
+        }
+
+        private void update() {
+            Bounds b = binding.get();
+            double rx = b.getWidth() / 2.0;
+            double ry = b.getHeight() / 2.0;
+            setCenterX(rx);
+            setCenterY(ry);
+            setRadiusX(rx);
+            setRadiusY(ry);
+        }
+    }
+
+    private static class LeafShape extends Path {
+        private final Node owner;
+        private final ObjectBinding<Bounds> binding;
+
+        public LeafShape(Node n) {
+            this.owner = n;
+            binding = Bindings.createObjectBinding(n::getLayoutBounds, n.layoutBoundsProperty());
+            binding.addListener((p) -> {
+                update();
+            });
+            update();
+        }
+
+        private void update() {
+            ArrayList<PathElement> a = new ArrayList<>();
+            Bounds b = binding.get();
+            double w = b.getWidth();
+            double h = b.getHeight();
+            if ((w > 0.0) && (h > 0.0)) {
+                a.add(new MoveTo(0.0, 0.0));
+                a.add(new CubicCurveTo(0.0, 0.0, w, 0.0, w, h));
+                a.add(new CubicCurveTo(w, h, 0.0, h, 0.0, 0.0));
+                a.add(new ClosePath());
+            }
+            getElements().setAll(a);
+        }
+    }
+
+    public static Node createSourceUriOption(Node parent, String name, SimpleStringProperty sourceURI) {
+        TextField uriField = new TextField();
+        uriField.setPromptText("URI");
+        Button button = new Button("Browse...");
+        button.setOnAction((ev) -> {
+            FileChooser fc = new FileChooser();
+            String uri = sourceURI.get();
+            if (uri != null) {
+                File f = parseFileURI(uri);
+                if (f != null) {
+                    fc.setInitialDirectory(f.getParentFile());
+                    fc.setInitialFileName(f.getName());
+                }
+            }
+            File file = fc.showOpenDialog(FX.getParentWindow(parent));
+            if (file != null) {
+                String s = file.toURI().toString();
+                uriField.setText(s);
+                sourceURI.set(s);
+            }
+        });
+        HBox hb = new HBox(5, uriField, button);
+        HBox.setHgrow(uriField, Priority.ALWAYS);
+        return hb;
+    }
+
+    private static File parseFileURI(String text) {
+        // TODO
+        return null;
     }
 }

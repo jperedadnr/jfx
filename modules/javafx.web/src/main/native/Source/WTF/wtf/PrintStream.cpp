@@ -30,10 +30,12 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WTF {
 
-PrintStream::PrintStream() { }
-PrintStream::~PrintStream() { } // Force the vtable to be in this module
+PrintStream::PrintStream() = default;
+PrintStream::~PrintStream() = default; // Force the vtable to be in this module
 
 void PrintStream::printf(const char* format, ...)
 {
@@ -146,7 +148,13 @@ void printInternal(PrintStream& out, unsigned char value)
 
 void printInternal(PrintStream& out, char16_t value)
 {
-    out.printf("%lc", value);
+    out.printf("%lc", static_cast<wint_t>(value));
+}
+
+void printInternal(PrintStream& out, char32_t value)
+{
+    // Print each char32_t as an integer.
+    out.printf("%u", static_cast<unsigned>(value));
 }
 
 void printInternal(PrintStream& out, short value)
@@ -197,12 +205,20 @@ void printInternal(PrintStream& out, RawHex value)
         return;
     }
 #endif
+#if OS(WINDOWS)
+    out.printf("0x%p", value.ptr());
+#else
     out.printf("%p", value.ptr());
+#endif
 }
 
 void printInternal(PrintStream& out, RawPointer value)
 {
+#if OS(WINDOWS)
+    out.printf("0x%p", value.value());
+#else
     out.printf("%p", value.value());
+#endif
 }
 
 void printInternal(PrintStream& out, FixedWidthDouble value)
@@ -217,3 +233,4 @@ void dumpCharacter(PrintStream& out, char value)
 
 } // namespace WTF
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

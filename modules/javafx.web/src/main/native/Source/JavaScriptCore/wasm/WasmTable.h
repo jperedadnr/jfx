@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,25 +28,29 @@
 #if ENABLE(WEBASSEMBLY)
 
 #include "SlotVisitorMacros.h"
+#include "WasmCallee.h"
 #include "WasmFormat.h"
 #include "WasmLimits.h"
 #include "WriteBarrier.h"
 #include <wtf/MallocPtr.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 class JSWebAssemblyTable;
+class WebAssemblyFunctionBase;
 
 namespace Wasm {
 
-class Instance;
 class FuncRefTable;
 
 class Table : public ThreadSafeRefCounted<Table> {
     WTF_MAKE_NONCOPYABLE(Table);
-    WTF_MAKE_FAST_ALLOCATED(Table);
+    WTF_MAKE_TZONE_ALLOCATED(Table);
 public:
     static RefPtr<Table> tryCreate(uint32_t initial, std::optional<uint32_t> maximum, TableElementType, Type);
 
@@ -55,7 +59,7 @@ public:
     std::optional<uint32_t> maximum() const { return m_maximum; }
     uint32_t length() const { return m_length; }
 
-    static ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(Table, m_length); }
+    static constexpr ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(Table, m_length); }
 
     static uint32_t allocatedLength(uint32_t length);
 
@@ -104,7 +108,8 @@ protected:
     JSWebAssemblyTable* m_owner;
 };
 
-class ExternRefTable final : public Table {
+class ExternOrAnyRefTable final : public Table {
+    WTF_MAKE_TZONE_ALLOCATED(ExternOrAnyRefTable);
 public:
     friend class Table;
 
@@ -113,33 +118,41 @@ public:
     JSValue get(uint32_t index) const { return m_jsValues.get()[index].get(); }
 
 private:
-    ExternRefTable(uint32_t initial, std::optional<uint32_t> maximum, Type wasmType);
+    ExternOrAnyRefTable(uint32_t initial, std::optional<uint32_t> maximum, Type wasmType);
 
     MallocPtr<WriteBarrier<Unknown>, VMMalloc> m_jsValues;
 };
 
 class FuncRefTable final : public Table {
+    WTF_MAKE_TZONE_ALLOCATED(FuncRefTable);
 public:
     friend class Table;
 
     JS_EXPORT_PRIVATE ~FuncRefTable();
 
-    // call_indirect needs to do an Instance check to potentially context switch when calling a function to another instance. We can hold raw pointers to Instance here because the js ensures that Table keeps all the instances alive. We couldn't hold a Ref here because it would cause cycles.
+    // call_indirect needs to do an Instance check to potentially context switch when calling a function to another instance. We can hold raw pointers to JSWebAssemblyInstance here because the js ensures that Table keeps all the instances alive.
     struct Function {
-        WasmToWasmImportableFunction m_function;
-        Instance* m_instance { nullptr };
+        WasmOrJSImportableFunction m_function;
+        WasmOrJSImportableFunctionCallLinkInfo* m_callLinkInfo { nullptr };
+        JSWebAssemblyInstance* m_instance { nullptr };
         WriteBarrier<Unknown> m_value { NullWriteBarrierTag };
+        // In the case when we do not JIT, we cannot use the WasmToJSCallee singleton.
+        // This callee gives the jitless wasm_to_js thunk the info it needs to call the imported
+        // function with the correct wasm type.
+        // Note that wasm to js calls will have m_function's boxedWasmCalleeLoadLocation already set.
+        RefPtr<WasmToJSCallee> m_protectedJSCallee;
 
-        static ptrdiff_t offsetOfFunction() { return OBJECT_OFFSETOF(Function, m_function); }
-        static ptrdiff_t offsetOfInstance() { return OBJECT_OFFSETOF(Function, m_instance); }
-        static ptrdiff_t offsetOfValue() { return OBJECT_OFFSETOF(Function, m_value); }
+        static constexpr ptrdiff_t offsetOfFunction() { return OBJECT_OFFSETOF(Function, m_function); }
+        static constexpr ptrdiff_t offsetOfCallLinkInfo() { return OBJECT_OFFSETOF(Function, m_callLinkInfo); }
+        static constexpr ptrdiff_t offsetOfInstance() { return OBJECT_OFFSETOF(Function, m_instance); }
+        static constexpr ptrdiff_t offsetOfValue() { return OBJECT_OFFSETOF(Function, m_value); }
     };
 
-    void setFunction(uint32_t, JSObject*, WasmToWasmImportableFunction, Instance*);
+    void setFunction(uint32_t, WebAssemblyFunctionBase*);
     const Function& function(uint32_t) const;
     void copyFunction(const FuncRefTable* srcTable, uint32_t dstIndex, uint32_t srcIndex);
 
-    static ptrdiff_t offsetOfFunctions() { return OBJECT_OFFSETOF(FuncRefTable, m_importableFunctions); }
+    static constexpr ptrdiff_t offsetOfFunctions() { return OBJECT_OFFSETOF(FuncRefTable, m_importableFunctions); }
     static constexpr ptrdiff_t offsetOfTail() { return WTF::roundUpToMultipleOf<alignof(Function)>(sizeof(FuncRefTable)); }
     static constexpr ptrdiff_t offsetOfFunctionsForFixedSizedTable() { return offsetOfTail(); }
 
@@ -155,7 +168,7 @@ public:
 private:
     FuncRefTable(uint32_t initial, std::optional<uint32_t> maximum, Type wasmType);
 
-    Function* tailPointer() { return bitwise_cast<Function*>(bitwise_cast<uint8_t*>(this) + offsetOfTail()); }
+    Function* tailPointer() { return std::bit_cast<Function*>(std::bit_cast<uint8_t*>(this) + offsetOfTail()); }
 
     static Ref<FuncRefTable> createFixedSized(uint32_t size, Type wasmType);
 
@@ -163,5 +176,7 @@ private:
 };
 
 } } // namespace JSC::Wasm
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

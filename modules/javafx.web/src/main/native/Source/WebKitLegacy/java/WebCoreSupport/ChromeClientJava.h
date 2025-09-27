@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,7 +48,9 @@ public:
     void takeFocus(FocusDirection) override;
 
     void focusedElementChanged(Element*) override;
-    void focusedFrameChanged(LocalFrame*) override;
+    void focusedFrameChanged(Frame*) override;
+        void rootFrameAdded(const LocalFrame&) override;
+        void rootFrameRemoved(const LocalFrame&) override;
 
     // The Frame pointer provides the ChromeClient with context about which
     // Frame wants to create the new Page. Also, the newly created window
@@ -56,7 +58,7 @@ public:
     // created Page has its show method called.
     // The FrameLoadRequest parameter is only for ChromeClient to check if the
     // request could be fulfilled. The ChromeClient should not load the request.
-    Page* createWindow(LocalFrame&, const WindowFeatures&, const NavigationAction&) override;
+    RefPtr<Page> createWindow(LocalFrame&, const String& openedMainFrameName, const WindowFeatures&, const NavigationAction&) override;
     void show() override;
 
     bool canRunModal() const override;
@@ -104,6 +106,10 @@ public:
 #endif
     IntPoint screenToRootView(const IntPoint&) const override;
     IntRect rootViewToScreen(const IntRect&) const override;
+    IntPoint rootViewToScreen(const IntPoint&) const override;
+    bool canShowDataListSuggestionLabels() const override;
+    RefPtr<DateTimeChooser> createDateTimeChooser(DateTimeChooserClient&) override;
+    RefPtr<DataListSuggestionPicker> createDataListSuggestionPicker(DataListSuggestionsClient&) override;
     IntPoint accessibilityScreenToRootView(const IntPoint&) const final;
     IntRect rootViewToAccessibilityScreen(const IntRect&) const final;
     void intrinsicContentsSizeChanged(const IntSize&) const final;
@@ -140,7 +146,7 @@ public:
     void reachedApplicationCacheOriginQuota(SecurityOrigin&, int64_t totalSpaceNeeded) override;
 
 #if ENABLE(INPUT_TYPE_COLOR)
-    std::unique_ptr<ColorChooser> createColorChooser(ColorChooserClient&, const Color&) override;
+    RefPtr<ColorChooser> createColorChooser(ColorChooserClient&, const Color&) override;
 #endif
 
     void runOpenPanel(LocalFrame&, FileChooser&) override;

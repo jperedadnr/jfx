@@ -26,8 +26,6 @@
 #include "config.h"
 #include "BackgroundFetchEngine.h"
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "BackgroundFetchInformation.h"
 #include "BackgroundFetchRecordInformation.h"
 #include "ExceptionData.h"
@@ -35,8 +33,11 @@
 #include "RetrieveRecordsOptions.h"
 #include "SWServerRegistration.h"
 #include "SWServerToContextConnection.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BackgroundFetchEngine);
 
 BackgroundFetchEngine::BackgroundFetchEngine(SWServer& server)
     : m_server(server)
@@ -51,7 +52,7 @@ void BackgroundFetchEngine::startBackgroundFetch(SWServerRegistration& registrat
     if (iterator == m_fetches.end()) {
         m_store->initializeFetches(registration.key(), [weakThis = WeakPtr { *this }, registration = WeakPtr { registration }, backgroundFetchIdentifier, requests = WTFMove(requests), options = WTFMove(options), callback = WTFMove(callback)]() mutable {
             if (!weakThis || !registration) {
-                callback(makeUnexpected(ExceptionData { InvalidStateError, "BackgroundFetchEngine is gone"_s }));
+                callback(makeUnexpected(ExceptionData { ExceptionCode::InvalidStateError, "BackgroundFetchEngine is gone"_s }));
                 return;
             }
             weakThis->m_fetches.ensure(registration->key(), [] {
@@ -62,37 +63,37 @@ void BackgroundFetchEngine::startBackgroundFetch(SWServerRegistration& registrat
         return;
     }
 
-    auto result = iterator->value.ensure(backgroundFetchIdentifier, [&]() mutable {
-        return makeUnique<BackgroundFetch>(registration, backgroundFetchIdentifier, WTFMove(requests), WTFMove(options), Ref { m_store }, [weakThis = WeakPtr { *this }](auto& fetch) {
+    auto result = iterator->value.ensure(backgroundFetchIdentifier, [&]() {
+        return BackgroundFetch::create(registration, backgroundFetchIdentifier, WTFMove(requests), WTFMove(options), Ref { m_store }, [weakThis = WeakPtr { *this }](auto& fetch) {
             if (weakThis)
                 weakThis->notifyBackgroundFetchUpdate(fetch);
         });
     });
     if (!result.isNewEntry) {
-        callback(makeUnexpected(ExceptionData { TypeError, "A background fetch registration already exists"_s }));
+        callback(makeUnexpected(ExceptionData { ExceptionCode::TypeError, "A background fetch registration already exists"_s }));
         return;
     }
 
-    auto& fetch = *result.iterator->value;
-    fetch.doStore([server = m_server, fetch = WeakPtr { fetch }, callback = WTFMove(callback)](auto result) mutable {
+    auto fetch = result.iterator->value;
+    fetch->doStore([server = m_server, fetch = WeakPtr { fetch }, callback = WTFMove(callback)](auto result) mutable {
         if (!fetch || !server) {
-            callback(makeUnexpected(ExceptionData { TypeError, "Background fetch is gone"_s }));
+            callback(makeUnexpected(ExceptionData { ExceptionCode::TypeError, "Background fetch is gone"_s }));
             return;
         }
         switch (result) {
         case BackgroundFetchStore::StoreResult::QuotaError:
-            callback(makeUnexpected(ExceptionData { QuotaExceededError, "Background fetch requested space is above quota"_s }));
+            callback(makeUnexpected(ExceptionData { ExceptionCode::QuotaExceededError, "Background fetch requested space is above quota"_s }));
             break;
         case BackgroundFetchStore::StoreResult::InternalError:
-            callback(makeUnexpected(ExceptionData { TypeError, "Background fetch store operation failed"_s }));
+            callback(makeUnexpected(ExceptionData { ExceptionCode::TypeError, "Background fetch store operation failed"_s }));
             break;
         case BackgroundFetchStore::StoreResult::OK:
             if (!fetch->pausedFlagIsSet()) {
                 fetch->perform([server = WTFMove(server)](auto& client, auto& request, auto responseDataSize, auto& origin) mutable {
-                    return server ? server->createBackgroundFetchRecordLoader(client, request, responseDataSize, origin) : nullptr;
+                    return server ? RefPtr { server->createBackgroundFetchRecordLoader(client, request, responseDataSize, origin) } : nullptr;
                 });
             }
-            callback(fetch->information());
+            callback(std::optional { fetch->information() });
             break;
         };
     });
@@ -127,7 +128,7 @@ void BackgroundFetchEngine::backgroundFetchInformation(SWServerRegistration& reg
     if (iterator == m_fetches.end()) {
         m_store->initializeFetches(registration.key(), [weakThis = WeakPtr { *this }, registration = WeakPtr { registration }, backgroundFetchIdentifier, callback = WTFMove(callback)]() mutable {
             if (!weakThis || !registration) {
-                callback(makeUnexpected(ExceptionData { InvalidStateError, "BackgroundFetchEngine is gone"_s }));
+                callback(makeUnexpected(ExceptionData { ExceptionCode::InvalidStateError, "BackgroundFetchEngine is gone"_s }));
                 return;
             }
             weakThis->m_fetches.ensure(registration->key(), [] {
@@ -141,10 +142,10 @@ void BackgroundFetchEngine::backgroundFetchInformation(SWServerRegistration& reg
     auto& map = iterator->value;
     auto fetchIterator = map.find(backgroundFetchIdentifier);
     if (fetchIterator == map.end()) {
-        callback(BackgroundFetchInformation { });
+        callback(std::optional<BackgroundFetchInformation> { });
         return;
     }
-    callback(fetchIterator->value->information());
+    callback(std::optional { fetchIterator->value->information() });
 }
 
 // https://wicg.github.io/background-fetch/#dom-backgroundfetchmanager-getids
@@ -165,12 +166,11 @@ void BackgroundFetchEngine::backgroundFetchIdentifiers(SWServerRegistration& reg
         return;
     }
 
-    Vector<String> identifiers;
-    identifiers.reserveInitialCapacity(iterator->value.size());
-    for (auto& keyValue : iterator->value) {
+    Vector<String> identifiers = WTF::compactMap(iterator->value, [](auto& keyValue) -> std::optional<String> {
         if (keyValue.value->isActive())
-            identifiers.uncheckedAppend(keyValue.key);
-    }
+            return keyValue.key;
+        return std::nullopt;
+    });
     callback(WTFMove(identifiers));
 }
 
@@ -230,14 +230,12 @@ void BackgroundFetchEngine::matchBackgroundFetch(SWServerRegistration& registrat
             callback({ });
             return;
         }
-        Vector<BackgroundFetchRecordInformation> recordsInformation;
-        recordsInformation.reserveInitialCapacity(records.size());
-        for (auto& record : records) {
+        auto recordsInformation = WTF::map(WTFMove(records), [&](auto&& record) {
             // FIXME: We need a way to remove the record from m_records.
             auto information = record->information();
             weakThis->m_records.add(information.identifier, WTFMove(record));
-            recordsInformation.uncheckedAppend(WTFMove(information));
-        }
+            return information;
+        });
         callback(WTFMove(recordsInformation));
     });
 }
@@ -255,7 +253,7 @@ void BackgroundFetchEngine::retrieveRecordResponse(BackgroundFetchRecordIdentifi
 {
     auto record = m_records.get(recordIdentifier);
     if (!record) {
-        callback(makeUnexpected(ExceptionData { InvalidStateError, "Record not found"_s }));
+        callback(makeUnexpected(ExceptionData { ExceptionCode::InvalidStateError, "Record not found"_s }));
         return;
     }
     record->retrieveResponse(m_store.get(), WTFMove(callback));
@@ -291,7 +289,7 @@ void BackgroundFetchEngine::addFetchFromStore(std::span<const uint8_t> data, Com
 
     auto backgroundFetchIdentifier = fetch->identifier();
     ASSERT(!fetchMap.contains(backgroundFetchIdentifier));
-    fetchMap.add(WTFMove(backgroundFetchIdentifier), WTFMove(fetch));
+    fetchMap.add(WTFMove(backgroundFetchIdentifier), fetch.releaseNonNull());
 }
 
 void BackgroundFetchEngine::abortBackgroundFetch(const ServiceWorkerRegistrationKey& key, const String& identifier)
@@ -334,7 +332,7 @@ void BackgroundFetchEngine::resumeBackgroundFetch(const ServiceWorkerRegistratio
         return;
 
     fetchIterator->value->resume([server = m_server](auto& client, auto& request, auto responseDataSize, auto& origin) mutable {
-        return server ? server->createBackgroundFetchRecordLoader(client, request, responseDataSize, origin) : nullptr;
+        return server ? RefPtr { server->createBackgroundFetchRecordLoader(client, request, responseDataSize, origin) } : nullptr;
     });
 }
 
@@ -366,5 +364,3 @@ WeakPtr<BackgroundFetch> BackgroundFetchEngine::backgroundFetch(const ServiceWor
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

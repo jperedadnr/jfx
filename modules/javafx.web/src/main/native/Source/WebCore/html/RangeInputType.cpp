@@ -34,11 +34,13 @@
 
 #include "Decimal.h"
 #include "DocumentInlines.h"
-#include "ElementChildIteratorInlines.h"
+#include "ElementInlines.h"
 #include "ElementRareData.h"
 #include "EventNames.h"
 #include "HTMLCollection.h"
+#include "HTMLDataListElement.h"
 #include "HTMLInputElement.h"
+#include "HTMLOptionElement.h"
 #include "HTMLParserIdioms.h"
 #include "InputTypeNames.h"
 #include "KeyboardEvent.h"
@@ -48,12 +50,13 @@
 #include "RenderSlider.h"
 #include "ScopedEventQueue.h"
 #include "ScriptDisallowedScope.h"
-#include "ShadowPseudoIds.h"
 #include "ShadowRoot.h"
 #include "SliderThumbElement.h"
 #include "StepRange.h"
+#include "UserAgentParts.h"
 #include <limits>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(TOUCH_EVENTS)
 #include "Touch.h"
@@ -61,12 +64,9 @@
 #include "TouchList.h"
 #endif
 
-#if ENABLE(DATALIST_ELEMENT)
-#include "HTMLDataListElement.h"
-#include "HTMLOptionElement.h"
-#endif
-
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RangeInputType);
 
 using namespace HTMLNames;
 
@@ -119,13 +119,15 @@ bool RangeInputType::supportsRequired() const
 StepRange RangeInputType::createStepRange(AnyStepHandling anyStepHandling) const
 {
     ASSERT(element());
+    const Decimal stepBase = findStepBase(rangeDefaultStepBase);
     const Decimal minimum = parseToNumber(element()->attributeWithoutSynchronization(minAttr), rangeDefaultMinimum);
     const Decimal maximum = ensureMaximum(parseToNumber(element()->attributeWithoutSynchronization(maxAttr), rangeDefaultMaximum), minimum);
 
     const Decimal step = StepRange::parseStep(anyStepHandling, rangeStepDescription, element()->attributeWithoutSynchronization(stepAttr));
-    return StepRange(minimum, RangeLimitations::Valid, minimum, maximum, step, rangeStepDescription);
+    return StepRange(stepBase, RangeLimitations::Valid, minimum, maximum, step, rangeStepDescription);
 }
 
+// FIXME: Should this work for untrusted input?
 void RangeInputType::handleMouseDownEvent(MouseEvent& event)
 {
     ASSERT(element());
@@ -136,16 +138,17 @@ void RangeInputType::handleMouseDownEvent(MouseEvent& event)
     if (element()->isDisabledFormControl())
         return;
 
-    if (event.button() != LeftButton || !is<Node>(event.target()))
+    RefPtr targetNode = dynamicDowncast<Node>(event.target());
+    if (!targetNode)
         return;
+
     ASSERT(element()->shadowRoot());
-    auto& targetNode = downcast<Node>(*event.target());
-    if (&targetNode != element() && !targetNode.isDescendantOf(element()->userAgentShadowRoot().get()))
+    if (targetNode != element() && !targetNode->isDescendantOf(element()->protectedUserAgentShadowRoot().get()))
         return;
-    auto& thumb = typedSliderThumbElement();
-    if (&targetNode == &thumb)
+    Ref thumb = typedSliderThumbElement();
+    if (targetNode == thumb.ptr())
         return;
-    thumb.dragFrom(event.absoluteLocation());
+    thumb->dragFrom(event.absoluteLocation());
 }
 
 #if ENABLE(TOUCH_EVENTS)
@@ -156,7 +159,7 @@ void RangeInputType::handleTouchEvent(TouchEvent& event)
     if (!hasCreatedShadowSubtree())
         return;
 
-#if PLATFORM(IOS_FAMILY)
+#if ENABLE(IOS_TOUCH_EVENTS)
     typedSliderThumbElement().handleTouchEvent(event);
 #else
 
@@ -173,15 +176,8 @@ void RangeInputType::handleTouchEvent(TouchEvent& event)
         typedSliderThumbElement().setPositionFromPoint(touches->item(0)->absoluteLocation());
         event.setDefaultHandled();
     }
-#endif
+#endif // ENABLE(IOS_TOUCH_EVENTS)
 }
-
-#if !PLATFORM(IOS_FAMILY)
-bool RangeInputType::hasTouchEventHandler() const
-{
-    return true;
-}
-#endif
 #endif // ENABLE(TOUCH_EVENTS)
 
 void RangeInputType::disabledStateChanged()
@@ -212,7 +208,7 @@ auto RangeInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBaseE
 
     bool isVertical = false;
     if (auto* renderer = element()->renderer())
-        isVertical = renderer->style().effectiveAppearance() == StyleAppearance::SliderVertical;
+        isVertical = renderer->style().usedAppearance() == StyleAppearance::SliderVertical;
 
     Decimal newValue;
     if (key == "Up"_s)
@@ -251,16 +247,17 @@ void RangeInputType::createShadowSubtree()
     ASSERT(element());
     ASSERT(element()->userAgentShadowRoot());
 
-    Document& document = element()->document();
+    Ref document = element()->document();
 
-    ScriptDisallowedScope::EventAllowedScope eventAllowedScope { *element()->userAgentShadowRoot() };
+    Ref shadowRoot = *element()->userAgentShadowRoot();
+    ScriptDisallowedScope::EventAllowedScope eventAllowedScope { shadowRoot };
 
-    auto track = HTMLDivElement::create(document);
-    auto container = SliderContainerElement::create(document);
-    element()->userAgentShadowRoot()->appendChild(ContainerNode::ChildChange::Source::Parser, container);
+    Ref track = HTMLDivElement::create(document);
+    Ref container = SliderContainerElement::create(document);
+    shadowRoot->appendChild(ContainerNode::ChildChange::Source::Parser, container);
     container->appendChild(ContainerNode::ChildChange::Source::Parser, track);
 
-    track->setPseudo(ShadowPseudoIds::webkitSliderRunnableTrack());
+    track->setUserAgentPart(UserAgentParts::webkitSliderRunnableTrack());
     track->appendChild(ContainerNode::ChildChange::Source::Parser, SliderThumbElement::create(document));
 }
 
@@ -271,29 +268,24 @@ HTMLElement* RangeInputType::sliderTrackElement() const
     if (!hasCreatedShadowSubtree())
         return nullptr;
 
-    ASSERT(element()->userAgentShadowRoot());
-    ASSERT(element()->userAgentShadowRoot()->firstChild()); // container
-    ASSERT(element()->userAgentShadowRoot()->firstChild()->isHTMLElement());
-    ASSERT(element()->userAgentShadowRoot()->firstChild()->firstChild()); // track
+    RefPtr root = element()->userAgentShadowRoot();
+    ASSERT(root);
+    ASSERT(is<SliderContainerElement>(root->firstChild())); // container
+    ASSERT(root->firstChild()->firstChild()); // track
 
-    RefPtr<ShadowRoot> root = element()->userAgentShadowRoot();
     if (!root)
         return nullptr;
 
-    auto* container = childrenOfType<SliderContainerElement>(*root).first();
-    if (!container)
-        return nullptr;
-
-    return childrenOfType<HTMLElement>(*container).first();
+    RefPtr container = root->firstChild();
+    return container ? downcast<HTMLElement>(container->firstChild()) : nullptr;
 }
 
 SliderThumbElement& RangeInputType::typedSliderThumbElement() const
 {
     ASSERT(hasCreatedShadowSubtree());
     ASSERT(sliderTrackElement()->firstChild()); // thumb
-    ASSERT(sliderTrackElement()->firstChild()->isHTMLElement());
 
-    return static_cast<SliderThumbElement&>(*sliderTrackElement()->firstChild());
+    return downcast<SliderThumbElement>(*sliderTrackElement()->firstChild());
 }
 
 HTMLElement* RangeInputType::sliderThumbElement() const
@@ -322,7 +314,7 @@ String RangeInputType::serialize(const Decimal& value) const
 // FIXME: Could share this with BaseClickableWithKeyInputType and BaseCheckableInputType if we had a common base class.
 bool RangeInputType::accessKeyAction(bool sendMouseEvents)
 {
-    auto* element = this->element();
+    RefPtr element = this->element();
     return InputType::accessKeyAction(sendMouseEvents) || (element && element->dispatchSimulatedClick(0, sendMouseEvents ? SendMouseUpDownEvents : SendNoEvents));
 }
 
@@ -376,14 +368,9 @@ String RangeInputType::sanitizeValue(const String& proposedValue) const
 
 bool RangeInputType::shouldRespectListAttribute()
 {
-#if ENABLE(DATALIST_ELEMENT)
     return element() && element()->document().settings().dataListElementEnabled();
-#else
-    return InputType::themeSupportsDataListUI(this);
-#endif
 }
 
-#if ENABLE(DATALIST_ELEMENT)
 void RangeInputType::dataListMayHaveChanged()
 {
     m_tickMarkValuesDirty = true;
@@ -456,6 +443,5 @@ std::optional<Decimal> RangeInputType::findClosestTickMarkValue(const Decimal& v
 
     return closestLeft;
 }
-#endif
 
 } // namespace WebCore

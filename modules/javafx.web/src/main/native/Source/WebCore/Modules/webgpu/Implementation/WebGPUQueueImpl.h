@@ -31,13 +31,14 @@
 #include "WebGPUQueue.h"
 #include <WebGPU/WebGPU.h>
 #include <wtf/Deque.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore::WebGPU {
 
 class ConvertToBackingContext;
 
 class QueueImpl final : public Queue {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(QueueImpl);
 public:
     static Ref<QueueImpl> create(WebGPUPtr<WGPUQueue>&& queue, ConvertToBackingContext& convertToBackingContext)
     {
@@ -58,22 +59,33 @@ private:
 
     WGPUQueue backing() const { return m_backing.get(); }
 
-    void submit(Vector<std::reference_wrapper<CommandBuffer>>&&) final;
+    void submit(Vector<Ref<WebGPU::CommandBuffer>>&&) final;
 
     void onSubmittedWorkDone(CompletionHandler<void()>&&) final;
 
     void writeBuffer(
         const Buffer&,
         Size64 bufferOffset,
-        const void* source,
-        size_t byteLength,
+        std::span<const uint8_t> source,
         Size64 dataOffset,
         std::optional<Size64>) final;
 
     void writeTexture(
         const ImageCopyTexture& destination,
-        const void* source,
-        size_t byteLength,
+        std::span<const uint8_t> source,
+        const ImageDataLayout&,
+        const Extent3D& size) final;
+
+    void writeBufferNoCopy(
+        const Buffer&,
+        Size64 bufferOffset,
+        std::span<uint8_t> source,
+        Size64 dataOffset,
+        std::optional<Size64>) final;
+
+    void writeTexture(
+        const ImageCopyTexture& destination,
+        std::span<uint8_t> source,
         const ImageDataLayout&,
         const Extent3D& size) final;
 
@@ -83,6 +95,7 @@ private:
         const Extent3D& copySize) final;
 
     void setLabelInternal(const String&) final;
+    RefPtr<WebCore::NativeImage> getNativeImage(WebCore::VideoFrame&) final;
 
     WebGPUPtr<WGPUQueue> m_backing;
     Ref<ConvertToBackingContext> m_convertToBackingContext;

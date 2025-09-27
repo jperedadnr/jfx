@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2008, 2009, 2013, 2014 Apple Inc. All rights reserved.
+ *  Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -30,6 +30,7 @@
 #include <wtf/DoublyLinkedList.h>
 #include <wtf/Forward.h>
 #include <wtf/ListHashSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -42,7 +43,7 @@ class SourceProvider;
 class VM;
 
 class Debugger : public DoublyLinkedListNode<Debugger> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(Debugger, JS_EXPORT_PRIVATE);
 public:
     JS_EXPORT_PRIVATE Debugger(VM&);
     JS_EXPORT_PRIVATE virtual ~Debugger();
@@ -118,8 +119,14 @@ public:
     void stepOverStatement();
     void stepOutOfFunction();
 
-    enum class BlackboxType { Deferred, Ignored };
-    void setBlackboxType(SourceID, std::optional<BlackboxType>);
+    using BlackboxRange = std::pair<TextPosition, TextPosition>;
+    enum class BlackboxFlag : uint8_t {
+        Ignore = 1 << 0,
+        Defer = 1 << 1,
+    };
+    using BlackboxFlags = OptionSet<BlackboxFlag>;
+    using BlackboxConfiguration = UncheckedKeyHashMap<BlackboxRange, BlackboxFlags>;
+    void setBlackboxConfiguration(SourceID, BlackboxConfiguration&&);
     void setBlackboxBreakpointEvaluations(bool);
     void clearBlackbox();
 
@@ -146,7 +153,7 @@ public:
     JS_EXPORT_PRIVATE void didRunMicrotask(JSGlobalObject*, MicrotaskIdentifier);
 
     void registerCodeBlock(CodeBlock*);
-    void forEachRegisteredCodeBlock(const Function<void(CodeBlock*)>&);
+    void forEachRegisteredCodeBlock(NOESCAPE const Function<void(CodeBlock*)>&);
 
     void didCreateNativeExecutable(NativeExecutable&);
     void willCallNativeExecutable(CallFrame*);
@@ -319,9 +326,9 @@ private:
     void dispatchFunctionToObservers(Function<void(Observer&)>);
 
     VM& m_vm;
-    HashSet<JSGlobalObject*> m_globalObjects;
-    HashMap<SourceID, DebuggerParseData, WTF::IntHash<SourceID>, WTF::UnsignedWithZeroKeyHashTraits<SourceID>> m_parseDataMap;
-    HashMap<SourceID, BlackboxType, WTF::IntHash<SourceID>, WTF::UnsignedWithZeroKeyHashTraits<SourceID>> m_blackboxedScripts;
+    UncheckedKeyHashSet<JSGlobalObject*> m_globalObjects;
+    UncheckedKeyHashMap<SourceID, DebuggerParseData, WTF::IntHash<SourceID>, WTF::UnsignedWithZeroKeyHashTraits<SourceID>> m_parseDataMap;
+    UncheckedKeyHashMap<SourceID, BlackboxConfiguration, WTF::IntHash<SourceID>, WTF::UnsignedWithZeroKeyHashTraits<SourceID>> m_blackboxConfigurations;
     bool m_blackboxBreakpointEvaluations : 1;
 
     bool m_pauseAtNextOpportunity : 1;
@@ -342,9 +349,9 @@ private:
     SourceID m_lastExecutedSourceID;
     bool m_afterBlackboxedScript { false };
 
-    using LineToBreakpointsMap = HashMap<unsigned, BreakpointsVector, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>>;
-    HashMap<SourceID, LineToBreakpointsMap, WTF::IntHash<SourceID>, WTF::UnsignedWithZeroKeyHashTraits<SourceID>> m_breakpointsForSourceID;
-    HashSet<Ref<Breakpoint>> m_breakpoints;
+    using LineToBreakpointsMap = UncheckedKeyHashMap<unsigned, BreakpointsVector, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>>;
+    UncheckedKeyHashMap<SourceID, LineToBreakpointsMap, WTF::IntHash<SourceID>, WTF::UnsignedWithZeroKeyHashTraits<SourceID>> m_breakpointsForSourceID;
+    UncheckedKeyHashSet<Ref<Breakpoint>> m_breakpoints;
     RefPtr<Breakpoint> m_specialBreakpoint;
     ListHashSet<Ref<Breakpoint>> m_deferredBreakpoints;
     BreakpointID m_pausingBreakpointID;
@@ -358,7 +365,7 @@ private:
 
     RefPtr<JSC::DebuggerCallFrame> m_currentDebuggerCallFrame;
 
-    HashSet<Observer*> m_observers;
+    UncheckedKeyHashSet<Observer*> m_observers;
 
     Client* m_client { nullptr };
     ProfilingClient* m_profilingClient { nullptr };

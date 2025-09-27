@@ -39,18 +39,6 @@
 
 namespace JSC {
 
-Lock GlobalJSLock::s_sharedInstanceMutex;
-
-GlobalJSLock::GlobalJSLock()
-{
-    s_sharedInstanceMutex.lock();
-}
-
-GlobalJSLock::~GlobalJSLock()
-{
-    s_sharedInstanceMutex.unlock();
-}
-
 JSLockHolder::JSLockHolder(JSGlobalObject* globalObject)
     : JSLockHolder(globalObject->vm())
 {
@@ -82,9 +70,7 @@ JSLock::JSLock(VM* vm)
 {
 }
 
-JSLock::~JSLock()
-{
-}
+JSLock::~JSLock() = default;
 
 void JSLock::willDestroyVM(VM* vm)
 {
@@ -198,8 +184,9 @@ void JSLock::unlock(intptr_t unlockCount) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 
 void JSLock::willReleaseLock()
 {
-    RefPtr<VM> vm = m_vm;
-    if (vm) {
+    {
+        RefPtr protectedVM { m_vm };
+        if (protectedVM) {
         static bool useLegacyDrain = false;
 #if PLATFORM(COCOA)
         static std::once_flag once;
@@ -209,16 +196,17 @@ void JSLock::willReleaseLock()
 #endif
 
         if (!m_lockDropDepth || useLegacyDrain)
-            vm->drainMicrotasks();
+                protectedVM->drainMicrotasks();
 
-        if (!vm->topCallFrame)
-            vm->clearLastException();
+            if (!protectedVM->topCallFrame)
+                protectedVM->clearLastException();
 
-        vm->heap.releaseDelayedReleasedObjects();
-        vm->setStackPointerAtVMEntry(nullptr);
+            protectedVM->heap.releaseDelayedReleasedObjects();
+            protectedVM->setStackPointerAtVMEntry(nullptr);
 
         if (m_shouldReleaseHeapAccess)
-            vm->heap.releaseAccess();
+                protectedVM->heap.releaseAccess();
+        }
     }
 
     if (m_entryAtomStringTable) {

@@ -31,6 +31,7 @@
 #include "LibWebRTCProvider.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <webrtc/api/dtls_transport_interface.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
@@ -57,13 +58,13 @@ static inline RTCDtlsTransportState toRTCDtlsTransportState(webrtc::DtlsTranspor
 
 class LibWebRTCDtlsTransportBackendObserver final : public ThreadSafeRefCounted<LibWebRTCDtlsTransportBackendObserver>, public webrtc::DtlsTransportObserverInterface {
 public:
-    static Ref<LibWebRTCDtlsTransportBackendObserver> create(RTCDtlsTransportBackend::Client& client, rtc::scoped_refptr<webrtc::DtlsTransportInterface>& backend) { return adoptRef(*new LibWebRTCDtlsTransportBackendObserver(client, backend)); }
+    static Ref<LibWebRTCDtlsTransportBackendObserver> create(RTCDtlsTransportBackendClient& client, rtc::scoped_refptr<webrtc::DtlsTransportInterface>& backend) { return adoptRef(*new LibWebRTCDtlsTransportBackendObserver(client, backend)); }
 
     void start();
     void stop();
 
 private:
-    LibWebRTCDtlsTransportBackendObserver(RTCDtlsTransportBackend::Client&, rtc::scoped_refptr<webrtc::DtlsTransportInterface>&);
+    LibWebRTCDtlsTransportBackendObserver(RTCDtlsTransportBackendClient&, rtc::scoped_refptr<webrtc::DtlsTransportInterface>&);
 
     void OnStateChange(webrtc::DtlsTransportInformation) final;
     void OnError(webrtc::RTCError) final;
@@ -71,10 +72,10 @@ private:
     void updateState(webrtc::DtlsTransportInformation&&);
 
     rtc::scoped_refptr<webrtc::DtlsTransportInterface> m_backend;
-    WeakPtr<RTCDtlsTransportBackend::Client> m_client;
+    WeakPtr<RTCDtlsTransportBackendClient> m_client;
 };
 
-LibWebRTCDtlsTransportBackendObserver::LibWebRTCDtlsTransportBackendObserver(RTCDtlsTransportBackend::Client& client, rtc::scoped_refptr<webrtc::DtlsTransportInterface>& backend)
+LibWebRTCDtlsTransportBackendObserver::LibWebRTCDtlsTransportBackendObserver(RTCDtlsTransportBackendClient& client, rtc::scoped_refptr<webrtc::DtlsTransportInterface>& backend)
     : m_backend(backend)
     , m_client(client)
 {
@@ -95,7 +96,7 @@ void LibWebRTCDtlsTransportBackendObserver::updateState(webrtc::DtlsTransportInf
         }
     }
     m_client->onStateChanged(toRTCDtlsTransportState(info.state()), map(certificates, [](auto& certificate) -> Ref<JSC::ArrayBuffer> {
-        return JSC::ArrayBuffer::create(certificate.data(), certificate.size());
+        return JSC::ArrayBuffer::create(certificate);
     }));
 }
 
@@ -132,6 +133,8 @@ void LibWebRTCDtlsTransportBackendObserver::OnError(webrtc::RTCError)
     });
 }
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LibWebRTCDtlsTransportBackend);
+
 LibWebRTCDtlsTransportBackend::LibWebRTCDtlsTransportBackend(rtc::scoped_refptr<webrtc::DtlsTransportInterface>&& backend)
     : m_backend(WTFMove(backend))
 {
@@ -149,7 +152,7 @@ UniqueRef<RTCIceTransportBackend> LibWebRTCDtlsTransportBackend::iceTransportBac
     return makeUniqueRef<LibWebRTCIceTransportBackend>(m_backend->ice_transport());
 }
 
-void LibWebRTCDtlsTransportBackend::registerClient(Client& client)
+void LibWebRTCDtlsTransportBackend::registerClient(RTCDtlsTransportBackendClient& client)
 {
     ASSERT(!m_observer);
     m_observer = LibWebRTCDtlsTransportBackendObserver::create(client, m_backend);

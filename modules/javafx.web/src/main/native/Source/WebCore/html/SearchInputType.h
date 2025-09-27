@@ -33,19 +33,19 @@
 
 #include "BaseTextInputType.h"
 #include "Timer.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SearchFieldResultsButtonElement;
 
 class SearchInputType final : public BaseTextInputType {
+    WTF_MAKE_TZONE_ALLOCATED(SearchInputType);
 public:
     static Ref<SearchInputType> create(HTMLInputElement& element)
     {
         return adoptRef(*new SearchInputType(element));
     }
-
-    void stopSearchEventTimer();
 
 private:
     explicit SearchInputType(HTMLInputElement&);
@@ -56,7 +56,7 @@ private:
     const AtomString& formControlType() const final;
     bool needsContainer() const final;
     void createShadowSubtree() final;
-    void destroyShadowSubtree() final;
+    void removeShadowSubtree() final;
     HTMLElement* resultsButtonElement() const final;
     HTMLElement* cancelButtonElement() const final;
     ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) final;
@@ -65,13 +65,8 @@ private:
     float decorationWidth() const final;
     void setValue(const String&, bool valueChanged, TextFieldEventBehavior, TextControlSetValueSelection) final;
 
-    void searchEventTimerFired();
-    bool searchEventsShouldBeDispatched() const;
-    void startSearchEventTimer();
-
     RefPtr<SearchFieldResultsButtonElement> m_resultsButton;
     RefPtr<HTMLElement> m_cancelButton;
-    Timer m_searchEventTimer;
 };
 
 } // namespace WebCore

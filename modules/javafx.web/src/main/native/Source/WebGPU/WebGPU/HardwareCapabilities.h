@@ -25,6 +25,9 @@
 
 #pragma once
 
+#include "WebGPU.h"
+#include "WebGPUExt.h"
+#include <Metal/Metal.h>
 #include <optional>
 #include <wtf/Vector.h>
 
@@ -43,11 +46,6 @@ struct HardwareCapabilities {
         // as all hardware can render to this format. It's unclear whether this should
         // apply to _all_ PresentationContexts or just PresentationContextCoreAnimation.
         bool canPresentRGB10A2PixelFormats { false };
-        enum class CounterSamplingAPI : uint8_t {
-            StageBoundary,
-            CommandBoundary,
-        };
-        CounterSamplingAPI counterSamplingAPI { CounterSamplingAPI::StageBoundary }; // only meaningful if timestampCounterSet is non-nil
     } baseCapabilities;
 };
 

@@ -32,6 +32,9 @@
 #include "Timer.h"
 #include <wtf/EnumTraits.h>
 #include <wtf/HashSet.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -44,18 +47,20 @@ class AudioTrackList;
 class TextTrackList;
 struct MediaSelectionOption;
 
-class CaptionUserPreferences : public RefCounted<CaptionUserPreferences>, public CanMakeWeakPtr<CaptionUserPreferences> {
-    WTF_MAKE_FAST_ALLOCATED;
+enum class CaptionUserPreferencesDisplayMode : uint8_t {
+    Automatic,
+    ForcedOnly,
+    AlwaysOn,
+    Manual,
+};
+
+class CaptionUserPreferences : public RefCountedAndCanMakeWeakPtr<CaptionUserPreferences> {
+    WTF_MAKE_TZONE_ALLOCATED(CaptionUserPreferences);
 public:
     static Ref<CaptionUserPreferences> create(PageGroup&);
     virtual ~CaptionUserPreferences();
 
-    enum CaptionDisplayMode {
-        Automatic,
-        ForcedOnly,
-        AlwaysOn,
-        Manual,
-    };
+    using CaptionDisplayMode = CaptionUserPreferencesDisplayMode;
     virtual CaptionDisplayMode captionDisplayMode() const;
     virtual void setCaptionDisplayMode(CaptionDisplayMode);
 
@@ -90,7 +95,7 @@ public:
 
     virtual String displayNameForTrack(TextTrack*) const;
     MediaSelectionOption mediaSelectionOptionForTrack(TextTrack*) const;
-    virtual Vector<RefPtr<TextTrack>> sortedTrackListForMenu(TextTrackList*, HashSet<TextTrack::Kind>);
+    virtual Vector<RefPtr<TextTrack>> sortedTrackListForMenu(TextTrackList*, UncheckedKeyHashSet<TextTrack::Kind>);
 
     virtual String displayNameForTrack(AudioTrack*) const;
     MediaSelectionOption mediaSelectionOptionForTrack(AudioTrack*) const;
@@ -102,9 +107,9 @@ public:
     virtual bool testingMode() const { return m_testingModeCount; }
 
     friend class CaptionUserPreferencesTestingModeToken;
-    UniqueRef<CaptionUserPreferencesTestingModeToken> createTestingModeToken() { return makeUniqueRef<CaptionUserPreferencesTestingModeToken>(*this); }
+    WEBCORE_EXPORT UniqueRef<CaptionUserPreferencesTestingModeToken> createTestingModeToken();
 
-    PageGroup& pageGroup() const { return m_pageGroup; }
+    PageGroup& pageGroup() const;
 
 protected:
     explicit CaptionUserPreferences(PageGroup&);
@@ -126,7 +131,7 @@ private:
     void notify();
     Page* currentPage() const;
 
-    PageGroup& m_pageGroup;
+    WeakRef<PageGroup> m_pageGroup;
     mutable CaptionDisplayMode m_displayMode;
     Timer m_timer;
     String m_userPreferredLanguage;
@@ -139,7 +144,7 @@ private:
 };
 
 class CaptionUserPreferencesTestingModeToken {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(CaptionUserPreferencesTestingModeToken, WEBCORE_EXPORT);
 public:
     CaptionUserPreferencesTestingModeToken(CaptionUserPreferences& parent)
         : m_parent(parent)
@@ -160,13 +165,18 @@ private:
 namespace WTF {
 
 template<> struct EnumTraits<WebCore::CaptionUserPreferences::CaptionDisplayMode> {
-    using values = EnumValues<
-        WebCore::CaptionUserPreferences::CaptionDisplayMode,
-        WebCore::CaptionUserPreferences::CaptionDisplayMode::Automatic,
-        WebCore::CaptionUserPreferences::CaptionDisplayMode::ForcedOnly,
-        WebCore::CaptionUserPreferences::CaptionDisplayMode::AlwaysOn,
-        WebCore::CaptionUserPreferences::CaptionDisplayMode::Manual
-    >;
+    static std::optional<WebCore::CaptionUserPreferences::CaptionDisplayMode> fromString(const String& mode)
+    {
+        if (equalLettersIgnoringASCIICase(mode, "forcedonly"_s))
+            return WebCore::CaptionUserPreferences::CaptionDisplayMode::ForcedOnly;
+        if (equalLettersIgnoringASCIICase(mode, "manual"_s))
+            return WebCore::CaptionUserPreferences::CaptionDisplayMode::Manual;
+        if (equalLettersIgnoringASCIICase(mode, "automatic"_s))
+            return WebCore::CaptionUserPreferences::CaptionDisplayMode::Automatic;
+        if (equalLettersIgnoringASCIICase(mode, "alwayson"_s))
+            return WebCore::CaptionUserPreferences::CaptionDisplayMode::AlwaysOn;
+        return std::nullopt;
+    }
 };
 
 } // namespace WTF

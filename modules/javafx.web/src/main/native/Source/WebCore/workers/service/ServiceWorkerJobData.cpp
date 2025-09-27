@@ -28,27 +28,16 @@
 
 #include <wtf/CrossThreadCopier.h>
 
-#if ENABLE(SERVICE_WORKER)
-
 namespace WebCore {
 
-static inline ServiceWorkerOrClientIdentifier serviceWorkerOrClientIdentifier(const ServiceWorkerOrClientIdentifier& localSourceContext)
-{
-    return WTF::switchOn(localSourceContext, [&](ScriptExecutionContextIdentifier contextIdentifier) -> ServiceWorkerOrClientIdentifier {
-        return contextIdentifier;
-    }, [&](ServiceWorkerIdentifier serviceWorkerIdentifier) -> ServiceWorkerOrClientIdentifier {
-        return serviceWorkerIdentifier;
-    });
-}
-
 ServiceWorkerJobData::ServiceWorkerJobData(SWServerConnectionIdentifier connectionIdentifier, const ServiceWorkerOrClientIdentifier& localSourceContext)
-    : sourceContext(serviceWorkerOrClientIdentifier(localSourceContext))
+    : sourceContext(localSourceContext)
     , m_identifier { connectionIdentifier, ServiceWorkerJobIdentifier::generate() }
 {
 }
 
 ServiceWorkerJobData::ServiceWorkerJobData(Identifier identifier, const ServiceWorkerOrClientIdentifier& localSourceContext)
-    : sourceContext(serviceWorkerOrClientIdentifier(localSourceContext))
+    : sourceContext(localSourceContext)
     , m_identifier { identifier }
 {
 }
@@ -84,9 +73,7 @@ std::optional<ScriptExecutionContextIdentifier> ServiceWorkerJobData::serviceWor
 
 ServiceWorkerJobData ServiceWorkerJobData::isolatedCopy() const
 {
-    ServiceWorkerJobData result;
-    result.m_identifier = identifier();
-    result.sourceContext = sourceContext;
+    ServiceWorkerJobData result { identifier(), sourceContext };
     result.workerType = workerType;
     result.type = type;
     result.isFromServiceWorkerPage = isFromServiceWorkerPage;
@@ -127,5 +114,3 @@ bool ServiceWorkerJobData::isEquivalent(const ServiceWorkerJobData& job) const
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

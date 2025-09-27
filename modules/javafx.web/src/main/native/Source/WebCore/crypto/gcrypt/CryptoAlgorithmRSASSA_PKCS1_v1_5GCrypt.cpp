@@ -48,7 +48,7 @@ static std::optional<Vector<uint8_t>> gcryptSign(gcry_sexp_t keySexp, const Vect
         if (!digest)
             return std::nullopt;
 
-        digest->addBytes(data.data(), data.size());
+        digest->addBytes(data);
         dataHash = digest->computeHash();
     }
 
@@ -56,11 +56,11 @@ static std::optional<Vector<uint8_t>> gcryptSign(gcry_sexp_t keySexp, const Vect
     PAL::GCrypt::Handle<gcry_sexp_t> dataSexp;
     {
         auto shaAlgorithm = hashAlgorithmName(hashAlgorithmIdentifier);
-        if (!shaAlgorithm)
+        if (shaAlgorithm.isNull())
             return std::nullopt;
 
         gcry_error_t error = gcry_sexp_build(&dataSexp, nullptr, "(data(flags pkcs1)(hash %s %b))",
-            *shaAlgorithm, dataHash.size(), dataHash.data());
+            shaAlgorithm.characters(), dataHash.size(), dataHash.data());
         if (error != GPG_ERR_NO_ERROR) {
             PAL::GCrypt::logError(error);
             return std::nullopt;
@@ -99,7 +99,7 @@ static std::optional<bool> gcryptVerify(gcry_sexp_t keySexp, const Vector<uint8_
         if (!digest)
             return std::nullopt;
 
-        digest->addBytes(data.data(), data.size());
+        digest->addBytes(data);
         dataHash = digest->computeHash();
     }
 
@@ -116,11 +116,11 @@ static std::optional<bool> gcryptVerify(gcry_sexp_t keySexp, const Vector<uint8_
     PAL::GCrypt::Handle<gcry_sexp_t> dataSexp;
     {
         auto shaAlgorithm = hashAlgorithmName(hashAlgorithmIdentifier);
-        if (!shaAlgorithm)
+        if (shaAlgorithm.isNull())
             return std::nullopt;
 
         error = gcry_sexp_build(&dataSexp, nullptr, "(data(flags pkcs1)(hash %s %b))",
-            *shaAlgorithm, dataHash.size(), dataHash.data());
+            shaAlgorithm.characters(), dataHash.size(), dataHash.data());
         if (error != GPG_ERR_NO_ERROR) {
             PAL::GCrypt::logError(error);
             return std::nullopt;
@@ -139,7 +139,7 @@ ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSASSA_PKCS1_v1_5::platformSign(cons
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!(key.keySizeInBits() % 8));
     auto output = gcryptSign(key.platformKey(), data, key.hashAlgorithmIdentifier(), key.keySizeInBits() / 8);
     if (!output)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(*output);
 }
 
@@ -147,7 +147,7 @@ ExceptionOr<bool> CryptoAlgorithmRSASSA_PKCS1_v1_5::platformVerify(const CryptoK
 {
     auto output = gcryptVerify(key.platformKey(), signature, data, key.hashAlgorithmIdentifier());
     if (!output)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return *output;
 }
 

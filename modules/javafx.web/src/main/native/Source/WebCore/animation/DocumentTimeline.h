@@ -35,10 +35,11 @@
 
 namespace WebCore {
 
+class AnimationTimelinesController;
 class AnimationEventBase;
 class CustomEffectCallback;
 class Document;
-class DocumentTimelinesController;
+class AnimationTimelinesController;
 class Element;
 class RenderBoxModelObject;
 class RenderElement;
@@ -53,9 +54,11 @@ public:
     static Ref<DocumentTimeline> create(Document&);
     static Ref<DocumentTimeline> create(Document&, DocumentTimelineOptions&&);
 
+    virtual ~DocumentTimeline();
+
     Document* document() const { return m_document.get(); }
 
-    std::optional<Seconds> currentTime() override;
+    std::optional<WebAnimationTime> currentTime() override;
     ExceptionOr<Ref<WebAnimation>> animate(Ref<CustomEffectCallback>&&, std::optional<std::variant<double, CustomAnimationOptions>>&&);
 
     void animationTimingDidChange(WebAnimation&) override;
@@ -63,20 +66,20 @@ public:
     void transitionDidComplete(Ref<CSSTransition>&&);
 
     void animationAcceleratedRunningStateDidChange(WebAnimation&);
-    void detachFromDocument();
+    void detachFromDocument() override;
 
     void enqueueAnimationEvent(AnimationEventBase&);
+    bool hasPendingAnimationEventForAnimation(const WebAnimation&) const;
 
-    enum class ShouldUpdateAnimationsAndSendEvents : bool { No, Yes };
-    ShouldUpdateAnimationsAndSendEvents documentWillUpdateAnimationsAndSendEvents();
+    ShouldUpdateAnimationsAndSendEvents documentWillUpdateAnimationsAndSendEvents() override;
     void removeReplacedAnimations();
     AnimationEvents prepareForPendingAnimationEventsDispatch();
     void documentDidUpdateAnimationsAndSendEvents();
+    void styleOriginatedAnimationsWereCreated();
 
     WEBCORE_EXPORT Seconds animationInterval() const;
-    void suspendAnimations();
-    void resumeAnimations();
-    bool animationsAreSuspended() const;
+    void suspendAnimations() override;
+    void resumeAnimations() override;
     WEBCORE_EXPORT unsigned numberOfActiveAnimationsForTesting() const;
     WEBCORE_EXPORT Vector<std::pair<String, double>> acceleratedAnimationsForElement(Element&) const;
     WEBCORE_EXPORT unsigned numberOfAnimationTimelineInvalidationsForTesting() const;
@@ -88,7 +91,9 @@ public:
 private:
     DocumentTimeline(Document&, Seconds);
 
-    DocumentTimelinesController* controller() const;
+    bool isDocumentTimeline() const final { return true; }
+
+    AnimationTimelinesController* controller() const override;
     void applyPendingAcceleratedAnimations();
     void scheduleInvalidationTaskIfNeeded();
     void scheduleAnimationResolution();
@@ -99,7 +104,7 @@ private:
     bool shouldRunUpdateAnimationsAndSendEventsIgnoringSuspensionState() const;
 
     Timer m_tickScheduleTimer;
-    HashSet<RefPtr<WebAnimation>> m_acceleratedAnimationsPendingRunningStateChange;
+    UncheckedKeyHashSet<RefPtr<WebAnimation>> m_acceleratedAnimationsPendingRunningStateChange;
     AnimationEvents m_pendingAnimationEvents;
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
     Seconds m_originTime;

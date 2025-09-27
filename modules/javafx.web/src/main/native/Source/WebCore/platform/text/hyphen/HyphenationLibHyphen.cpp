@@ -34,7 +34,9 @@
 #include <stdlib.h>
 #include <wtf/FileSystem.h>
 #include <wtf/HashMap.h>
+#include <wtf/Language.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/TinyLRUCache.h>
 #include <wtf/text/AtomStringHash.h>
 #include <wtf/text/CString.h>
@@ -43,6 +45,8 @@
 #if PLATFORM(GTK)
 #include <wtf/glib/GUniquePtr.h>
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
 
 namespace WebCore {
 
@@ -63,7 +67,7 @@ static AtomString extractLocaleFromDictionaryFileName(const String& fileName)
     return StringView(fileName).substring(prefixLength, fileName.length() - prefixLength - suffixLength).convertToASCIILowercaseAtom();
 }
 
-static void scanDirectoryForDictionaries(const char* directoryPath, HashMap<AtomString, Vector<String>>& availableLocales)
+static void scanDirectoryForDictionaries(const char* directoryPath, UncheckedKeyHashMap<AtomString, Vector<String>>& availableLocales)
 {
     auto directoryPathString = String::fromUTF8(directoryPath);
     for (auto& fileName : FileSystem::listDirectory(directoryPathString)) {
@@ -71,12 +75,9 @@ static void scanDirectoryForDictionaries(const char* directoryPath, HashMap<Atom
         if (locale.isEmpty())
             continue;
 
-        auto filePath = FileSystem::pathByAppendingComponent(directoryPathString, fileName);
-        char normalizedPath[PATH_MAX];
-        if (!realpath(FileSystem::fileSystemRepresentation(filePath).data(), normalizedPath))
-            continue;
+        auto fullPath = FileSystem::pathByAppendingComponent(directoryPathString, fileName);
+        auto filePath = FileSystem::realPath(fullPath);
 
-        filePath = FileSystem::stringFromFileSystemRepresentation(normalizedPath);
         availableLocales.add(locale, Vector<String>()).iterator->value.append(filePath);
 
         String localeReplacingUnderscores = makeStringByReplacingAll(locale, '_', '-');
@@ -92,32 +93,18 @@ static void scanDirectoryForDictionaries(const char* directoryPath, HashMap<Atom
 #if ENABLE(DEVELOPER_MODE)
 
 #if PLATFORM(GTK)
-static CString topLevelPath()
-{
-    if (const char* topLevelDirectory = g_getenv("WEBKIT_TOP_LEVEL"))
-        return topLevelDirectory;
-
-    // If the environment variable wasn't provided then assume we were built into
-    // WebKitBuild/Debug or WebKitBuild/Release. Obviously this will fail if the build
-    // directory is non-standard, but we can't do much more about this.
-    GUniquePtr<char> parentPath(g_path_get_dirname(FileSystem::currentExecutablePath().data()));
-    GUniquePtr<char> layoutTestsPath(g_build_filename(parentPath.get(), "..", "..", "..", nullptr));
-    GUniquePtr<char> absoluteTopLevelPath(realpath(layoutTestsPath.get(), 0));
-    return absoluteTopLevelPath.get();
-}
-
 static CString webkitBuildDirectory()
 {
     const char* webkitOutputDir = g_getenv("WEBKIT_OUTPUTDIR");
     if (webkitOutputDir)
         return webkitOutputDir;
 
-    GUniquePtr<char> outputDir(g_build_filename(topLevelPath().data(), "WebKitBuild", nullptr));
+    GUniquePtr<char> outputDir(g_build_filename(FileSystem::webkitTopLevelDirectory().data(), "WebKitBuild", nullptr));
     return outputDir.get();
 }
 #endif // PLATFORM(GTK)
 
-static void scanTestDictionariesDirectoryIfNecessary(HashMap<AtomString, Vector<String>>& availableLocales)
+static void scanTestDictionariesDirectoryIfNecessary(UncheckedKeyHashMap<AtomString, Vector<String>>& availableLocales)
 {
     // It's unfortunate that we need to look for the dictionaries this way, but
     // libhyphen doesn't have the concept of installed dictionaries. Instead,
@@ -150,10 +137,10 @@ static void scanTestDictionariesDirectoryIfNecessary(HashMap<AtomString, Vector<
 }
 #endif
 
-static HashMap<AtomString, Vector<String>>& availableLocales()
+static UncheckedKeyHashMap<AtomString, Vector<String>>& availableLocales()
 {
     static bool scannedLocales = false;
-    static HashMap<AtomString, Vector<String>> availableLocales;
+    static UncheckedKeyHashMap<AtomString, Vector<String>> availableLocales;
 
     if (!scannedLocales) {
         for (size_t i = 0; i < std::size(gDictionaryDirectories); i++)
@@ -173,14 +160,12 @@ bool canHyphenate(const AtomString& localeIdentifier)
 {
     if (localeIdentifier.isNull())
         return false;
-    if (availableLocales().contains(localeIdentifier))
-        return true;
     return availableLocales().contains(localeIdentifier.convertToASCIILowercase());
 }
 
 class HyphenationDictionary : public RefCounted<HyphenationDictionary> {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(HyphenationDictionary);
     WTF_MAKE_NONCOPYABLE(HyphenationDictionary);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     typedef std::unique_ptr<HyphenDict, void(*)(HyphenDict*)> HyphenDictUniquePtr;
 
@@ -256,12 +241,11 @@ static void countLeadingSpaces(const CString& utf8String, int32_t& pointerOffset
     pointerOffset = 0;
     characterOffset = 0;
     const char* stringData = utf8String.data();
-    UChar32 character = 0;
+    char32_t character = 0;
     while (static_cast<unsigned>(pointerOffset) < utf8String.length()) {
         int32_t nextPointerOffset = pointerOffset;
         U8_NEXT(stringData, nextPointerOffset, static_cast<int32_t>(utf8String.length()), character);
-
-        if (character < 0 || !u_isUWhiteSpace(character))
+        if (character == static_cast<char32_t>(U_SENTINEL) || !u_isUWhiteSpace(character))
             return;
 
         pointerOffset = nextPointerOffset;
@@ -331,5 +315,7 @@ size_t lastHyphenLocation(StringView string, size_t beforeIndex, const AtomStrin
 }
 
 } // namespace WebCore
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // USE(LIBHYPHEN)

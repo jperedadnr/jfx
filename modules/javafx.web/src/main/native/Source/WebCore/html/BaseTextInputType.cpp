@@ -29,8 +29,12 @@
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include <JavaScriptCore/RegularExpression.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BaseTextInputType);
 
 using namespace HTMLNames;
 
@@ -43,7 +47,7 @@ bool BaseTextInputType::patternMismatch(const String& value) const
     if (rawPattern.isNull() || value.isEmpty() || !JSC::Yarr::RegularExpression(rawPattern, { JSC::Yarr::Flags::UnicodeSets }).isValid())
         return false;
 
-    String pattern = makeString("^(?:", rawPattern, ")$");
+    String pattern = makeString("^(?:"_s, rawPattern, ")$"_s);
     JSC::Yarr::RegularExpression regex(pattern, { JSC::Yarr::Flags::UnicodeSets });
     auto valuePatternMismatch = [&regex](auto& value) {
         int matchLength = 0;
@@ -65,6 +69,11 @@ bool BaseTextInputType::supportsPlaceholder() const
 }
 
 bool BaseTextInputType::supportsSelectionAPI() const
+{
+    return true;
+}
+
+bool BaseTextInputType::dirAutoUsesValue() const
 {
     return true;
 }

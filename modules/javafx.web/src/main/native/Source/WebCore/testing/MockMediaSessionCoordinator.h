@@ -29,6 +29,7 @@
 
 #include "MediaSessionCoordinatorPrivate.h"
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -37,7 +38,7 @@ class ScriptExecutionContext;
 class StringCallback;
 
 class MockMediaSessionCoordinator : public MediaSessionCoordinatorPrivate, public CanMakeWeakPtr<MockMediaSessionCoordinator> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(MockMediaSessionCoordinator);
 public:
     static Ref<MockMediaSessionCoordinator> create(ScriptExecutionContext&, RefPtr<StringCallback>&&);
 
@@ -61,7 +62,7 @@ private:
     void playbackStateChanged(MediaSessionPlaybackState) final;
     void trackIdentifierChanged(const String&) final;
 
-    const char* logClassName() const { return "MockMediaSessionCoordinator"; }
+    ASCIILiteral logClassName() const { return "MockMediaSessionCoordinator"_s; }
     WTFLogChannel& logChannel() const;
 
     std::optional<Exception> result() const;

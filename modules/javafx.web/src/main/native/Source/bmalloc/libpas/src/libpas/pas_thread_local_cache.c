@@ -172,7 +172,7 @@ static pas_thread_local_cache* allocate_cache(unsigned allocator_index_capacity)
     size = pas_thread_local_cache_size_for_allocator_index_capacity(allocator_index_capacity);
 
     if (verbose)
-        printf("Cache size: %zu\n", size);
+        pas_log("Cache size: %zu\n", size);
 
     result = (pas_thread_local_cache*)pas_large_utility_free_heap_allocate_with_alignment(
         size, pas_alignment_create_traditional(pas_page_malloc_alignment()), "pas_thread_local_cache");
@@ -340,7 +340,7 @@ pas_local_allocator_result pas_thread_local_cache_get_local_allocator_slow(
         new_thread_local_cache = allocate_cache(index_capacity);
 
         if (verbose)
-            printf("[%d] Reallocating TLC %p -> %p\n", getpid(), thread_local_cache, new_thread_local_cache);
+            pas_log("[%d] Reallocating TLC %p -> %p\n", getpid(), thread_local_cache, new_thread_local_cache);
 
         new_thread_local_cache->node = thread_local_cache->node;
 
@@ -667,7 +667,7 @@ process_deallocation_log_with_config(pas_thread_local_cache* cache,
 
     for (;;) {
         uintptr_t begin;
-        begin = encoded_begin >> PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_NUM_BITS;
+        begin = encoded_begin & ~PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_MASK;
 
         switch (page_config.kind) {
         case pas_segregated_page_config_kind_null:
@@ -693,7 +693,7 @@ process_deallocation_log_with_config(pas_thread_local_cache* cache,
             return;
 
         encoded_begin = cache->deallocation_log[--*index];
-        if (PAS_UNLIKELY((encoded_begin & PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_MASK)
+        if (PAS_UNLIKELY((encoded_begin & PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_MASK) >> PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_SHIFT
             != pas_segregated_page_config_kind_and_role_create(page_config.kind, role))) {
             ++*index;
             return;
@@ -719,7 +719,7 @@ static PAS_ALWAYS_INLINE void flush_deallocation_log_without_resetting(
         encoded_begin = thread_local_cache->deallocation_log[--index];
 
         switch ((pas_segregated_page_config_kind_and_role)
-                (encoded_begin & PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_MASK)) {
+                ((encoded_begin & PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_MASK) >> PAS_SEGREGATED_PAGE_CONFIG_KIND_AND_ROLE_SHIFT)) {
 #define PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND(name, value) \
         case pas_segregated_page_config_kind_ ## name ## _and_shared_role: \
             process_deallocation_log_with_config( \
@@ -824,7 +824,7 @@ static void suspend(pas_thread_local_cache* cache, scavenger_thread_suspend_data
     thread_suspend_data->did_suspend = true;
 
     if (verbose)
-        printf("Suspending TLC %p with thread %p.\n", cache, cache->thread);
+        pas_log("Suspending TLC %p with thread %p.\n", cache, cache->thread);
 
     thread = cache->thread;
     PAS_ASSERT(thread);

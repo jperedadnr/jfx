@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,7 +48,7 @@ public:
     template<typename CellType, SubspaceAccess mode>
     static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        static_assert(!CellType::needsDestruction);
+        static_assert(CellType::needsDestruction == DoesNotNeedDestruction);
         return &vm.clonedArgumentsSpace();
     }
 
@@ -77,7 +77,7 @@ private:
     ClonedArguments(VM&, Structure*, Butterfly*);
 
 public:
-    static ClonedArguments* createEmpty(VM&, Structure*, JSFunction* callee, unsigned length, Butterfly*);
+    static ClonedArguments* createEmpty(VM&, JSGlobalObject* nullOrGlobalObjectForOOM, Structure*, JSFunction* callee, unsigned length, Butterfly*);
     static ClonedArguments* createWithInlineFrame(JSGlobalObject*, CallFrame* targetFrame, InlineCallFrame*, ArgumentsMode);
     static ClonedArguments* createWithMachineFrame(JSGlobalObject*, CallFrame* targetFrame, ArgumentsMode);
     static ClonedArguments* createByCopyingFrom(JSGlobalObject*, Structure*, Register* argumentsStart, unsigned length, JSFunction* callee, Butterfly*);
@@ -85,7 +85,7 @@ public:
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
     static Structure* createSlowPutStructure(VM&, JSGlobalObject*, JSValue prototype);
 
-    static ptrdiff_t offsetOfCallee()
+    static constexpr ptrdiff_t offsetOfCallee()
     {
         return OBJECT_OFFSETOF(ClonedArguments, m_callee);
     }

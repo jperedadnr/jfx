@@ -55,8 +55,16 @@ void CSSMediaRule::setMediaQueries(MQ::MediaQueryList&& queries)
 String CSSMediaRule::cssText() const
 {
     StringBuilder builder;
-    builder.append("@media ", conditionText());
+    builder.append("@media "_s, conditionText());
     appendCSSTextForItems(builder);
+    return builder.toString();
+}
+
+String CSSMediaRule::cssText(const CSS::SerializationContext& context) const
+{
+    StringBuilder builder;
+    builder.append("@media "_s, conditionText());
+    appendCSSTextWithReplacementURLsForItems(builder, context);
     return builder.toString();
 }
 

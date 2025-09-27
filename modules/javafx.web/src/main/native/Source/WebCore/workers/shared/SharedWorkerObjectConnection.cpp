@@ -28,6 +28,7 @@
 
 #include "ActiveDOMObject.h"
 #include "ErrorEvent.h"
+#include "EventNames.h"
 #include "Logging.h"
 #include "ScriptBuffer.h"
 #include "SharedWorker.h"
@@ -61,7 +62,7 @@ void SharedWorkerObjectConnection::fetchScriptInClient(URL&& url, WebCore::Share
     auto loaderPtr = loader.ptr();
     m_loaders.add(loaderIdentifier, WTFMove(loader));
 
-    loaderPtr->load([this, loaderIdentifier, completionHandler = WTFMove(completionHandler)](auto&& fetchResult, auto&& initializationData) mutable {
+    loaderPtr->load([this, loaderIdentifier, completionHandler = WTFMove(completionHandler)](WorkerFetchResult&& fetchResult, WorkerInitializationData&& initializationData) mutable {
         CONNECTION_RELEASE_LOG("fetchScriptInClient: finished script load, success=%d", fetchResult.error.isNull());
         auto loader = m_loaders.take(loaderIdentifier);
         ASSERT(loader);
@@ -81,13 +82,25 @@ void SharedWorkerObjectConnection::notifyWorkerObjectOfLoadCompletion(WebCore::S
         workerObject->didFinishLoading(error);
 }
 
-void SharedWorkerObjectConnection::postExceptionToWorkerObject(SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier, const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL)
+void SharedWorkerObjectConnection::postErrorToWorkerObject(SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier, const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, bool isErrorEvent)
 {
     ASSERT(isMainThread());
     auto* workerObject = SharedWorker::fromIdentifier(sharedWorkerObjectIdentifier);
-    CONNECTION_RELEASE_LOG_ERROR("postExceptionToWorkerObject: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING ", worker=%p", sharedWorkerObjectIdentifier.toString().utf8().data(), workerObject);
+    CONNECTION_RELEASE_LOG_ERROR("postErrorToWorkerObject: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING ", worker=%p", sharedWorkerObjectIdentifier.toString().utf8().data(), workerObject);
+    if (!workerObject)
+        return;
+
+    auto event = isErrorEvent ? Ref<Event> { ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber, { }) } : Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No);
+    ActiveDOMObject::queueTaskToDispatchEvent(*workerObject, TaskSource::DOMManipulation, WTFMove(event));
+}
+
+void SharedWorkerObjectConnection::reportNetworkUsageToWorkerObject(SharedWorkerObjectIdentifier sharedWorkerObjectIdentifier, size_t bytesTransferredOverNetworkDelta)
+{
+    ASSERT(isMainThread());
+    auto* workerObject = SharedWorker::fromIdentifier(sharedWorkerObjectIdentifier);
+    CONNECTION_RELEASE_LOG("sendNetworkUsageToWorkerObject: sharedWorkerObjectIdentifier=%" PUBLIC_LOG_STRING ", worker=%p, bytesTransferredOverNetworkDelta=%zu", sharedWorkerObjectIdentifier.toString().utf8().data(), workerObject, bytesTransferredOverNetworkDelta);
     if (workerObject)
-        ActiveDOMObject::queueTaskToDispatchEvent(*workerObject, TaskSource::DOMManipulation, ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber, { }));
+        workerObject->reportNetworkUsage(bytesTransferredOverNetworkDelta);
 }
 
 #undef CONNECTION_RELEASE_LOG

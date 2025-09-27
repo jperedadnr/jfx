@@ -40,31 +40,31 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-AccessibilityTree::AccessibilityTree(RenderObject* renderer)
-    : AccessibilityRenderObject(renderer)
+AccessibilityTree::AccessibilityTree(AXID axID, RenderObject& renderer)
+    : AccessibilityRenderObject(axID, renderer)
 {
 }
 
-AccessibilityTree::AccessibilityTree(Node& node)
-    : AccessibilityRenderObject(node)
+AccessibilityTree::AccessibilityTree(AXID axID, Node& node)
+    : AccessibilityRenderObject(axID, node)
 {
 }
 
 AccessibilityTree::~AccessibilityTree() = default;
 
-Ref<AccessibilityTree> AccessibilityTree::create(RenderObject* renderer)
+Ref<AccessibilityTree> AccessibilityTree::create(AXID axID, RenderObject& renderer)
 {
-    return adoptRef(*new AccessibilityTree(renderer));
+    return adoptRef(*new AccessibilityTree(axID, renderer));
 }
 
-Ref<AccessibilityTree> AccessibilityTree::create(Node& node)
+Ref<AccessibilityTree> AccessibilityTree::create(AXID axID, Node& node)
 {
-    return adoptRef(*new AccessibilityTree(node));
+    return adoptRef(*new AccessibilityTree(axID, node));
 }
 
-bool AccessibilityTree::computeAccessibilityIsIgnored() const
+bool AccessibilityTree::computeIsIgnored() const
 {
-    return accessibilityIsIgnoredByDefault();
+    return isIgnoredByDefault();
 }
 
 AccessibilityRole AccessibilityTree::determineAccessibilityRole()
@@ -72,7 +72,7 @@ AccessibilityRole AccessibilityTree::determineAccessibilityRole()
     if ((m_ariaRole = determineAriaRoleAttribute()) != AccessibilityRole::Tree)
         return AccessibilityRenderObject::determineAccessibilityRole();
 
-    return isTreeValid() ? AccessibilityRole::Tree : AccessibilityRole::Group;
+    return isTreeValid() ? AccessibilityRole::Tree : AccessibilityRole::Generic;
 }
 
 bool AccessibilityTree::isTreeValid() const
@@ -83,22 +83,23 @@ bool AccessibilityTree::isTreeValid() const
     if (!node)
         return false;
 
-    Deque<Node*> queue;
-    for (auto* child = node->firstChild(); child; child = child->nextSibling())
-        queue.append(child);
+    Deque<Ref<Node>> queue;
+    for (RefPtr child = node->firstChild(); child; child = queue.last()->nextSibling())
+        queue.append(child.releaseNonNull());
 
     while (!queue.isEmpty()) {
-        auto child = queue.takeFirst();
+        Ref child = queue.takeFirst();
 
-        if (!is<Element>(*child))
+        auto* childElement = dynamicDowncast<Element>(child.get());
+        if (!childElement)
             continue;
-        if (nodeHasRole(child, "treeitem"_s))
+        if (hasRole(*childElement, "treeitem"_s))
             continue;
-        if (!nodeHasRole(child, "group"_s) && !nodeHasRole(child, "presentation"_s))
+        if (!hasAnyRole(*childElement, { "group"_s, "presentation"_s }))
             return false;
 
-        for (auto* groupChild = child->firstChild(); groupChild; groupChild = groupChild->nextSibling())
-            queue.append(groupChild);
+        for (RefPtr groupChild = child->firstChild(); groupChild; groupChild = queue.last()->nextSibling())
+            queue.append(groupChild.releaseNonNull());
     }
     return true;
 }

@@ -80,7 +80,7 @@ public:
     void removeIf(const Functor& functor)
     {
         m_map.removeIf(
-            [&] (HashMap<Value*, Matches>::KeyValuePairType& entry) -> bool {
+            [&] (UncheckedKeyHashMap<Value*, Matches>::KeyValuePairType& entry) -> bool {
                 entry.value.removeAllMatching(
                     [&] (Value* value) -> bool {
                         if (MemoryValue* memory = value->as<MemoryValue>())
@@ -121,11 +121,11 @@ public:
 
     void dump(PrintStream& out) const
     {
-        out.print("{");
+        out.print("{"_s);
         CommaPrinter comma;
         for (auto& entry : m_map)
-            out.print(comma, pointerDump(entry.key), "=>", pointerListDump(entry.value));
-        out.print("}");
+            out.print(comma, pointerDump(entry.key), "=>"_s, pointerListDump(entry.value));
+        out.print("}"_s);
     }
 
 private:
@@ -133,7 +133,7 @@ private:
     // - It cannot be a MemoryValue* because the key is imprecise. Many MemoryValues could have the
     //   same key while being unaliased.
     // - It can't be a MemoryMatches array because the MemoryValue*'s could be turned into Identity's.
-    HashMap<Value*, Matches> m_map;
+    UncheckedKeyHashMap<Value*, Matches> m_map;
 };
 
 struct ImpureBlockData {
@@ -153,7 +153,7 @@ struct ImpureBlockData {
     MemoryValueMap memoryValuesAtTail;
 
     // This Maps x->y in "y = WasmAddress(@x)"
-    HashMap<Value*, Value*> m_candidateWasmAddressesAtTail;
+    UncheckedKeyHashMap<Value*, Value*> m_candidateWasmAddressesAtTail;
 };
 
 class CSE {
@@ -278,6 +278,12 @@ private:
 
         if (memory)
             processMemoryAfterClobber(memory);
+
+        // The reads info should be updated even the block is processed
+        // since the dominated store nodes may dependent on the data
+        // read from the processed block. Note that there is no need to
+        // update reads info if the node is deleted.
+        m_data.reads.add(m_value->effects().reads);
     }
 
     // Return true if we got rid of the operation. If you changed IR in this function, you have to
@@ -820,7 +826,7 @@ private:
     unsigned m_index;
     Value* m_value;
 
-    HashMap<Value*, Vector<Value*>> m_sets;
+    UncheckedKeyHashMap<Value*, Vector<Value*>> m_sets;
 
     InsertionSet m_insertionSet;
 
@@ -831,7 +837,7 @@ private:
 
 bool eliminateCommonSubexpressions(Procedure& proc)
 {
-    PhaseScope phaseScope(proc, "eliminateCommonSubexpressions");
+    PhaseScope phaseScope(proc, "eliminateCommonSubexpressions"_s);
 
     CSE cse(proc);
     return cse.run();

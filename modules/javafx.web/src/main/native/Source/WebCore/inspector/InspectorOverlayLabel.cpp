@@ -35,8 +35,12 @@
 #include "FontCascadeDescription.h"
 #include "GraphicsContext.h"
 #include "Path.h"
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorOverlayLabel);
 
 static constexpr float labelPadding = 4;
 static constexpr float labelArrowSize = 6;
@@ -63,7 +67,7 @@ static FontCascade systemFont()
     fontDescription.setWeight(FontSelectionValue(500));
     fontDescription.setComputedSize(12);
 
-    FontCascade font(WTFMove(fontDescription), 0, 0);
+    FontCascade font(WTFMove(fontDescription));
     font.update(nullptr);
     return font;
 }
@@ -209,8 +213,8 @@ Path InspectorOverlayLabel::draw(GraphicsContext& context, float maximumLineWidt
     constexpr UChar ellipsis = 0x2026;
 
     auto font = systemFont();
-    float lineHeight = font.metricsOfPrimaryFont().floatHeight();
-    float lineDescent = font.metricsOfPrimaryFont().floatDescent();
+    float lineHeight = font.metricsOfPrimaryFont().height();
+    float lineDescent = font.metricsOfPrimaryFont().descent();
 
     Vector<ComputedContentRun> computedContentRuns;
 
@@ -375,7 +379,7 @@ Path InspectorOverlayLabel::draw(GraphicsContext& context, float maximumLineWidt
 FloatSize InspectorOverlayLabel::expectedSize(const Vector<Content>& contents, Arrow::Direction direction)
 {
     auto font = systemFont();
-    float lineHeight = font.metricsOfPrimaryFont().floatHeight();
+    float lineHeight = font.metricsOfPrimaryFont().height();
 
     float longestLineWidth = 0;
     int currentLine = 0;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -50,11 +50,11 @@
 #include "RenderTheme.h"
 #include "ResolvedStyle.h"
 #include "ScriptDisallowedScope.h"
-#include "ShadowPseudoIds.h"
 #include "ShadowRoot.h"
 #include "StepRange.h"
 #include "StyleResolver.h"
-#include <wtf/IsoMallocInlines.h>
+#include "UserAgentParts.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(IOS_TOUCH_EVENTS)
 #include "Document.h"
@@ -66,8 +66,8 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SliderThumbElement);
-WTF_MAKE_ISO_ALLOCATED_IMPL(SliderContainerElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SliderThumbElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SliderContainerElement);
 
 inline static Decimal sliderPosition(HTMLInputElement& element)
 {
@@ -79,7 +79,7 @@ inline static Decimal sliderPosition(HTMLInputElement& element)
 inline static bool hasVerticalAppearance(HTMLInputElement& input)
 {
     ASSERT(input.renderer());
-    return !input.renderer()->isHorizontalWritingMode() || input.renderer()->style().effectiveAppearance() == StyleAppearance::SliderVertical;
+    return !input.renderer()->isHorizontalWritingMode() || input.renderer()->style().usedAppearance() == StyleAppearance::SliderVertical;
 }
 
 
@@ -90,10 +90,11 @@ inline static bool hasVerticalAppearance(HTMLInputElement& input)
 // FIXME: Find a way to cascade appearance and adjust heights, and get rid of this class.
 // http://webkit.org/b/62535
 class RenderSliderContainer final : public RenderFlexibleBox {
-    WTF_MAKE_ISO_ALLOCATED_INLINE(RenderSliderContainer);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderSliderContainer);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSliderContainer);
 public:
     RenderSliderContainer(SliderContainerElement& element, RenderStyle&& style)
-        : RenderFlexibleBox(element, WTFMove(style))
+        : RenderFlexibleBox(Type::SliderContainer, element, WTFMove(style))
     {
     }
 
@@ -105,14 +106,15 @@ private:
     bool isFlexibleBoxImpl() const override { return true; }
 };
 
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RenderSliderContainer);
+
 RenderBox::LogicalExtentComputedValues RenderSliderContainer::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const
 {
     ASSERT(element()->shadowHost());
-    auto& input = checkedDowncast<HTMLInputElement>(*element()->shadowHost());
+    auto& input = downcast<HTMLInputElement>(*element()->shadowHost());
     bool isVertical = hasVerticalAppearance(input);
 
-#if ENABLE(DATALIST_ELEMENT)
-    if (input.renderer()->isSlider() && !isVertical && input.list()) {
+    if (input.renderer()->isRenderSlider() && !isVertical && input.hasDataList()) {
         int offsetFromCenter = theme().sliderTickOffsetFromTrackCenter();
         LayoutUnit trackHeight;
         if (offsetFromCenter < 0)
@@ -121,14 +123,13 @@ RenderBox::LogicalExtentComputedValues RenderSliderContainer::computeLogicalHeig
             int tickLength = theme().sliderTickSize().height();
             trackHeight = 2 * (offsetFromCenter + tickLength);
         }
-        float zoomFactor = style().effectiveZoom();
+        float zoomFactor = style().usedZoom();
         if (zoomFactor != 1.0)
             trackHeight *= zoomFactor;
 
         return RenderBox::computeLogicalHeight(trackHeight, logicalTop);
     }
-#endif
-    if (isVertical && style().isHorizontalWritingMode())
+    if (isVertical && writingMode().isHorizontal())
         logicalHeight = RenderSlider::defaultTrackLength;
     return RenderBox::computeLogicalHeight(logicalHeight, logicalTop);
 }
@@ -136,10 +137,10 @@ RenderBox::LogicalExtentComputedValues RenderSliderContainer::computeLogicalHeig
 void RenderSliderContainer::layout()
 {
     ASSERT(element()->shadowHost());
-    auto& input = checkedDowncast<HTMLInputElement>(*element()->shadowHost());
+    auto& input = downcast<HTMLInputElement>(*element()->shadowHost());
     bool isVertical = hasVerticalAppearance(input);
-    mutableStyle().setFlexDirection(isVertical && style().isHorizontalWritingMode() ? FlexDirection::Column : FlexDirection::Row);
-    TextDirection oldTextDirection = style().direction();
+    mutableStyle().setFlexDirection(isVertical && writingMode().isHorizontal() ? FlexDirection::Column : FlexDirection::Row);
+    TextDirection oldTextDirection = writingMode().computedTextDirection();
     if (isVertical) {
         // FIXME: Work around rounding issues in RTL vertical sliders. We want them to
         // render identically to LTR vertical sliders. We can remove this work around when
@@ -162,23 +163,28 @@ void RenderSliderContainer::layout()
         return;
 
     double percentageOffset = sliderPosition(input).toDouble();
-    LayoutUnit availableExtent = isVertical ? track->contentHeight() : track->contentWidth();
+    LayoutUnit availableExtent = isVertical ? track->contentBoxHeight() : track->contentBoxWidth();
     availableExtent -= isVertical ? thumb->height() : thumb->width();
     LayoutUnit offset { percentageOffset * availableExtent };
     LayoutPoint thumbLocation = thumb->location();
     if (isVertical) {
         // appearance: slider-vertical in horizontal writing mode.
-        if (style().isHorizontalWritingMode())
-        thumbLocation.setY(thumbLocation.y() + track->contentHeight() - thumb->height() - offset);
-        else if (style().isLeftToRightDirection()) // LTR in vertical writing mode.
+        if (writingMode().isHorizontal())
+            thumbLocation.setY(thumbLocation.y() + track->contentBoxHeight() - thumb->height() - offset);
+        else {
+            if (writingMode().isInlineTopToBottom())
             thumbLocation.setY(thumbLocation.y() + offset);
-        else // RTL in vertical writing mode.
+            else
             thumbLocation.setY(thumbLocation.y() - offset);
-    } else if (style().isLeftToRightDirection())
+        }
+    } else {
+        if (writingMode().isInlineLeftToRight())
         thumbLocation.setX(thumbLocation.x() + offset);
     else
         thumbLocation.setX(thumbLocation.x() - offset);
+    }
     thumb->setLocation(thumbLocation);
+    track->repaint();
     thumb->repaint();
 }
 
@@ -188,12 +194,12 @@ Ref<SliderThumbElement> SliderThumbElement::create(Document& document)
 {
     auto element = adoptRef(*new SliderThumbElement(document));
     ScriptDisallowedScope::EventAllowedScope eventAllowedScope { element };
-    element->setPseudo(ShadowPseudoIds::webkitSliderThumb());
+    element->setUserAgentPart(UserAgentParts::webkitSliderThumb());
     return element;
 }
 
 SliderThumbElement::SliderThumbElement(Document& document)
-    : HTMLDivElement(HTMLNames::divTag, document, CreateSliderThumbElement)
+    : HTMLDivElement(HTMLNames::divTag, document, TypeFlag::HasCustomStyleResolveCallbacks)
 {
 }
 
@@ -248,7 +254,7 @@ void SliderThumbElement::setPositionFromPoint(const LayoutPoint& absolutePoint)
     // Do all the tracking math relative to the input's renderer's box.
 
     bool isVertical = hasVerticalAppearance(*input);
-    bool isReversedInlineDirection = !thumbRenderer->style().isLeftToRightDirection() || (isVertical && thumbRenderer->style().isHorizontalWritingMode());
+    bool isInlineFlipped = thumbRenderer->writingMode().isInlineFlipped() || (isVertical && thumbRenderer->writingMode().isHorizontal());
 
     auto offset = inputRenderer->absoluteToLocal(absolutePoint, UseTransforms);
     auto trackBoundingBox = trackRenderer->localToContainerQuad(FloatRect { { }, trackRenderer->size() }, inputRenderer).enclosingBoundingBox();
@@ -256,33 +262,31 @@ void SliderThumbElement::setPositionFromPoint(const LayoutPoint& absolutePoint)
     LayoutUnit trackLength;
     LayoutUnit position;
     if (isVertical) {
-        trackLength = trackRenderer->contentHeight() - thumbRenderer->height();
+        trackLength = trackRenderer->contentBoxHeight() - thumbRenderer->height();
         position = offset.y() - thumbRenderer->height() / 2 - trackBoundingBox.y();
-        position -= !isReversedInlineDirection ? thumbRenderer->marginTop() : thumbRenderer->marginBottom();
+        position -= !isInlineFlipped ? thumbRenderer->marginTop() : thumbRenderer->marginBottom();
     } else {
-        trackLength = trackRenderer->contentWidth() - thumbRenderer->width();
+        trackLength = trackRenderer->contentBoxWidth() - thumbRenderer->width();
         position = offset.x() - thumbRenderer->width() / 2 - trackBoundingBox.x();
-        position -= !isReversedInlineDirection ? thumbRenderer->marginLeft() : thumbRenderer->marginRight();
+        position -= !isInlineFlipped ? thumbRenderer->marginLeft() : thumbRenderer->marginRight();
     }
 
     position = std::max<LayoutUnit>(0, std::min(position, trackLength));
     auto ratio = Decimal::fromDouble(static_cast<double>(position) / trackLength);
-    auto fraction = isReversedInlineDirection ? Decimal(1) - ratio : ratio;
+    auto fraction = isInlineFlipped ? Decimal(1) - ratio : ratio;
     auto stepRange = input->createStepRange(AnyStepHandling::Reject);
     auto value = stepRange.clampValue(stepRange.valueFromProportion(fraction));
 
-#if ENABLE(DATALIST_ELEMENT)
     const LayoutUnit snappingThreshold = renderer()->theme().sliderTickSnappingThreshold();
     if (snappingThreshold > 0) {
         if (std::optional<Decimal> closest = input->findClosestTickMarkValue(value)) {
             double closestFraction = stepRange.proportionFromValue(*closest).toDouble();
-            double closestRatio = isReversedInlineDirection ? 1.0 - closestFraction : closestFraction;
+            double closestRatio = isInlineFlipped ? 1.0 - closestFraction : closestFraction;
             LayoutUnit closestPosition { trackLength * closestRatio };
             if ((closestPosition - position).abs() <= snappingThreshold)
                 value = *closest;
         }
     }
-#endif
 
     String valueString = serializeForNumberType(value);
     if (valueString == input->value())
@@ -316,7 +320,8 @@ void SliderThumbElement::stopDragging()
 
 void SliderThumbElement::defaultEventHandler(Event& event)
 {
-    if (!is<MouseEvent>(event)) {
+    auto* mouseEvent = dynamicDowncast<MouseEvent>(event);
+    if (!mouseEvent) {
         HTMLDivElement::defaultEventHandler(event);
         return;
     }
@@ -329,9 +334,8 @@ void SliderThumbElement::defaultEventHandler(Event& event)
         return;
     }
 
-    MouseEvent& mouseEvent = downcast<MouseEvent>(event);
-    bool isLeftButton = mouseEvent.button() == LeftButton;
-    const AtomString& eventType = mouseEvent.type();
+    bool isLeftButton = mouseEvent->button() == MouseButton::Left;
+    const AtomString& eventType = mouseEvent->type();
 
     // We intentionally do not call event->setDefaultHandled() here because
     // MediaControlTimelineElement::defaultEventHandler() wants to handle these
@@ -345,11 +349,11 @@ void SliderThumbElement::defaultEventHandler(Event& event)
         return;
     } else if (eventType == eventNames().mousemoveEvent) {
         if (m_inDragMode)
-            setPositionFromPoint(mouseEvent.absoluteLocation());
+            setPositionFromPoint(mouseEvent->absoluteLocation());
         return;
     }
 
-    HTMLDivElement::defaultEventHandler(mouseEvent);
+    HTMLDivElement::defaultEventHandler(*mouseEvent);
 }
 
 bool SliderThumbElement::willRespondToMouseMoveEvents() const
@@ -558,7 +562,7 @@ RefPtr<HTMLInputElement> SliderThumbElement::hostInput() const
 {
     // Only HTMLInputElement creates SliderThumbElement instances as its shadow nodes.
     // So, shadowHost() must be an HTMLInputElement.
-    return checkedDowncast<HTMLInputElement>(shadowHost());
+    return downcast<HTMLInputElement>(shadowHost());
 }
 
 std::optional<Style::ResolvedStyle> SliderThumbElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const RenderStyle* hostStyle)
@@ -567,12 +571,12 @@ std::optional<Style::ResolvedStyle> SliderThumbElement::resolveCustomStyle(const
         return std::nullopt;
 
     auto elementStyle = resolveStyle(resolutionContext);
-    switch (hostStyle->effectiveAppearance()) {
+    switch (hostStyle->usedAppearance()) {
     case StyleAppearance::SliderVertical:
-        elementStyle.style->setEffectiveAppearance(StyleAppearance::SliderThumbVertical);
+        elementStyle.style->setUsedAppearance(StyleAppearance::SliderThumbVertical);
         break;
     case StyleAppearance::SliderHorizontal:
-        elementStyle.style->setEffectiveAppearance(StyleAppearance::SliderThumbHorizontal);
+        elementStyle.style->setUsedAppearance(StyleAppearance::SliderThumbHorizontal);
         break;
     default:
         break;
@@ -581,16 +585,15 @@ std::optional<Style::ResolvedStyle> SliderThumbElement::resolveCustomStyle(const
 
 }
 
-
-Ref<Element> SliderThumbElement::cloneElementWithoutAttributesAndChildren(Document& targetDocument)
+Ref<Element> SliderThumbElement::cloneElementWithoutAttributesAndChildren(Document& document, CustomElementRegistry*)
 {
-    return create(targetDocument);
+    return create(document);
 }
 
 // --------------------------------
 
 inline SliderContainerElement::SliderContainerElement(Document& document)
-    : HTMLDivElement(HTMLNames::divTag, document, CreateSliderContainerElement)
+    : HTMLDivElement(HTMLNames::divTag, document, TypeFlag::HasCustomStyleResolveCallbacks)
 {
 }
 
@@ -598,7 +601,7 @@ Ref<SliderContainerElement> SliderContainerElement::create(Document& document)
 {
     auto element = adoptRef(*new SliderContainerElement(document));
     ScriptDisallowedScope::EventAllowedScope eventAllowedScope { element };
-    element->setPseudo(ShadowPseudoIds::webkitSliderContainer());
+    element->setUserAgentPart(UserAgentParts::webkitSliderContainer());
     return element;
 }
 

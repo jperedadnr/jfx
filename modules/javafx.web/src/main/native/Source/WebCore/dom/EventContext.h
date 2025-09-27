@@ -29,11 +29,12 @@
 
 #include "HTMLFormElement.h"
 #include "TouchList.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class EventContext {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(EventContext);
 public:
     using EventInvokePhase = EventTarget::EventInvokePhase;
 
@@ -46,22 +47,27 @@ public:
 
     EventContext(Type, Node*, EventTarget* currentTarget, EventTarget* origin, int closedShadowDepth);
     EventContext(Type, Node&, Node* currentTarget, EventTarget* origin, int closedShadowDepth);
-    ~EventContext();
+    ~EventContext() = default;
 
     Node* node() const { return m_node.get(); }
+    RefPtr<Node> protectedNode() const { return m_node; }
     EventTarget* currentTarget() const { return m_currentTarget.get(); }
+    RefPtr<EventTarget> protectedCurrentTarget() const { return m_currentTarget; }
     bool isCurrentTargetInShadowTree() const { return m_currentTargetIsInShadowTree; }
     EventTarget* target() const { return m_target.get(); }
+    RefPtr<EventTarget> protectedTarget() const { return m_target; }
     int closedShadowDepth() const { return m_closedShadowDepth; }
 
     void handleLocalEvents(Event&, EventInvokePhase) const;
 
+    bool isNormalEventContext() const { return m_type == Type::Normal; }
     bool isMouseOrFocusEventContext() const { return m_type == Type::MouseOrFocus; }
     bool isTouchEventContext() const { return m_type == Type::Touch; }
     bool isWindowContext() const { return m_type == Type::Window; }
 
     Node* relatedTarget() const { return m_relatedTarget.get(); }
-    void setRelatedTarget(Node*);
+    RefPtr<Node> protectedRelatedTarget() const { return m_relatedTarget; }
+    void setRelatedTarget(RefPtr<Node>&&);
 
 #if ENABLE(TOUCH_EVENTS)
     enum class TouchListType : uint8_t { Touches, TargetTouches, ChangedTouches };
@@ -124,10 +130,10 @@ inline EventContext::EventContext(Type type, Node& node, Node* currentTarget, Ev
     m_contextNodeIsFormElement = is<HTMLFormElement>(node);
 }
 
-inline void EventContext::setRelatedTarget(Node* relatedTarget)
+inline void EventContext::setRelatedTarget(RefPtr<Node>&& relatedTarget)
 {
-    ASSERT(!isUnreachableNode(relatedTarget));
-    m_relatedTarget = relatedTarget;
+    ASSERT(!isUnreachableNode(relatedTarget.get()));
+    m_relatedTarget = WTFMove(relatedTarget);
     m_relatedTargetIsSet = true;
 }
 

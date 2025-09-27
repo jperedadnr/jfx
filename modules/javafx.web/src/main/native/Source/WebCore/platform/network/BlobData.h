@@ -56,6 +56,7 @@ public:
 
     // For File type.
     BlobDataFileReference* file() const { return m_file.get(); }
+    RefPtr<BlobDataFileReference> protectedFile() const { return file(); }
 
     long long offset() const { return m_offset; }
     WEBCORE_EXPORT long long length() const; // Computes file length if it's not known yet.
@@ -110,7 +111,6 @@ public:
     void setPolicyContainer(const PolicyContainer& policyContainer) { m_policyContainer = policyContainer; }
 
     const BlobDataItemList& items() const { return m_items; }
-    void swapItems(BlobDataItemList&);
 
     void replaceData(const DataSegment& oldData, Ref<DataSegment>&& newData);
     void appendData(Ref<DataSegment>&&);

@@ -29,6 +29,8 @@
 #include "JSCJSValueInlines.h"
 #include <wtf/text/StringImpl.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 SmallStrings::SmallStrings()
@@ -47,8 +49,8 @@ void SmallStrings::initializeCommonStrings(VM& vm)
 
     for (unsigned i = 0; i < singleCharacterStringCount; ++i) {
         ASSERT(!m_singleCharacterStrings[i]);
-        const LChar string[] = { static_cast<LChar>(i) };
-        m_singleCharacterStrings[i] = JSString::createHasOtherOwner(vm, AtomStringImpl::add(string, 1).releaseNonNull());
+        std::array<const LChar, 1> string = { static_cast<LChar>(i) };
+        m_singleCharacterStrings[i] = JSString::createHasOtherOwner(vm, AtomStringImpl::add(string).releaseNonNull());
         ASSERT(m_needsToBeVisited);
     }
 
@@ -110,16 +112,14 @@ void SmallStrings::visitStrongReferences(Visitor& visitor)
 template void SmallStrings::visitStrongReferences(AbstractSlotVisitor&);
 template void SmallStrings::visitStrongReferences(SlotVisitor&);
 
-SmallStrings::~SmallStrings()
-{
-}
+SmallStrings::~SmallStrings() = default;
 
 Ref<AtomStringImpl> SmallStrings::singleCharacterStringRep(unsigned char character)
 {
     if (LIKELY(m_isInitialized))
         return *static_cast<AtomStringImpl*>(const_cast<StringImpl*>(m_singleCharacterStrings[character]->tryGetValueImpl()));
-    const LChar string[] = { static_cast<LChar>(character) };
-    return AtomStringImpl::add(string, 1).releaseNonNull();
+    std::array<const LChar, 1> string = { static_cast<LChar>(character) };
+    return AtomStringImpl::add(string).releaseNonNull();
 }
 
 void SmallStrings::initialize(VM* vm, JSString*& string, ASCIILiteral value)
@@ -129,3 +129,5 @@ void SmallStrings::initialize(VM* vm, JSString*& string, ASCIILiteral value)
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

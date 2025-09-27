@@ -29,7 +29,6 @@
  */
 
 #include "config.h"
-#if ENABLE(INPUT_TYPE_WEEK)
 #include "WeekInputType.h"
 
 #include "DateComponents.h"
@@ -41,6 +40,8 @@
 #include "StepRange.h"
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WeekInputType);
 
 using namespace HTMLNames;
 
@@ -62,7 +63,7 @@ DateComponentsType WeekInputType::dateType() const
 StepRange WeekInputType::createStepRange(AnyStepHandling anyStepHandling) const
 {
     ASSERT(element());
-    const Decimal stepBase = parseToNumber(element()->attributeWithoutSynchronization(minAttr), weekDefaultStepBase);
+    const Decimal stepBase = findStepBase(weekDefaultStepBase);
     const Decimal minimum = parseToNumber(element()->attributeWithoutSynchronization(minAttr), Decimal::fromDouble(DateComponents::minimumWeek()));
     const Decimal maximum = parseToNumber(element()->attributeWithoutSynchronization(maxAttr), Decimal::fromDouble(DateComponents::maximumWeek()));
     const Decimal step = StepRange::parseStep(anyStepHandling, weekStepDescription, element()->attributeWithoutSynchronization(stepAttr));
@@ -83,6 +84,10 @@ void WeekInputType::handleDOMActivateEvent(Event&)
 {
 }
 
+void WeekInputType::showPicker()
+{
+}
+
 bool WeekInputType::isValidFormat(OptionSet<DateTimeFormatValidationResults> results) const
 {
     return results.containsAll({ DateTimeFormatValidationResults::HasYear, DateTimeFormatValidationResults::HasWeek });
@@ -98,5 +103,3 @@ void WeekInputType::setupLayoutParameters(DateTimeEditElement::LayoutParameters&
 }
 
 } // namespace WebCore
-
-#endif

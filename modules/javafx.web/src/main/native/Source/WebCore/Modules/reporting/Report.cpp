@@ -28,12 +28,12 @@
 
 #include "FormData.h"
 #include "ReportBody.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(Report);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(Report);
 
 Ref<Report> Report::create(const String& type, const String& url, RefPtr<ReportBody>&& body)
 {
@@ -64,7 +64,7 @@ const RefPtr<ReportBody>& Report::body() const
     return m_body;
 }
 
-Ref<FormData> Report::createReportFormDataForViolation(const String& type, const URL& url, const String& userAgent, const String& destination, const Function<void(JSON::Object&)>& populateBody)
+Ref<FormData> Report::createReportFormDataForViolation(const String& type, const URL& url, const String& userAgent, const String& destination, NOESCAPE const Function<void(JSON::Object&)>& populateBody)
 {
     auto body = JSON::Object::create();
     populateBody(body);

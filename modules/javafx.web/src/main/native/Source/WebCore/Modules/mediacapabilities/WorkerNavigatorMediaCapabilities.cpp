@@ -28,8 +28,11 @@
 
 #include "MediaCapabilities.h"
 #include "WorkerNavigator.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerNavigatorMediaCapabilities);
 
 WorkerNavigatorMediaCapabilities::WorkerNavigatorMediaCapabilities()
     : m_mediaCapabilities(MediaCapabilities::create())
@@ -38,9 +41,9 @@ WorkerNavigatorMediaCapabilities::WorkerNavigatorMediaCapabilities()
 
 WorkerNavigatorMediaCapabilities::~WorkerNavigatorMediaCapabilities() = default;
 
-const char* WorkerNavigatorMediaCapabilities::supplementName()
+ASCIILiteral WorkerNavigatorMediaCapabilities::supplementName()
 {
-    return "WorkerNavigatorMediaCapabilities";
+    return "WorkerNavigatorMediaCapabilities"_s;
 }
 
 WorkerNavigatorMediaCapabilities& WorkerNavigatorMediaCapabilities::from(WorkerNavigator& navigator)

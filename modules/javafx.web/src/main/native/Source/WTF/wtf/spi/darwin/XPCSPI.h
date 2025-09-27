@@ -27,8 +27,12 @@
 
 #include <dispatch/dispatch.h>
 #include <os/object.h>
+#include <span>
+#include <wtf/StdLibExtras.h>
+#include <wtf/text/ASCIILiteral.h>
+#include <wtf/text/WTFString.h>
 
-#if PLATFORM(MAC) || USE(APPLE_INTERNAL_SDK) || PLATFORM(JAVA)
+#if HAVE(XPC_API) || USE(APPLE_INTERNAL_SDK) || PLATFORM(JAVA)
 #include <xpc/xpc.h>
 #else
 
@@ -234,6 +238,7 @@ const void * xpc_data_get_bytes_ptr(xpc_object_t xdata);
 size_t xpc_data_get_length(xpc_object_t xdata);
 xpc_object_t xpc_dictionary_get_array(xpc_object_t xdict, const char* key);
 
+xpc_object_t xpc_copy_entitlement_for_token(const char* name, audit_token_t*);
 
 #if OS_OBJECT_USE_OBJC_RETAIN_RELEASE
 #if !defined(xpc_retain)
@@ -252,3 +257,21 @@ void xpc_release(xpc_object_t);
 #endif
 
 WTF_EXTERN_C_END
+
+inline std::span<const uint8_t> xpc_dictionary_get_data_span(xpc_object_t xdict, ASCIILiteral key)
+{
+    size_t dataSize { 0 };
+    auto* data = static_cast<const uint8_t*>(xpc_dictionary_get_data(xdict, key.characters(), &dataSize)); // NOLINT
+    return unsafeMakeSpan(data, dataSize);
+}
+
+// ASCIILiteral version of XPC_ERROR_KEY_DESCRIPTION.
+static constexpr auto xpcErrorDescriptionKey = "XPCErrorDescription"_s;
+
+inline String xpc_dictionary_get_wtfstring(xpc_object_t xdict, ASCIILiteral key)
+{
+    auto* cstring = xpc_dictionary_get_string(xdict, key.characters()); // NOLINT
+    if (!cstring)
+        return { };
+    return String::fromUTF8(cstring);
+}

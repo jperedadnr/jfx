@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,7 +33,7 @@
 namespace WebCore {
 
 class DummyStorageProvider final : public StorageProvider {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(DummyStorageProvider, WEBCORE_EXPORT);
 public:
     DummyStorageProvider() = default;
 
@@ -57,12 +57,12 @@ private:
 
         void fileSystemGetDirectory(ClientOrigin&&, StorageConnection::GetDirectoryCallback&& completionHandler) final
         {
-            completionHandler(Exception { NotSupportedError });
+            completionHandler(Exception { ExceptionCode::NotSupportedError });
         }
 
         void getEstimate(ClientOrigin&&, GetEstimateCallback&& completionHandler) final
         {
-            completionHandler(Exception { NotSupportedError });
+            completionHandler(Exception { ExceptionCode::NotSupportedError });
         }
     };
 
@@ -74,7 +74,23 @@ private:
         return *m_connection;
     }
 
+    String ensureMediaKeysStorageDirectoryForOrigin(const SecurityOriginData& origin) final
+    {
+        if (m_mediaKeysStorageDirectory.isEmpty())
+            return emptyString();
+
+        auto originDirectory = FileSystem::pathByAppendingComponent(m_mediaKeysStorageDirectory, origin.databaseIdentifier());
+        FileSystem::makeAllDirectories(originDirectory);
+        return originDirectory;
+    }
+
+    void setMediaKeysStorageDirectory(const String& directory) final
+    {
+        m_mediaKeysStorageDirectory = directory;
+    }
+
     RefPtr<DummyStorageConnection> m_connection;
+    String m_mediaKeysStorageDirectory;
 };
 
 } // namespace WebCore

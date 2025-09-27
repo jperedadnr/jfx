@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2023, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,12 +26,15 @@ package com.oracle.tools.fx.monkey.pages;
 
 import javafx.geometry.Point2D;
 import javafx.geometry.VPos;
-import javafx.scene.Group;
+import javafx.scene.Node;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.ScrollPane.ScrollBarPolicy;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.PickResult;
 import javafx.scene.layout.Border;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.text.FontSmoothingType;
 import javafx.scene.text.HitInfo;
 import javafx.scene.text.Text;
@@ -43,10 +46,15 @@ import com.oracle.tools.fx.monkey.options.FontOption;
 import com.oracle.tools.fx.monkey.options.IntOption;
 import com.oracle.tools.fx.monkey.options.PaintOption;
 import com.oracle.tools.fx.monkey.sheets.Options;
+import com.oracle.tools.fx.monkey.sheets.PropertiesMonitor;
 import com.oracle.tools.fx.monkey.sheets.ShapePropertySheet;
+import com.oracle.tools.fx.monkey.tools.AccessibilityPropertyViewer;
+import com.oracle.tools.fx.monkey.util.FX;
+import com.oracle.tools.fx.monkey.util.LayoutInfoVisualizer;
 import com.oracle.tools.fx.monkey.util.OptionPane;
-import com.oracle.tools.fx.monkey.util.ShowCharacterRuns;
+import com.oracle.tools.fx.monkey.util.StdoutMouseListener;
 import com.oracle.tools.fx.monkey.util.TestPaneBase;
+import com.oracle.tools.fx.monkey.util.TextShapeLogic;
 
 /**
  * Text Page.
@@ -54,21 +62,23 @@ import com.oracle.tools.fx.monkey.util.TestPaneBase;
 public class TextPage extends TestPaneBase {
     private final Text text;
     private final ScrollPane scroll;
-    private final BooleanOption showChars;
     private final BooleanOption wrap;
     private final Label hitInfo;
+    private final BorderPane container;
+    private final LayoutInfoVisualizer visualizer;
 
     public TextPage() {
         super("TextPage");
 
         text = new Text();
         text.addEventHandler(MouseEvent.ANY, this::handleMouseEvent);
+        FX.setPopupMenu(text, this::createPopupMenu);
 
         hitInfo = new Label();
 
-        showChars = new BooleanOption("showChars", "show characters", () -> updateShowCharacters());
+        visualizer = new LayoutInfoVisualizer();
 
-        wrap = new BooleanOption("wrap", "wrap width", () -> updateWrap());
+        wrap = new BooleanOption("wrap", "wrap width", (v) -> updateWrap(v));
 
         OptionPane op = new OptionPane();
         op.section("Text");
@@ -87,38 +97,36 @@ public class TextPage extends TestPaneBase {
         op.option("Text Alignment:", new EnumOption<>("textAlignment", TextAlignment.class, text.textAlignmentProperty()));
         op.option("Text Origin:", new EnumOption<VPos>("textOrigin", VPos.class, text.textOriginProperty()));
         op.option(new BooleanOption("underline", "underline", text.underlineProperty()));
-
+        op.separator();
+        op.option(new BooleanOption("showCaretAndRange", visualizer.caretOptionText(), visualizer.showCaretAndRange));
+        op.option("API:", new EnumOption<>("api", TextShapeLogic.class, visualizer.shapeLogic));
+        op.option(new BooleanOption("showLines", "show text lines", visualizer.showLines));
+        op.option(new BooleanOption("showBounds", "show layout bounds", visualizer.showLayoutBounds));
+        op.option(new BooleanOption("includeLineSpacing", "include lineSpacing", visualizer.includeLineSpace));
         op.separator();
         op.option(wrap);
-        op.option(showChars);
         op.option("Text.hitTest:", hitInfo);
 
         ShapePropertySheet.appendTo(op, text);
+
+        container = new BorderPane(text);
 
         scroll = new ScrollPane();
         scroll.setBorder(Border.EMPTY);
         scroll.setHbarPolicy(ScrollBarPolicy.AS_NEEDED);
         scroll.setVbarPolicy(ScrollBarPolicy.AS_NEEDED);
         scroll.setFitToWidth(false);
-        scroll.setContent(new Group(text));
+        scroll.setContent(container);
 
         setContent(scroll);
         setOptions(op);
 
-        updateWrap();
-        updateShowCharacters();
+        updateWrap(false);
+        visualizer.attach(container, text);
     }
 
-    private void updateShowCharacters() {
-        if (showChars.getValue()) {
-            ShowCharacterRuns.createFor(text);
-        } else {
-            ShowCharacterRuns.remove(text);
-        }
-    }
-
-    private void updateWrap() {
-        if (wrap.getValue()) {
+    private void updateWrap(boolean on) {
+        if (on) {
             text.wrappingWidthProperty().bind(scroll.viewportBoundsProperty().map((b) -> b.getWidth()));
         } else {
             text.wrappingWidthProperty().unbind();
@@ -130,5 +138,21 @@ public class TextPage extends TestPaneBase {
         Point2D p = new Point2D(ev.getX(), ev.getY());
         HitInfo h = text.hitTest(p);
         hitInfo.setText(String.valueOf(h));
+    }
+
+    private ContextMenu createPopupMenu(PickResult pick) {
+        Node source = pick.getIntersectedNode();
+        ContextMenu m = new ContextMenu();
+        FX.item(m, "Accessibility Attributes", () -> {
+            AccessibilityPropertyViewer.open(pick);
+        });
+        FX.item(m, "Show Properties Monitor...", () -> {
+            PropertiesMonitor.open(source);
+        });
+        StdoutMouseListener.attach(m, text);
+        if (text != pick.getIntersectedNode()) {
+            StdoutMouseListener.attach(m, pick.getIntersectedNode());
+        }
+        return m;
     }
 }

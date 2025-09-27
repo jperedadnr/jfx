@@ -31,7 +31,7 @@
 #include "DOMPlugin.h"
 #include "DOMPluginArray.h"
 #include "Document.h"
-#include "FeaturePolicy.h"
+#include "DocumentInlines.h"
 #include "FrameLoader.h"
 #include "GPU.h"
 #include "Geolocation.h"
@@ -41,6 +41,7 @@
 #include "LocalFrameLoaderClient.h"
 #include "LocalizedStrings.h"
 #include "Page.h"
+#include "PermissionsPolicy.h"
 #include "PlatformStrategies.h"
 #include "PluginData.h"
 #include "Quirks.h"
@@ -51,15 +52,15 @@
 #include "ShareData.h"
 #include "ShareDataReader.h"
 #include "SharedBuffer.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/Language.h>
 #include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(Navigator);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(Navigator);
 
 Navigator::Navigator(ScriptExecutionContext* context, LocalDOMWindow& window)
     : NavigatorBase(context)
@@ -75,17 +76,17 @@ String Navigator::appVersion() const
     if (!frame)
         return String();
     if (frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->document(), NavigatorAPIsAccessed::AppVersion);
+        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->protectedDocument(), NavigatorAPIsAccessed::AppVersion);
     return NavigatorBase::appVersion();
 }
 
 const String& Navigator::userAgent() const
 {
-    auto* frame = this->frame();
+    RefPtr frame = this->frame();
     if (!frame || !frame->page())
         return m_userAgent;
     if (frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->document(), NavigatorAPIsAccessed::UserAgent);
+        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->protectedDocument(), NavigatorAPIsAccessed::UserAgent);
     if (m_userAgent.isNull())
         m_userAgent = frame->loader().userAgent(frame->document()->url());
     return m_userAgent;
@@ -93,7 +94,7 @@ const String& Navigator::userAgent() const
 
 String Navigator::platform() const
 {
-    auto* frame = this->frame();
+    RefPtr frame = this->frame();
     if (!frame || !frame->page())
         return m_platform;
 
@@ -131,7 +132,7 @@ static std::optional<URL> shareableURLForShareData(ScriptExecutionContext& conte
 
 static bool validateWebSharePolicy(Document& document)
 {
-    return isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::WebShare, document, LogFeaturePolicyFailure::Yes);
+    return PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::WebShare, document);
 }
 
 bool Navigator::canShare(Document& document, const ShareData& data)
@@ -139,11 +140,7 @@ bool Navigator::canShare(Document& document, const ShareData& data)
     if (!document.isFullyActive() || !validateWebSharePolicy(document))
         return false;
 
-#if ENABLE(FILE_SHARE)
     bool hasShareableFiles = document.settings().webShareFileAPIEnabled() && !data.files.isEmpty();
-#else
-    bool hasShareableFiles = false;
-#endif
 
     if (data.title.isNull() && data.text.isNull() && data.url.isNull() && !hasShareableFiles)
         return false;
@@ -154,28 +151,28 @@ bool Navigator::canShare(Document& document, const ShareData& data)
 void Navigator::share(Document& document, const ShareData& data, Ref<DeferredPromise>&& promise)
 {
     if (!document.isFullyActive()) {
-        promise->reject(InvalidStateError);
+        promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
 
     if (!validateWebSharePolicy(document)) {
-        promise->reject(NotAllowedError, "Third-party iframes are not allowed to call share() unless explicitly allowed via Feature-Policy (web-share)"_s);
+        promise->reject(ExceptionCode::NotAllowedError, "Third-party iframes are not allowed to call share() unless explicitly allowed via Feature-Policy (web-share)"_s);
         return;
     }
 
     if (m_hasPendingShare) {
-        promise->reject(InvalidStateError, "share() is already in progress"_s);
+        promise->reject(ExceptionCode::InvalidStateError, "share() is already in progress"_s);
         return;
     }
 
-    auto* window = this->window();
+    RefPtr window = this->window();
     if (!window || !window->consumeTransientActivation()) {
-        promise->reject(NotAllowedError);
+        promise->reject(ExceptionCode::NotAllowedError);
         return;
     }
 
     if (!canShare(document, data)) {
-        promise->reject(TypeError);
+        promise->reject(ExceptionCode::TypeError);
         return;
     }
 
@@ -186,7 +183,6 @@ void Navigator::share(Document& document, const ShareData& data, Ref<DeferredPro
         { },
         ShareDataOriginator::Web,
     };
-#if ENABLE(FILE_SHARE)
     if (document.settings().webShareFileAPIEnabled() && !data.files.isEmpty()) {
         if (m_loader)
             m_loader->cancel();
@@ -197,7 +193,6 @@ void Navigator::share(Document& document, const ShareData& data, Ref<DeferredPro
         m_loader->start(&document, WTFMove(shareData));
         return;
     }
-#endif
     this->showShareData(shareData, WTFMove(promise));
 }
 
@@ -208,14 +203,14 @@ void Navigator::showShareData(ExceptionOr<ShareDataWithParsedURL&> readData, Ref
         return;
     }
 
-    auto* frame = this->frame();
+    RefPtr frame = this->frame();
     if (!frame || !frame->page())
         return;
 
     m_hasPendingShare = true;
 
     if (frame->page()->isControlledByAutomation()) {
-        RunLoop::main().dispatch([promise = WTFMove(promise), weakThis = WeakPtr { *this }] {
+        RunLoop::protectedMain()->dispatch([promise = WTFMove(promise), weakThis = WeakPtr { *this }] {
             if (weakThis)
                 weakThis->m_hasPendingShare = false;
         promise->resolve();
@@ -232,7 +227,7 @@ void Navigator::showShareData(ExceptionOr<ShareDataWithParsedURL&> readData, Ref
             promise->resolve();
             return;
         }
-        promise->reject(Exception { AbortError, "Abort due to cancellation of share."_s });
+        promise->reject(Exception { ExceptionCode::AbortError, "Abort due to cancellation of share."_s });
     });
 }
 
@@ -258,11 +253,11 @@ void Navigator::initializePluginAndMimeTypeArrays()
     if (m_plugins)
         return;
 
-    auto* frame = this->frame();
+    RefPtr frame = this->frame();
     bool needsEmptyNavigatorPluginsQuirk = frame && frame->document() && frame->document()->quirks().shouldNavigatorPluginsBeEmpty();
     if (!frame || !frame->page() || needsEmptyNavigatorPluginsQuirk) {
         if (needsEmptyNavigatorPluginsQuirk)
-            frame->document()->addConsoleMessage(MessageSource::Other, MessageLevel::Info, "QUIRK: Navigator plugins / mimeTypes empty on marcus.com. More information at https://bugs.webkit.org/show_bug.cgi?id=248798"_s);
+            frame->protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Info, "QUIRK: Navigator plugins / mimeTypes empty on marcus.com. More information at https://bugs.webkit.org/show_bug.cgi?id=248798"_s);
         m_plugins = DOMPluginArray::create(*this);
         m_mimeTypes = DOMMimeTypeArray::create(*this);
         return;
@@ -305,7 +300,7 @@ void Navigator::initializePluginAndMimeTypeArrays()
 DOMPluginArray& Navigator::plugins()
 {
     if (auto* frame = this->frame(); frame && frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->document(), NavigatorAPIsAccessed::Plugins);
+        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->protectedDocument(), NavigatorAPIsAccessed::Plugins);
 
     initializePluginAndMimeTypeArrays();
     return *m_plugins;
@@ -314,7 +309,7 @@ DOMPluginArray& Navigator::plugins()
 DOMMimeTypeArray& Navigator::mimeTypes()
 {
     if (auto* frame = this->frame(); frame && frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->document(), NavigatorAPIsAccessed::MimeTypes);
+        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->protectedDocument(), NavigatorAPIsAccessed::MimeTypes);
 
     initializePluginAndMimeTypeArrays();
     return *m_mimeTypes;
@@ -334,16 +329,16 @@ bool Navigator::cookieEnabled() const
         return false;
 
     if (frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->document(), NavigatorAPIsAccessed::CookieEnabled);
+        ResourceLoadObserver::shared().logNavigatorAPIAccessed(*frame->protectedDocument(), NavigatorAPIsAccessed::CookieEnabled);
 
-    auto* page = frame->page();
+    RefPtr page = frame->page();
     if (!page)
         return false;
 
     if (!page->settings().cookieEnabled())
         return false;
 
-    auto* document = frame->document();
+    RefPtr document = frame->document();
     if (!document)
         return false;
 
@@ -362,6 +357,7 @@ bool Navigator::standalone() const
 
 GPU* Navigator::gpu()
 {
+#if HAVE(WEBGPU_IMPLEMENTATION)
     if (!m_gpuForWebGPU) {
         auto* frame = this->frame();
         if (!frame)
@@ -377,39 +373,60 @@ GPU* Navigator::gpu()
 
         m_gpuForWebGPU = GPU::create(*gpu);
     }
+#endif
 
     return m_gpuForWebGPU.get();
 }
 
-Document* Navigator::document()
+Page* Navigator::page()
 {
     auto* frame = this->frame();
+    return frame ? frame->page() : nullptr;
+}
+
+RefPtr<Page> Navigator::protectedPage()
+{
+    return page();
+}
+
+const Document* Navigator::document() const
+{
+    RefPtr frame = this->frame();
     return frame ? frame->document() : nullptr;
 }
 
-#if ENABLE(BADGING)
+Document* Navigator::document()
+{
+    RefPtr frame = this->frame();
+    return frame ? frame->document() : nullptr;
+}
+
+RefPtr<Document> Navigator::protectedDocument()
+{
+    return document();
+}
 
 void Navigator::setAppBadge(std::optional<unsigned long long> badge, Ref<DeferredPromise>&& promise)
 {
-    auto* frame = this->frame();
+    RefPtr frame = this->frame();
     if (!frame) {
-        promise->reject(InvalidStateError);
+        promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
 
-    auto* page = frame->page();
+    RefPtr page = frame->page();
     if (!page) {
-        promise->reject(InvalidStateError);
+        promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
 
-    auto* document = frame->document();
+    RefPtr document = frame->document();
     if (document && !document->isFullyActive()) {
-        promise->reject(InvalidStateError);
+        promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
 
-    page->badgeClient().setAppBadge(page, SecurityOriginData::fromFrame(frame), badge);
+    page->badgeClient().setAppBadge(page.get(), SecurityOriginData::fromFrame(frame.get()), badge);
     promise->resolve();
 }
 
@@ -420,19 +437,19 @@ void Navigator::clearAppBadge(Ref<DeferredPromise>&& promise)
 
 void Navigator::setClientBadge(std::optional<unsigned long long> badge, Ref<DeferredPromise>&& promise)
 {
-    auto* frame = this->frame();
+    RefPtr frame = this->frame();
     if (!frame) {
         promise->reject();
         return;
     }
 
-    auto* page = frame->page();
+    RefPtr page = frame->page();
     if (!page) {
         promise->reject();
         return;
     }
 
-    page->badgeClient().setClientBadge(*page, SecurityOriginData::fromFrame(frame), badge);
+    page->badgeClient().setClientBadge(*page, SecurityOriginData::fromFrame(frame.get()), badge);
     promise->resolve();
 }
 
@@ -441,6 +458,15 @@ void Navigator::clearClientBadge(Ref<DeferredPromise>&& promise)
     setClientBadge(0, WTFMove(promise));
 }
 
+int Navigator::maxTouchPoints() const
+{
+#if ENABLE(IOS_TOUCH_EVENTS) && !PLATFORM(MACCATALYST)
+    RefPtr document = this->document();
+    if (!document || !document->quirks().needsZeroMaxTouchPointsQuirk())
+        return 5;
 #endif
+
+    return 0;
+}
 
 } // namespace WebCore

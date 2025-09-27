@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,12 +32,17 @@
 #include "FrameTracers.h"
 #include "JSCJSValueInlines.h"
 #include "TypeLocation.h"
+#include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 namespace TypeProfilerLogInternal {
 static constexpr bool verbose = false;
 }
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TypeProfilerLog);
 
 TypeProfilerLog::TypeProfilerLog(VM& vm)
     : m_vm(vm)
@@ -69,8 +74,8 @@ void TypeProfilerLog::processLogEntries(VM& vm, const String& reason)
         before = MonotonicTime::now();
     }
 
-    HashMap<Structure*, RefPtr<StructureShape>> cachedMonoProtoShapes;
-    HashMap<std::pair<Structure*, JSCell*>, RefPtr<StructureShape>> cachedPolyProtoShapes;
+    UncheckedKeyHashMap<Structure*, RefPtr<StructureShape>> cachedMonoProtoShapes;
+    UncheckedKeyHashMap<std::pair<Structure*, JSCell*>, RefPtr<StructureShape>> cachedPolyProtoShapes;
 
     LogEntry* entry = m_logStartPtr;
 
@@ -139,3 +144,5 @@ void TypeProfilerLog::visit(AbstractSlotVisitor& visitor)
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

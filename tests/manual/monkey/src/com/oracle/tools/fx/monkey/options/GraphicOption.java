@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2024, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,7 @@ package com.oracle.tools.fx.monkey.options;
 
 import javafx.beans.property.ObjectProperty;
 import javafx.scene.Node;
-import javafx.scene.paint.Color;
+import com.oracle.tools.fx.monkey.util.CustomPane;
 import com.oracle.tools.fx.monkey.util.ImageTools;
 
 /**
@@ -37,11 +37,14 @@ public class GraphicOption extends ObjectOption<Node> {
         super(name, p);
 
         addChoice("<null>", null);
-        addChoice("1x1", ImageTools.createImageView(Color.RED, 1, 1));
-        addChoice("Small", ImageTools.createImageView(Color.ORANGE, 16, 16));
-        addChoice("Wide", ImageTools.createImageView(Color.GREEN, 128, 16));
-        addChoice("Tall", ImageTools.createImageView(Color.BLUE, 16, 128));
-        addChoice("Large", ImageTools.createImageView(Color.SALMON, 256, 256));
+        addChoice("1x1", ImageTools.createImageView(1, 1));
+        addChoice("Small", ImageTools.createImageView(16, 16));
+        addChoice("Wide", ImageTools.createImageView(128, 16));
+        addChoice("Tall", ImageTools.createImageView(16, 128));
+        addChoice("Large", ImageTools.createImageView(256, 256));
+        addChoiceSupplier("Complex Pane", () -> {
+            return CustomPane.create();
+        });
 
         selectInitialValue();
     }

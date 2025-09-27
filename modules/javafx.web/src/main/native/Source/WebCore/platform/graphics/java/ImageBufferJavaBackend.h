@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,17 +46,16 @@ public:
 
     JLObject getWCImage() const;
     Vector<uint8_t> toDataJava(const String& mimeType, std::optional<double>) override;
-    void* getData() const;
+    std::pair<void*, size_t> getDataAndSize();
     void update() const;
 
-    GraphicsContext& context() const override;
+    GraphicsContext& context() override;
     void flushContext() override;
 
-    IntSize backendSize() const override;
 
 
-    RefPtr<NativeImage> copyNativeImage(BackingStoreCopy = CopyBackingStore) override;
-    RefPtr<NativeImage> copyNativeImageForDrawing(GraphicsContext& destination) override;
+    RefPtr<NativeImage> copyNativeImage() override;
+    RefPtr<NativeImage> createNativeImageReference() override;
 
 
     String debugDescription() const override;
@@ -64,11 +63,13 @@ public:
     void getPixelBuffer(const IntRect& srcRect, PixelBuffer& destination) override ;
     void putPixelBuffer(const PixelBuffer&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat) override;
 
+    bool canMapBackingStore() const final;
+
 protected:
     ImageBufferJavaBackend(const Parameters&, PlatformImagePtr, std::unique_ptr<GraphicsContext>&&, IntSize);
 
-    void getPixelBuffer(const IntRect& srcRect, void* data, PixelBuffer& destination);
-    void putPixelBuffer(const PixelBuffer&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat, void* destination);
+    void getPixelBuffer(const IntRect& srcRect, std::span<const uint8_t> data, PixelBuffer& destination);
+    void putPixelBuffer(const PixelBuffer&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat, std::span<uint8_t> destination);
 
 
     unsigned bytesPerRow() const override;

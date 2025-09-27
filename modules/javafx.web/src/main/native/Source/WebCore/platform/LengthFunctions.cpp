@@ -45,6 +45,7 @@ LayoutUnit valueForLength(const Length& length, LayoutUnit maximumValue)
         return minimumValueForLength(length, maximumValue);
     case LengthType::FillAvailable:
     case LengthType::Auto:
+    case LengthType::Normal:
         return maximumValue;
     case LengthType::Relative:
     case LengthType::Intrinsic:
@@ -71,6 +72,7 @@ float floatValueForLength(const Length& length, LayoutUnit maximumValue)
         return static_cast<float>(maximumValue * length.percent() / 100.0f);
     case LengthType::FillAvailable:
     case LengthType::Auto:
+    case LengthType::Normal:
         return static_cast<float>(maximumValue);
     case LengthType::Calculated:
         return length.nonNanCalculatedValue(maximumValue);
@@ -98,6 +100,7 @@ float floatValueForLength(const Length& length, float maximumValue)
         return static_cast<float>(maximumValue * length.percent() / 100.0f);
     case LengthType::FillAvailable:
     case LengthType::Auto:
+    case LengthType::Normal:
         return static_cast<float>(maximumValue);
     case LengthType::Calculated:
         return length.nonNanCalculatedValue(maximumValue);
@@ -123,7 +126,7 @@ LayoutSize sizeForLengthSize(const LengthSize& length, const LayoutSize& maximum
 
 LayoutPoint pointForLengthPoint(const LengthPoint& lengthPoint, const LayoutSize& maximumValue)
 {
-    return { valueForLength(lengthPoint.x(), maximumValue.width()), valueForLength(lengthPoint.y(), maximumValue.height()) };
+    return { valueForLength(lengthPoint.x, maximumValue.width()), valueForLength(lengthPoint.y, maximumValue.height()) };
 }
 
 FloatSize floatSizeForLengthSize(const LengthSize& lengthSize, const FloatSize& boxSize)
@@ -133,7 +136,7 @@ FloatSize floatSizeForLengthSize(const LengthSize& lengthSize, const FloatSize& 
 
 FloatPoint floatPointForLengthPoint(const LengthPoint& lengthPoint, const FloatSize& boxSize)
 {
-    return { floatValueForLength(lengthPoint.x(), boxSize.width()), floatValueForLength(lengthPoint.y(), boxSize.height()) };
+    return { floatValueForLength(lengthPoint.x, boxSize.width()), floatValueForLength(lengthPoint.y, boxSize.height()) };
 }
 
 } // namespace WebCore

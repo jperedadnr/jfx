@@ -42,14 +42,14 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-AccessibilitySlider::AccessibilitySlider(RenderObject* renderer)
-    : AccessibilityRenderObject(renderer)
+AccessibilitySlider::AccessibilitySlider(AXID axID, RenderObject& renderer)
+    : AccessibilityRenderObject(axID, renderer)
 {
 }
 
-Ref<AccessibilitySlider> AccessibilitySlider::create(RenderObject* renderer)
+Ref<AccessibilitySlider> AccessibilitySlider::create(AXID axID, RenderObject& renderer)
 {
-    return adoptRef(*new AccessibilitySlider(renderer));
+    return adoptRef(*new AccessibilitySlider(axID, renderer));
 }
 
 AccessibilityOrientation AccessibilitySlider::orientation() const
@@ -67,7 +67,7 @@ AccessibilityOrientation AccessibilitySlider::orientation() const
     if (!style)
         return AccessibilityOrientation::Horizontal;
 
-    auto styleAppearance = style->effectiveAppearance();
+    auto styleAppearance = style->usedAppearance();
     switch (styleAppearance) {
     case StyleAppearance::SliderThumbHorizontal:
     case StyleAppearance::SliderHorizontal:
@@ -94,30 +94,23 @@ void AccessibilitySlider::addChildren()
     if (!cache)
         return;
 
-    auto& thumb = downcast<AccessibilitySliderThumb>(*cache->create(AccessibilityRole::SliderThumb));
-    thumb.setParent(this);
+    Ref thumb = downcast<AccessibilitySliderThumb>(*cache->create(AccessibilityRole::SliderThumb));
+    thumb->setParent(this);
 
     // Before actually adding the value indicator to the hierarchy,
     // allow the platform to make a final decision about it.
-    if (thumb.accessibilityIsIgnored())
-        cache->remove(thumb.objectID());
+    if (thumb->isIgnored())
+        cache->remove(thumb->objectID());
     else
-        addChild(&thumb);
+        addChild(thumb.get());
 }
 
-const AtomString& AccessibilitySlider::getAttribute(const QualifiedName& attribute) const
-{
-    if (auto* input = inputElement())
-        return input->getAttribute(attribute);
-    return nullAtom();
-}
-
-AXCoreObject* AccessibilitySlider::elementAccessibilityHitTest(const IntPoint& point) const
+AccessibilityObject* AccessibilitySlider::elementAccessibilityHitTest(const IntPoint& point) const
 {
     if (m_children.size()) {
         ASSERT(m_children.size() == 1);
         if (m_children[0]->elementRect().contains(point))
-            return m_children[0].get();
+            return dynamicDowncast<AccessibilityObject>(m_children[0].get());
     }
 
     return axObjectCache()->getOrCreate(renderer());
@@ -146,12 +139,12 @@ float AccessibilitySlider::minValueForRange() const
 
 bool AccessibilitySlider::setValue(const String& value)
 {
-    HTMLInputElement* input = inputElement();
+    RefPtr input = inputElement();
+    if (!input)
+        return false;
 
-    if (input->value() == value)
-        return true;
-
-    input->setValue(value, DispatchChangeEvent);
+    if (input->value() != value)
+        input->setValue(value, DispatchInputAndChangeEvent);
     return true;
 }
 
@@ -161,13 +154,14 @@ HTMLInputElement* AccessibilitySlider::inputElement() const
 }
 
 
-AccessibilitySliderThumb::AccessibilitySliderThumb()
+AccessibilitySliderThumb::AccessibilitySliderThumb(AXID axID)
+    : AccessibilityMockObject(axID)
 {
 }
 
-Ref<AccessibilitySliderThumb> AccessibilitySliderThumb::create()
+Ref<AccessibilitySliderThumb> AccessibilitySliderThumb::create(AXID axID)
 {
-    return adoptRef(*new AccessibilitySliderThumb());
+    return adoptRef(*new AccessibilitySliderThumb(axID));
 }
 
 LayoutRect AccessibilitySliderThumb::elementRect() const
@@ -175,17 +169,17 @@ LayoutRect AccessibilitySliderThumb::elementRect() const
     if (!m_parent)
         return LayoutRect();
 
-    RenderObject* sliderRenderer = m_parent->renderer();
-    if (!sliderRenderer || !sliderRenderer->isSlider())
+    auto* sliderRenderer = dynamicDowncast<RenderSlider>(m_parent->renderer());
+    if (!sliderRenderer)
         return LayoutRect();
-    if (auto* thumbRenderer = downcast<RenderSlider>(*sliderRenderer).element().sliderThumbElement()->renderer())
+    if (auto* thumbRenderer = sliderRenderer->element().sliderThumbElement()->renderer())
         return thumbRenderer->absoluteBoundingBoxRect();
     return LayoutRect();
 }
 
-bool AccessibilitySliderThumb::computeAccessibilityIsIgnored() const
+bool AccessibilitySliderThumb::computeIsIgnored() const
 {
-    return accessibilityIsIgnoredByDefault();
+    return isIgnoredByDefault();
 }
 
 } // namespace WebCore

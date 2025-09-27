@@ -56,19 +56,29 @@ public:
 
     URL reresolvedURL(const Document&) const;
 
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
 
     Ref<DeprecatedCSSOMValue> createDeprecatedCSSOMWrapper(CSSStyleDeclaration&) const;
 
-    bool customTraverseSubresources(const Function<bool(const CachedResource&)>&) const;
+    bool customTraverseSubresources(NOESCAPE const Function<bool(const CachedResource&)>&) const;
+    bool customMayDependOnBaseURL() const;
 
     bool equals(const CSSImageValue&) const;
 
     bool knownToBeOpaque(const RenderElement&) const;
 
-    RefPtr<StyleImage> createStyleImage(Style::BuilderState&) const;
+    RefPtr<StyleImage> createStyleImage(const Style::BuilderState&) const;
 
     bool isLoadedFromOpaqueSource() const { return m_loadedFromOpaqueSource == LoadedFromOpaqueSource::Yes; }
+
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    {
+        if (m_unresolvedValue) {
+            if (func(*m_unresolvedValue) == IterationStatus::Done)
+                return IterationStatus::Done;
+        }
+        return IterationStatus::Continue;
+    }
 
 private:
     CSSImageValue();

@@ -37,8 +37,10 @@
 #include "PositionOptions.h"
 #include "ScriptWrappable.h"
 #include "Timer.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
 
@@ -51,10 +53,13 @@ class ScriptExecutionContext;
 class SecurityOrigin;
 struct PositionOptions;
 
-class Geolocation final : public ScriptWrappable, public RefCounted<Geolocation>, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED_EXPORT(Geolocation, WEBCORE_EXPORT);
+class Geolocation final : public RefCountedAndCanMakeWeakPtr<Geolocation>, public ScriptWrappable, public ActiveDOMObject {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED_EXPORT(Geolocation, WEBCORE_EXPORT);
     friend class GeoNotifier;
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<Geolocation> create(Navigator&);
     WEBCORE_EXPORT ~Geolocation();
 
@@ -82,16 +87,16 @@ private:
 
     GeolocationPosition* lastPosition();
 
-    // ActiveDOMObject
+    // ActiveDOMObject.
     void stop() override;
     void suspend(ReasonForSuspension) override;
     void resume() override;
-    const char* activeDOMObjectName() const override;
 
     bool isDenied() const { return m_allowGeolocation == No; }
 
     Page* page() const;
     SecurityOrigin* securityOrigin() const;
+    RefPtr<SecurityOrigin> protectedSecurityOrigin() const;
 
     typedef Vector<RefPtr<GeoNotifier>> GeoNotifierVector;
     typedef HashSet<RefPtr<GeoNotifier>> GeoNotifierSet;

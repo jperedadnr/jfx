@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "ExceptionOr.h"
 #include "GPUIntegralTypes.h"
 #include "WebGPUComputePassEncoder.h"
 #include <JavaScriptCore/Uint32Array.h>
@@ -41,11 +42,15 @@ class GPUBuffer;
 class GPUComputePipeline;
 class GPUQuerySet;
 
+namespace WebGPU {
+class Device;
+}
+
 class GPUComputePassEncoder : public RefCounted<GPUComputePassEncoder> {
 public:
-    static Ref<GPUComputePassEncoder> create(Ref<WebGPU::ComputePassEncoder>&& backing)
+    static Ref<GPUComputePassEncoder> create(Ref<WebGPU::ComputePassEncoder>&& backing, WebGPU::Device& device)
     {
-        return adoptRef(*new GPUComputePassEncoder(WTFMove(backing)));
+        return adoptRef(*new GPUComputePassEncoder(WTFMove(backing), device));
     }
 
     String label() const;
@@ -60,7 +65,7 @@ public:
     void setBindGroup(GPUIndex32, const GPUBindGroup&,
         std::optional<Vector<GPUBufferDynamicOffset>>&&);
 
-    void setBindGroup(GPUIndex32, const GPUBindGroup&,
+    ExceptionOr<void> setBindGroup(GPUIndex32, const GPUBindGroup&,
         const JSC::Uint32Array& dynamicOffsetsData,
         GPUSize64 dynamicOffsetsDataStart,
         GPUSize32 dynamicOffsetsDataLength);
@@ -73,12 +78,10 @@ public:
     const WebGPU::ComputePassEncoder& backing() const { return m_backing; }
 
 private:
-    GPUComputePassEncoder(Ref<WebGPU::ComputePassEncoder>&& backing)
-        : m_backing(WTFMove(backing))
-    {
-    }
+    GPUComputePassEncoder(Ref<WebGPU::ComputePassEncoder>&&, WebGPU::Device&);
 
     Ref<WebGPU::ComputePassEncoder> m_backing;
+    WeakPtr<WebGPU::Device> m_device;
 };
 
 }

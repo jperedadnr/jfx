@@ -33,6 +33,7 @@
 #include "FloatRoundedRect.h"
 #include "FloatSize.h"
 #include "GraphicsLayerClient.h"
+#include "GraphicsTypes.h"
 #include "HTMLMediaElementIdentifier.h"
 #include "LayerHostingContextIdentifier.h"
 #include "MediaPlayerEnums.h"
@@ -47,16 +48,17 @@
 #include "TimingFunction.h"
 #include "TransformOperations.h"
 #include "WindRule.h"
-#include <wtf/EnumTraits.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Function.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/TypeCasts.h>
-
-#if ENABLE(CSS_COMPOSITING)
-#include "GraphicsTypes.h"
-#endif
 
 #if ENABLE(THREADED_ANIMATION_RESOLUTION)
 #include "AcceleratedEffectStack.h"
+#endif
+
+#if HAVE(CORE_MATERIAL)
+#include "AppleVisualEffect.h"
 #endif
 
 namespace WTF {
@@ -72,15 +74,25 @@ class GraphicsLayerContentsDisplayDelegate;
 class GraphicsLayerAsyncContentsDisplayDelegate;
 class HTMLVideoElement;
 class Image;
+class ImageBuffer;
 class Model;
 class Settings;
 class TiledBacking;
 class TimingFunction;
 class TransformationMatrix;
 
+typedef unsigned TileCoverage;
+
+#if ENABLE(MODEL_PROCESS)
+class ModelContext;
+#endif
+
 #if ENABLE(THREADED_ANIMATION_RESOLUTION)
 struct AcceleratedEffectValues;
+String acceleratedEffectPropertyIDAsString(AcceleratedEffectProperty);
 #endif
+
+String animatedPropertyIDAsString(AnimatedProperty);
 
 namespace DisplayList {
 enum class AsTextFlag : uint8_t;
@@ -93,7 +105,7 @@ using LayerHostingContextID = uint32_t;
 // without pulling in style-related data from outside of the platform directory.
 // FIXME: Should be moved to its own header file.
 class AnimationValue {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(AnimationValue, WEBCORE_EXPORT);
 public:
     virtual ~AnimationValue() = default;
 
@@ -126,6 +138,7 @@ private:
 // Used to store one float value of an animation.
 // FIXME: Should be moved to its own header file.
 class FloatAnimationValue : public AnimationValue {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(FloatAnimationValue, WEBCORE_EXPORT);
 public:
     FloatAnimationValue(double keyTime, float value, TimingFunction* timingFunction = nullptr)
         : AnimationValue(keyTime, timingFunction)
@@ -147,6 +160,7 @@ private:
 // Used to store one transform value in a keyframe list.
 // FIXME: Should be moved to its own header file.
 class TransformAnimationValue : public AnimationValue {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(TransformAnimationValue, WEBCORE_EXPORT);
 public:
     TransformAnimationValue(double keyTime, const TransformOperations& value, TimingFunction* timingFunction = nullptr)
         : AnimationValue(keyTime, timingFunction)
@@ -156,9 +170,8 @@ public:
 
     TransformAnimationValue(double keyTime, TransformOperation* value, TimingFunction* timingFunction = nullptr)
         : AnimationValue(keyTime, timingFunction)
+        , m_value(value ? TransformOperations { *value } : TransformOperations { })
     {
-        if (value)
-            m_value.operations().append(value);
     }
 
     std::unique_ptr<AnimationValue> clone() const override
@@ -168,10 +181,8 @@ public:
 
     TransformAnimationValue(const TransformAnimationValue& other)
         : AnimationValue(other)
+        , m_value(other.m_value.clone())
     {
-        m_value.operations().reserveInitialCapacity(other.m_value.operations().size());
-        for (auto& operation : other.m_value.operations())
-            m_value.operations().uncheckedAppend(operation->clone());
     }
 
     TransformAnimationValue(TransformAnimationValue&&) = default;
@@ -185,6 +196,7 @@ private:
 // Used to store one filter value in a keyframe list.
 // FIXME: Should be moved to its own header file.
 class FilterAnimationValue : public AnimationValue {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(FilterAnimationValue, WEBCORE_EXPORT);
 public:
     FilterAnimationValue(double keyTime, const FilterOperations& value, TimingFunction* timingFunction = nullptr)
         : AnimationValue(keyTime, timingFunction)
@@ -199,10 +211,8 @@ public:
 
     FilterAnimationValue(const FilterAnimationValue& other)
         : AnimationValue(other)
+        , m_value(other.m_value.clone())
     {
-        m_value.operations().reserveInitialCapacity(other.m_value.operations().size());
-        for (auto& operation : other.m_value.operations())
-            m_value.operations().uncheckedAppend(operation->clone());
     }
 
     FilterAnimationValue(FilterAnimationValue&&) = default;
@@ -217,6 +227,7 @@ private:
 // Values will all be of the same type, which can be inferred from the property.
 // FIXME: Should be moved to its own header file.
 class KeyframeValueList {
+    WTF_MAKE_TZONE_ALLOCATED(KeyframeValueList);
 public:
     explicit KeyframeValueList(AnimatedProperty property)
         : m_property(property)
@@ -226,9 +237,9 @@ public:
     KeyframeValueList(const KeyframeValueList& other)
         : m_property(other.property())
     {
-        m_values.reserveInitialCapacity(other.m_values.size());
-        for (auto& value : other.m_values)
-            m_values.uncheckedAppend(value->clone());
+        m_values = WTF::map(other.m_values, [](auto& value) -> std::unique_ptr<const AnimationValue> {
+            return value->clone();
+        });
     }
 
     KeyframeValueList(KeyframeValueList&&) = default;
@@ -265,7 +276,7 @@ protected:
 // which may have associated transformation and animations.
 
 class GraphicsLayer : public RefCounted<GraphicsLayer> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(GraphicsLayer, WEBCORE_EXPORT);
 public:
     enum class Type : uint8_t {
         Normal,
@@ -300,7 +311,7 @@ public:
 
     virtual void initialize(Type) { }
 
-    virtual PlatformLayerIdentifier primaryLayerID() const { return { }; }
+    virtual std::optional<PlatformLayerIdentifier> primaryLayerID() const { return std::nullopt; }
 
     GraphicsLayerClient& client() const { return *m_client; }
 
@@ -329,7 +340,7 @@ public:
     WEBCORE_EXPORT virtual bool replaceChild(GraphicsLayer* oldChild, Ref<GraphicsLayer>&& newChild);
 
     WEBCORE_EXPORT void removeAllChildren();
-    WEBCORE_EXPORT virtual void removeFromParent();
+    WEBCORE_EXPORT void removeFromParent();
 
     // The parent() of a maskLayer is set to the layer being masked.
     GraphicsLayer* maskLayer() const { return m_maskLayer.get(); }
@@ -337,6 +348,9 @@ public:
 
     void setIsMaskLayer(bool isMask) { m_isMaskLayer = isMask; }
     bool isMaskLayer() const { return m_isMaskLayer; }
+
+    virtual void setIsBackdropRoot(bool isBackdropRoot) { m_isBackdropRoot = isBackdropRoot; }
+    bool isBackdropRoot() const { return m_isBackdropRoot; }
 
     // The given layer will replicate this layer and its children; the replica renders behind this layer.
     WEBCORE_EXPORT virtual void setReplicatedByLayer(RefPtr<GraphicsLayer>&&);
@@ -362,8 +376,8 @@ public:
     void setScrollOffset(const ScrollOffset&, ShouldSetNeedsDisplay = SetNeedsDisplay);
 
 #if ENABLE(SCROLLING_THREAD)
-    ScrollingNodeID scrollingNodeID() const { return m_scrollingNodeID; }
-    virtual void setScrollingNodeID(ScrollingNodeID nodeID) { m_scrollingNodeID = nodeID; }
+    std::optional<ScrollingNodeID> scrollingNodeID() const { return m_scrollingNodeID; }
+    virtual void setScrollingNodeID(std::optional<ScrollingNodeID> nodeID) { m_scrollingNodeID = nodeID; }
 #endif
 
     // The position of the layer (the location of its top-left corner in its parent)
@@ -410,6 +424,11 @@ public:
     bool drawsContent() const { return m_drawsContent; }
     WEBCORE_EXPORT virtual void setDrawsContent(bool);
 
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    bool drawsHDRContent() const { return m_drawsHDRContent; }
+    WEBCORE_EXPORT virtual void setDrawsHDRContent(bool);
+#endif
+
     bool contentsAreVisible() const { return m_contentsVisible; }
     virtual void setContentsVisible(bool b) { m_contentsVisible = b; }
 
@@ -426,13 +445,21 @@ public:
     bool isIsSeparated() const { return m_isSeparated; }
     virtual void setIsSeparated(bool b) { m_isSeparated = b; }
 
+    bool isSeparatedImage() const { return m_isSeparatedImage; }
+    virtual void setIsSeparatedImage(bool b) { m_isSeparatedImage = b; }
+
 #if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
     bool isSeparatedPortal() const { return m_isSeparatedPortal; }
     virtual void setIsSeparatedPortal(bool b) { m_isSeparatedPortal = b; }
 #endif
 #endif
 
-    bool needsBackdrop() const { return !m_backdropFilters.isEmpty(); }
+#if HAVE(CORE_MATERIAL)
+    AppleVisualEffectData appleVisualEffectData() const { return m_appleVisualEffectData; }
+    virtual void setAppleVisualEffectData(AppleVisualEffectData effectData) { m_appleVisualEffectData = effectData; }
+#endif
+
+    bool needsBackdrop() const;
 
     // The color used to paint the layer background. Pass an invalid color to remove it.
     // Note that this covers the entire layer. Use setContentsToSolidColor() if the color should
@@ -460,10 +487,8 @@ public:
     virtual void setBackdropFiltersRect(const FloatRoundedRect& backdropFiltersRect) { m_backdropFiltersRect = backdropFiltersRect; }
     const FloatRoundedRect& backdropFiltersRect() const { return m_backdropFiltersRect; }
 
-#if ENABLE(CSS_COMPOSITING)
     BlendMode blendMode() const { return m_blendMode; }
     virtual void setBlendMode(BlendMode blendMode) { m_blendMode = blendMode; }
-#endif
 
     // Some GraphicsLayers paint only the foreground or the background content
     OptionSet<GraphicsLayerPaintingPhase> paintingPhase() const { return m_paintingPhase; }
@@ -519,7 +544,7 @@ public:
     // Return true if the animation is handled by the compositing system.
     virtual bool addAnimation(const KeyframeValueList&, const FloatSize& /*boxSize*/, const Animation*, const String& /*animationName*/, double /*timeOffset*/)  { return false; }
     virtual void pauseAnimation(const String& /*animationName*/, double /*timeOffset*/) { }
-    virtual void removeAnimation(const String& /*animationName*/) { }
+    virtual void removeAnimation(const String& /*animationName*/, std::optional<AnimatedProperty>) { }
     virtual void transformRelatedPropertyDidChange() { }
     WEBCORE_EXPORT virtual void suspendAnimations(MonotonicTime);
     WEBCORE_EXPORT virtual void resumeAnimations();
@@ -529,6 +554,11 @@ public:
     // Layer contents
     virtual void setContentsToImage(Image*) { }
     virtual bool shouldDirectlyCompositeImage(Image*) const { return true; }
+
+    // FIXME: Merge this with setContentsToImage once we can efficiently convert an
+    // ImageBuffer to NativeImage without GPUP readback.
+    virtual void setContentsToImageBuffer(ImageBuffer*) { }
+    virtual bool shouldDirectlyCompositeImageBuffer(ImageBuffer*) const { return false; }
 #if PLATFORM(IOS_FAMILY)
     virtual PlatformLayer* contentsLayerForMedia() const { return 0; }
 #endif
@@ -541,6 +571,7 @@ public:
         BackgroundColor,
         Plugin,
         Model,
+        HostedModel,
         Host,
     };
 
@@ -548,18 +579,21 @@ public:
     virtual void setContentsToSolidColor(const Color&) { }
     virtual void setContentsToPlatformLayer(PlatformLayer*, ContentsLayerPurpose) { }
     virtual void setContentsToPlatformLayerHost(LayerHostingContextIdentifier) { }
+#if ENABLE(MODEL_PROCESS)
+    virtual void setContentsToModelContext(Ref<ModelContext>, ContentsLayerPurpose) { }
+#endif
     virtual void setContentsToVideoElement(HTMLVideoElement&, ContentsLayerPurpose) { }
     virtual void setContentsDisplayDelegate(RefPtr<GraphicsLayerContentsDisplayDelegate>&&, ContentsLayerPurpose);
     WEBCORE_EXPORT virtual RefPtr<GraphicsLayerAsyncContentsDisplayDelegate> createAsyncContentsDisplayDelegate(GraphicsLayerAsyncContentsDisplayDelegate* existing);
 #if ENABLE(MODEL_ELEMENT)
     enum class ModelInteraction : uint8_t { Enabled, Disabled };
     virtual void setContentsToModel(RefPtr<Model>&&, ModelInteraction) { }
-    virtual PlatformLayerIdentifier contentsLayerIDForModel() const { return { }; }
+    virtual std::optional<PlatformLayerIdentifier> contentsLayerIDForModel() const { return std::nullopt; }
 #endif
     virtual bool usesContentsLayer() const { return false; }
 
     // Callback from the underlying graphics system to draw layer contents.
-    WEBCORE_EXPORT void paintGraphicsLayerContents(GraphicsContext&, const FloatRect& clip, OptionSet<GraphicsLayerPaintBehavior> = { });
+    WEBCORE_EXPORT void paintGraphicsLayerContents(GraphicsContext&, const FloatRect& clip, OptionSet<GraphicsLayerPaintBehavior> = { }) const;
 
     // For hosting this GraphicsLayer in a native layer hierarchy.
     virtual PlatformLayer* platformLayer() const { return nullptr; }
@@ -591,9 +625,8 @@ public:
     virtual void setDebugBackgroundColor(const Color&) { }
     virtual void setDebugBorder(const Color&, float /*borderWidth*/) { }
 
-    enum class CustomAppearance : uint8_t {
+    enum class CustomAppearance : bool {
         None,
-        ScrollingOverhang,
         ScrollingShadow
     };
     virtual void setCustomAppearance(CustomAppearance customAppearance) { m_customAppearance = customAppearance; }
@@ -626,7 +659,7 @@ public:
 
     WEBCORE_EXPORT void noteDeviceOrPageScaleFactorChangedIncludingDescendants();
 
-    void setIsInWindow(bool);
+    WEBCORE_EXPORT void setIsInWindow(bool);
 
     // Some compositing systems may do internal batching to synchronize compositing updates
     // with updates drawn into the window. These methods flush internal batched state on this layer
@@ -642,7 +675,7 @@ public:
 
     // Return a string with a human readable form of the layer tree, If debug is true
     // pointers for the layers and timing data will be included in the returned string.
-    WEBCORE_EXPORT String layerTreeAsText(OptionSet<LayerTreeAsTextOptions> = { }) const;
+    WEBCORE_EXPORT String layerTreeAsText(OptionSet<LayerTreeAsTextOptions> = { }, uint32_t baseIndent = 0) const;
 
     // For testing.
     virtual String displayListAsText(OptionSet<DisplayList::AsTextFlag>) const { return String(); }
@@ -660,6 +693,7 @@ public:
     virtual bool backingStoreAttachedForTesting() const { return backingStoreAttached(); }
 
     virtual TiledBacking* tiledBacking() const { return 0; }
+    WEBCORE_EXPORT virtual void setTileCoverage(TileCoverage);
 
     void resetTrackedRepaints();
     WEBCORE_EXPORT void addRepaintRect(const FloatRect&);
@@ -672,20 +706,28 @@ public:
     virtual bool isGraphicsLayerCA() const { return false; }
     virtual bool isGraphicsLayerCARemote() const { return false; }
     virtual bool isGraphicsLayerTextureMapper() const { return false; }
-    virtual bool isCoordinatedGraphicsLayer() const { return false; }
+    virtual bool isGraphicsLayerCoordinated() const { return false; }
 
     bool shouldPaintUsingCompositeCopy() const { return m_shouldPaintUsingCompositeCopy; }
     void setShouldPaintUsingCompositeCopy(bool copy) { m_shouldPaintUsingCompositeCopy = copy; }
 
+    bool renderingIsSuppressedIncludingDescendants() const { return m_renderingIsSuppressedIncludingDescendants; }
+    void setRenderingIsSuppressedIncludingDescendants(bool suppressed) { m_renderingIsSuppressedIncludingDescendants = suppressed; }
+
     const std::optional<FloatRect>& animationExtent() const { return m_animationExtent; }
     void setAnimationExtent(std::optional<FloatRect> animationExtent) { m_animationExtent = animationExtent; }
 
-    static void traverse(GraphicsLayer&, const Function<void(GraphicsLayer&)>&);
+    static void traverse(GraphicsLayer&, NOESCAPE const Function<void(GraphicsLayer&)>&);
+
+    virtual void markFrontBufferVolatileForTesting() { }
 
 #if ENABLE(THREADED_ANIMATION_RESOLUTION)
     AcceleratedEffectStack* acceleratedEffectStack() const { return m_effectStack.get(); }
     WEBCORE_EXPORT virtual void setAcceleratedEffectsAndBaseValues(AcceleratedEffects&&, AcceleratedEffectValues&&);
 #endif
+
+    virtual void purgeFrontBufferForTesting() { }
+    virtual void purgeBackBufferForTesting() { }
 
 protected:
     WEBCORE_EXPORT explicit GraphicsLayer(Type, GraphicsLayerClient&);
@@ -694,11 +736,13 @@ protected:
     WEBCORE_EXPORT void willBeDestroyed();
     bool beingDestroyed() const { return m_beingDestroyed; }
 
+    virtual void willModifyChildren() { }
+
     // This method is used by platform GraphicsLayer classes to clear the filters
     // when compositing is not done in hardware. It is not virtual, so the caller
     // needs to notifiy the change to the platform layer as needed.
-    void clearFilters() { m_filters.clear(); }
-    void clearBackdropFilters() { m_backdropFilters.clear(); }
+    void clearFilters() { m_filters = { }; }
+    void clearBackdropFilters() { m_backdropFilters = { }; }
 
     // Given a KeyframeValueList containing filterOperations, return true if the operations are valid.
     static int validateFilterOperations(const KeyframeValueList&);
@@ -718,14 +762,13 @@ protected:
 #endif
 #endif
 
-
     void dumpProperties(WTF::TextStream&, OptionSet<LayerTreeAsTextOptions>) const;
     virtual void dumpAdditionalProperties(WTF::TextStream&, OptionSet<LayerTreeAsTextOptions>) const { }
 
     WEBCORE_EXPORT virtual void getDebugBorderInfo(Color&, float& width) const;
 
 #if ENABLE(THREADED_ANIMATION_RESOLUTION)
-    std::unique_ptr<AcceleratedEffectStack> m_effectStack;
+    RefPtr<AcceleratedEffectStack> m_effectStack;
 #endif
 
     GraphicsLayerClient* m_client; // Always non-null.
@@ -758,15 +801,18 @@ protected:
     FilterOperations m_backdropFilters;
 
 #if ENABLE(SCROLLING_THREAD)
-    ScrollingNodeID m_scrollingNodeID { 0 };
+    Markable<ScrollingNodeID> m_scrollingNodeID;
 #endif
 
-#if ENABLE(CSS_COMPOSITING)
     BlendMode m_blendMode { BlendMode::Normal };
-#endif
 
     const Type m_type;
     CustomAppearance m_customAppearance { CustomAppearance::None };
+
+#if HAVE(CORE_MATERIAL)
+    AppleVisualEffectData m_appleVisualEffectData;
+#endif
+
     OptionSet<GraphicsLayerPaintingPhase> m_paintingPhase { GraphicsLayerPaintingPhase::Foreground, GraphicsLayerPaintingPhase::Background };
     CompositingCoordinatesOrientation m_contentsOrientation { CompositingCoordinatesOrientation::TopDown }; // affects orientation of layer contents
 
@@ -776,6 +822,9 @@ protected:
     bool m_backfaceVisibility : 1;
     bool m_masksToBounds : 1;
     bool m_drawsContent : 1;
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    bool m_drawsHDRContent : 1 { false };
+#endif
     bool m_contentsVisible : 1;
     bool m_contentsRectClipsDescendants : 1;
     bool m_acceleratesDrawing : 1;
@@ -786,12 +835,15 @@ protected:
     bool m_showDebugBorder : 1;
     bool m_showRepaintCounter : 1;
     bool m_isMaskLayer : 1;
+    bool m_isBackdropRoot : 1;
     bool m_isTrackingDisplayListReplay : 1;
     bool m_userInteractionEnabled : 1;
     bool m_canDetachBackingStore : 1;
     bool m_shouldPaintUsingCompositeCopy : 1;
+    bool m_renderingIsSuppressedIncludingDescendants : 1 { false };
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
     bool m_isSeparated : 1;
+    bool m_isSeparatedImage : 1;
 #if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
     bool m_isSeparatedPortal : 1;
     bool m_isDescendentOfSeparatedPortal : 1;
@@ -825,6 +877,7 @@ protected:
     WindRule m_shapeLayerWindRule { WindRule::NonZero };
     Path m_shapeLayerPath;
 #endif
+
     LayerHostingContextID m_layerHostingContextID { 0 };
 };
 
@@ -843,16 +896,3 @@ SPECIALIZE_TYPE_TRAITS_END()
 // Outside the WebCore namespace for ease of invocation from the debugger.
 void showGraphicsLayerTree(const WebCore::GraphicsLayer* layer);
 #endif
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::GraphicsLayer::CustomAppearance> {
-    using values = EnumValues<
-        WebCore::GraphicsLayer::CustomAppearance,
-        WebCore::GraphicsLayer::CustomAppearance::None,
-        WebCore::GraphicsLayer::CustomAppearance::ScrollingOverhang,
-        WebCore::GraphicsLayer::CustomAppearance::ScrollingShadow
-    >;
-};
-
-} // namespace WTF

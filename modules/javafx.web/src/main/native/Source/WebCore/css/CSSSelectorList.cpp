@@ -27,11 +27,14 @@
 #include "config.h"
 #include "CSSSelectorList.h"
 
-#include "CSSParserSelector.h"
 #include "CommonAtomStrings.h"
+#include "MutableCSSSelector.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CSSSelectorList);
 
 CSSSelectorList::CSSSelectorList(const CSSSelectorList& other)
 {
@@ -44,26 +47,28 @@ CSSSelectorList::CSSSelectorList(const CSSSelectorList& other)
         new (NotNull, &m_selectorArray[i]) CSSSelector(other.m_selectorArray[i]);
 }
 
-CSSSelectorList::CSSSelectorList(Vector<std::unique_ptr<CSSParserSelector>>&& selectorVector)
+CSSSelectorList::CSSSelectorList(MutableCSSSelectorList&& selectorVector)
 {
     ASSERT_WITH_SECURITY_IMPLICATION(!selectorVector.isEmpty());
 
     size_t flattenedSize = 0;
     for (size_t i = 0; i < selectorVector.size(); ++i) {
-        for (CSSParserSelector* selector = selectorVector[i].get(); selector; selector = selector->tagHistory())
+        for (auto* selector = selectorVector[i].get(); selector; selector = selector->tagHistory())
             ++flattenedSize;
     }
     ASSERT(flattenedSize);
     m_selectorArray = makeUniqueArray<CSSSelector>(flattenedSize);
     size_t arrayIndex = 0;
     for (size_t i = 0; i < selectorVector.size(); ++i) {
-        CSSParserSelector* first = selectorVector[i].get();
-        CSSParserSelector* current = first;
+        auto* first = selectorVector[i].get();
+        auto* current = first;
         while (current) {
             {
                 // Move item from the parser selector vector into m_selectorArray without invoking destructor (Ugh.)
                 CSSSelector* currentSelector = current->releaseSelector().release();
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
                 memcpy(static_cast<void*>(&m_selectorArray[arrayIndex]), static_cast<void*>(currentSelector), sizeof(CSSSelector));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
                 // Free the underlying memory without invoking the destructor.
                 operator delete (currentSelector);
@@ -82,6 +87,7 @@ CSSSelectorList::CSSSelectorList(Vector<std::unique_ptr<CSSParserSelector>>&& se
     m_selectorArray[arrayIndex - 1].setLastInSelectorList();
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 unsigned CSSSelectorList::componentCount() const
 {
     if (!m_selectorArray)
@@ -105,6 +111,7 @@ unsigned CSSSelectorList::listSize() const
     }
     return size;
 }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 String CSSSelectorList::selectorsText() const
 {
@@ -115,12 +122,7 @@ String CSSSelectorList::selectorsText() const
 
 void CSSSelectorList::buildSelectorsText(StringBuilder& stringBuilder) const
 {
-    const CSSSelector* firstSubselector = first();
-    for (const CSSSelector* subSelector = firstSubselector; subSelector; subSelector = CSSSelectorList::next(subSelector)) {
-        if (subSelector != firstSubselector)
-            stringBuilder.append(", ");
-        stringBuilder.append(subSelector->selectorText());
-    }
+    stringBuilder.append(interleave(*this, [](auto& subSelector) { return subSelector.selectorText(); }, ", "_s));
 }
 
 template <typename Functor>
@@ -132,8 +134,8 @@ static bool forEachTagSelector(Functor& functor, const CSSSelector* selector)
         if (functor(selector))
             return true;
         if (const CSSSelectorList* selectorList = selector->selectorList()) {
-            for (const CSSSelector* subSelector = selectorList->first(); subSelector; subSelector = CSSSelectorList::next(subSelector)) {
-                if (forEachTagSelector(functor, subSelector))
+            for (const auto& subSelector : *selectorList) {
+                if (forEachTagSelector(functor, &subSelector))
                     return true;
             }
         }
@@ -143,46 +145,14 @@ static bool forEachTagSelector(Functor& functor, const CSSSelector* selector)
 }
 
 template <typename Functor>
-static bool forEachSelector(Functor& functor, const CSSSelectorList* selectorList)
+static bool forEachSelector(Functor& functor, const CSSSelectorList& selectorList)
 {
-    for (const CSSSelector* selector = selectorList->first(); selector; selector = CSSSelectorList::next(selector)) {
-        if (forEachTagSelector(functor, selector))
+    for (const auto& selector : selectorList) {
+        if (forEachTagSelector(functor, &selector))
             return true;
     }
 
     return false;
-}
-
-class SelectorNeedsNamespaceResolutionFunctor {
-public:
-    bool operator()(const CSSSelector* selector)
-    {
-        if (selector->match() == CSSSelector::Match::Tag && !selector->tagQName().prefix().isEmpty() && selector->tagQName().prefix() != starAtom())
-            return true;
-        if (selector->isAttributeSelector() && !selector->attribute().prefix().isEmpty() && selector->attribute().prefix() != starAtom())
-            return true;
-        return false;
-    }
-};
-
-bool CSSSelectorList::selectorsNeedNamespaceResolution()
-{
-    SelectorNeedsNamespaceResolutionFunctor functor;
-    return forEachSelector(functor, this);
-}
-
-class SelectorHasInvalidSelectorFunctor {
-public:
-    bool operator()(const CSSSelector* selector)
-    {
-        return selector->isUnknownPseudoElement() || selector->isCustomPseudoElement();
-    }
-};
-
-bool CSSSelectorList::hasInvalidSelector() const
-{
-    SelectorHasInvalidSelectorFunctor functor;
-    return forEachSelector(functor, this);
 }
 
 bool CSSSelectorList::hasExplicitNestingParent() const
@@ -191,7 +161,7 @@ bool CSSSelectorList::hasExplicitNestingParent() const
         return selector->hasExplicitNestingParent();
     };
 
-    return forEachSelector(functor, this);
+    return forEachSelector(functor, *this);
 }
 
 bool CSSSelectorList::hasOnlyNestingSelector() const

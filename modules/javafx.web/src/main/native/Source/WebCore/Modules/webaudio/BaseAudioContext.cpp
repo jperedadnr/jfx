@@ -52,7 +52,7 @@
 #include "ConvolverNode.h"
 #include "DelayNode.h"
 #include "DelayOptions.h"
-#include "Document.h"
+#include "DocumentInlines.h"
 #include "DynamicsCompressorNode.h"
 #include "EventNames.h"
 #include "FFTFrame.h"
@@ -73,18 +73,21 @@
 #include "PannerNode.h"
 #include "PeriodicWave.h"
 #include "PeriodicWaveOptions.h"
+#include "PlatformMediaSessionManager.h"
 #include "ScriptController.h"
 #include "ScriptProcessorNode.h"
+#include "ScriptTelemetryCategory.h"
 #include "StereoPannerNode.h"
 #include "StereoPannerOptions.h"
 #include "WaveShaperNode.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <JavaScriptCore/ScriptCallStack.h>
 #include <wtf/Atomics.h>
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/MainThread.h>
+#include <wtf/NativePromise.h>
 #include <wtf/Ref.h>
 #include <wtf/Scope.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 #if DEBUG_AUDIONODE_REFERENCES
@@ -97,7 +100,7 @@
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(BaseAudioContext);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(BaseAudioContext);
 
 bool BaseAudioContext::isSupportedSampleRate(float sampleRate)
 {
@@ -118,6 +121,17 @@ static HashSet<uint64_t>& liveAudioContexts()
     return contexts;
 }
 
+static OptionSet<NoiseInjectionPolicy> effectiveNoiseInjectionPolicies(Document& document)
+{
+    OptionSet<NoiseInjectionPolicy> policies;
+    auto documentPolicies = document.noiseInjectionPolicies();
+    if (documentPolicies.contains(NoiseInjectionPolicy::Minimal))
+        policies.add(NoiseInjectionPolicy::Minimal);
+    if (documentPolicies.contains(NoiseInjectionPolicy::Enhanced) && document.requiresScriptExecutionTelemetry(ScriptTelemetryCategory::Audio))
+        policies.add(NoiseInjectionPolicy::Enhanced);
+    return policies;
+}
+
 BaseAudioContext::BaseAudioContext(Document& document)
     : ActiveDOMObject(document)
 #if !RELEASE_LOG_DISABLED
@@ -127,7 +141,7 @@ BaseAudioContext::BaseAudioContext(Document& document)
     , m_contextID(generateContextID())
     , m_worklet(AudioWorklet::create(*this))
     , m_listener(AudioListener::create(*this))
-    , m_noiseInjectionPolicy(document.noiseInjectionPolicy())
+    , m_noiseInjectionPolicies(effectiveNoiseInjectionPolicies(document))
 {
     liveAudioContexts().add(m_contextID);
 
@@ -229,6 +243,7 @@ void BaseAudioContext::setState(State state)
     if (m_state != state) {
         m_state = state;
         queueTaskToDispatchEvent(*this, TaskSource::MediaElement, Event::create(eventNames().statechangeEvent, Event::CanBubble::Yes, Event::IsCancelable::No));
+        PlatformMediaSessionManager::updateNowPlayingInfoIfNecessary();
     }
 
     size_t stateIndex = static_cast<size_t>(state);
@@ -272,8 +287,8 @@ bool BaseAudioContext::wouldTaintOrigin(const URL& url) const
     if (url.protocolIsData())
         return false;
 
-    if (auto* document = this->document())
-        return !document->securityOrigin().canRequest(url, OriginAccessPatternsForWebProcess::singleton());
+    if (RefPtr document = this->document())
+        return !document->protectedSecurityOrigin()->canRequest(url, OriginAccessPatternsForWebProcess::singleton());
 
     return false;
 }
@@ -283,33 +298,33 @@ ExceptionOr<Ref<AudioBuffer>> BaseAudioContext::createBuffer(unsigned numberOfCh
     return AudioBuffer::create(AudioBufferOptions {numberOfChannels, length, sampleRate});
 }
 
-void BaseAudioContext::decodeAudioData(Ref<ArrayBuffer>&& audioData, RefPtr<AudioBufferCallback>&& successCallback, RefPtr<AudioBufferCallback>&& errorCallback)
+void BaseAudioContext::decodeAudioData(Ref<ArrayBuffer>&& audioData, RefPtr<AudioBufferCallback>&& successCallback, RefPtr<AudioBufferCallback>&& errorCallback, Ref<DeferredPromise>&& promise)
 {
-    decodeAudioData(WTFMove(audioData), WTFMove(successCallback), WTFMove(errorCallback), std::nullopt);
-}
-
-void BaseAudioContext::decodeAudioData(Ref<ArrayBuffer>&& audioData, RefPtr<AudioBufferCallback>&& successCallback, RefPtr<AudioBufferCallback>&& errorCallback, std::optional<Ref<DeferredPromise>>&& promise)
-{
-    if (promise && (!document() || !document()->isFullyActive())) {
-        promise.value()->reject(Exception { InvalidStateError, "Document is not fully active"_s });
+    RefPtr document = this->document();
+    if (!document || !document->isFullyActive()) {
+        promise->reject(Exception { ExceptionCode::InvalidStateError, "Document is not fully active"_s });
         return;
     }
 
     if (!m_audioDecoder)
         m_audioDecoder = makeUnique<AsyncAudioDecoder>();
 
-    m_audioDecoder->decodeAsync(WTFMove(audioData), sampleRate(), [this, activity = makePendingActivity(*this), successCallback = WTFMove(successCallback), errorCallback = WTFMove(errorCallback), promise = WTFMove(promise)](ExceptionOr<Ref<AudioBuffer>>&& result) mutable {
-        queueTaskKeepingObjectAlive(*this, TaskSource::InternalAsyncTask, [successCallback = WTFMove(successCallback), errorCallback = WTFMove(errorCallback), promise = WTFMove(promise), result = WTFMove(result)]() mutable {
-            if (result.hasException()) {
-                if (promise)
-                    promise.value()->reject(result.releaseException());
+    audioData->pin();
+
+    auto p = m_audioDecoder->decodeAsync(audioData.copyRef(), sampleRate());
+    p->whenSettled(RunLoop::protectedCurrent(), [this, audioData = WTFMove(audioData), activity = makePendingActivity(*this), successCallback = WTFMove(successCallback), errorCallback = WTFMove(errorCallback), promise = WTFMove(promise)] (DecodingTaskPromise::Result&& result) mutable {
+        queueTaskKeepingObjectAlive(*this, TaskSource::InternalAsyncTask, [audioData = WTFMove(audioData), successCallback = WTFMove(successCallback), errorCallback = WTFMove(errorCallback), promise = WTFMove(promise), result = WTFMove(result)]() mutable {
+
+            audioData->unpin();
+
+            if (!result) {
+                promise->reject(WTFMove(result.error()));
                 if (errorCallback)
                     errorCallback->handleEvent(nullptr);
                 return;
             }
-            auto audioBuffer = result.releaseReturnValue();
-            if (promise)
-                promise.value()->resolve<IDLInterface<AudioBuffer>>(audioBuffer.get());
+            auto audioBuffer = WTFMove(result.value());
+            promise->resolve<IDLInterface<AudioBuffer>>(audioBuffer.get());
             if (successCallback)
                 successCallback->handleEvent(audioBuffer.ptr());
         });
@@ -355,7 +370,7 @@ ExceptionOr<Ref<ScriptProcessorNode>> BaseAudioContext::createScriptProcessor(si
     case 16384:
         break;
     default:
-        return Exception { IndexSizeError, "Unsupported buffer size for ScriptProcessorNode"_s };
+        return Exception { ExceptionCode::IndexSizeError, "Unsupported buffer size for ScriptProcessorNode"_s };
     }
 
     // An IndexSizeError exception must be thrown if bufferSize or numberOfInputChannels or numberOfOutputChannels
@@ -363,19 +378,19 @@ ExceptionOr<Ref<ScriptProcessorNode>> BaseAudioContext::createScriptProcessor(si
     // In this case an IndexSizeError must be thrown.
 
     if (!numberOfInputChannels && !numberOfOutputChannels)
-        return Exception { IndexSizeError, "numberOfInputChannels and numberOfOutputChannels cannot both be 0"_s };
+        return Exception { ExceptionCode::IndexSizeError, "numberOfInputChannels and numberOfOutputChannels cannot both be 0"_s };
 
     // This parameter [numberOfInputChannels] determines the number of channels for this node's input. Values of
     // up to 32 must be supported. A NotSupportedError must be thrown if the number of channels is not supported.
 
     if (numberOfInputChannels > maxNumberOfChannels)
-        return Exception { IndexSizeError, "numberOfInputChannels exceeds maximum number of channels"_s };
+        return Exception { ExceptionCode::IndexSizeError, "numberOfInputChannels exceeds maximum number of channels"_s };
 
     // This parameter [numberOfOutputChannels] determines the number of channels for this node's output. Values of
     // up to 32 must be supported. A NotSupportedError must be thrown if the number of channels is not supported.
 
     if (numberOfOutputChannels > maxNumberOfChannels)
-        return Exception { IndexSizeError, "numberOfOutputChannels exceeds maximum number of channels"_s };
+        return Exception { ExceptionCode::IndexSizeError, "numberOfOutputChannels exceeds maximum number of channels"_s };
 
     return ScriptProcessorNode::create(*this, bufferSize, numberOfInputChannels, numberOfOutputChannels);
 }
@@ -713,6 +728,15 @@ void BaseAudioContext::markForDeletion(AudioNode& node)
     removeAutomaticPullNode(node);
 }
 
+void BaseAudioContext::unmarkForDeletion(AudioNode& node)
+{
+    ASSERT(isGraphOwner());
+    ASSERT_WITH_MESSAGE(node.nodeType() != AudioNode::NodeTypeDestination, "Destination node is owned by the BaseAudioContext");
+
+    m_nodesToDelete.removeFirst(&node);
+    m_nodesMarkedForDeletion.removeFirst(&node);
+}
+
 void BaseAudioContext::scheduleNodeDeletion()
 {
     bool isGood = m_isInitialized && isGraphOwner();
@@ -782,9 +806,9 @@ void BaseAudioContext::removeMarkedSummingJunction(AudioSummingJunction* summing
     m_dirtySummingJunctions.remove(summingJunction);
 }
 
-EventTargetInterface BaseAudioContext::eventTargetInterface() const
+enum EventTargetInterfaceType BaseAudioContext::eventTargetInterface() const
 {
-    return BaseAudioContextEventTargetInterfaceType;
+    return EventTargetInterfaceType::BaseAudioContext;
 }
 
 void BaseAudioContext::markAudioNodeOutputDirty(AudioNodeOutput* output)
@@ -875,13 +899,13 @@ void BaseAudioContext::postTask(Function<void()>&& task)
 
 const SecurityOrigin* BaseAudioContext::origin() const
 {
-    auto* context = scriptExecutionContext();
+    RefPtr context = scriptExecutionContext();
     return context ? context->securityOrigin() : nullptr;
 }
 
 void BaseAudioContext::addConsoleMessage(MessageSource source, MessageLevel level, const String& message)
 {
-    if (auto* context = scriptExecutionContext())
+    if (RefPtr context = scriptExecutionContext())
         context->addConsoleMessage(source, level, message);
 }
 

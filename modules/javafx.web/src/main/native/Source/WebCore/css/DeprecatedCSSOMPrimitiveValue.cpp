@@ -26,13 +26,20 @@
 #include "config.h"
 #include "DeprecatedCSSOMPrimitiveValue.h"
 
+#include "CSSColorValue.h"
 #include "CSSCounterValue.h"
 #include "CSSRectValue.h"
+#include "CSSSerializationContext.h"
 #include "DeprecatedCSSOMCounter.h"
 #include "DeprecatedCSSOMRGBColor.h"
 #include "DeprecatedCSSOMRect.h"
 
 namespace WebCore {
+
+String DeprecatedCSSOMPrimitiveValue::cssText() const
+{
+    return protectedValue()->cssText(CSS::defaultSerializationContext());
+}
 
 unsigned short DeprecatedCSSOMPrimitiveValue::primitiveType() const
 {
@@ -40,6 +47,8 @@ unsigned short DeprecatedCSSOMPrimitiveValue::primitiveType() const
         return CSS_COUNTER;
     if (m_value->isRect())
         return CSS_RECT;
+    if (m_value->isColor())
+        return CSS_RGBCOLOR;
 
     auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(m_value.get());
     if (!primitiveValue)
@@ -50,8 +59,8 @@ unsigned short DeprecatedCSSOMPrimitiveValue::primitiveType() const
     case CSSUnitType::CSS_CM:                           return CSS_CM;
     case CSSUnitType::CSS_DEG:                          return CSS_DEG;
     case CSSUnitType::CSS_DIMENSION:                    return CSS_DIMENSION;
-    case CSSUnitType::CSS_EMS:                          return CSS_EMS;
-    case CSSUnitType::CSS_EXS:                          return CSS_EXS;
+    case CSSUnitType::CSS_EM:                           return CSS_EMS;
+    case CSSUnitType::CSS_EX:                           return CSS_EXS;
     case CSSUnitType::CSS_FONT_FAMILY:                  return CSS_STRING;
     case CSSUnitType::CSS_GRAD:                         return CSS_GRAD;
     case CSSUnitType::CSS_HZ:                           return CSS_HZ;
@@ -69,7 +78,6 @@ unsigned short DeprecatedCSSOMPrimitiveValue::primitiveType() const
     case CSSUnitType::CSS_PT:                           return CSS_PT;
     case CSSUnitType::CSS_PX:                           return CSS_PX;
     case CSSUnitType::CSS_RAD:                          return CSS_RAD;
-    case CSSUnitType::CSS_RGBCOLOR:                     return CSS_RGBCOLOR;
     case CSSUnitType::CSS_S:                            return CSS_S;
     case CSSUnitType::CSS_STRING:                       return CSS_STRING;
     case CSSUnitType::CSS_URI:                          return CSS_URI;
@@ -87,8 +95,8 @@ ExceptionOr<float> DeprecatedCSSOMPrimitiveValue::getFloatValue(unsigned short u
         case CSS_CM:            return CSSUnitType::CSS_CM;
         case CSS_DEG:           return CSSUnitType::CSS_DEG;
         case CSS_DIMENSION:     return CSSUnitType::CSS_DIMENSION;
-        case CSS_EMS:           return CSSUnitType::CSS_EMS;
-        case CSS_EXS:           return CSSUnitType::CSS_EXS;
+        case CSS_EMS:           return CSSUnitType::CSS_EM;
+        case CSS_EXS:           return CSSUnitType::CSS_EX;
         case CSS_GRAD:          return CSSUnitType::CSS_GRAD;
         case CSS_HZ:            return CSSUnitType::CSS_HZ;
         case CSS_IN:            return CSSUnitType::CSS_IN;
@@ -108,8 +116,8 @@ ExceptionOr<float> DeprecatedCSSOMPrimitiveValue::getFloatValue(unsigned short u
 
     auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(m_value.get());
     if (!numericType || !primitiveValue)
-        return Exception { InvalidAccessError };
-    return primitiveValue->getFloatValue(*numericType);
+        return Exception { ExceptionCode::InvalidAccessError };
+    return primitiveValue->getFloatValueDeprecated(*numericType);
 }
 
 ExceptionOr<String> DeprecatedCSSOMPrimitiveValue::getStringValue() const
@@ -121,30 +129,29 @@ ExceptionOr<String> DeprecatedCSSOMPrimitiveValue::getStringValue() const
     case CSS_URI:       return downcast<CSSPrimitiveValue>(m_value.get()).stringValue();
 
     // All other, including newer types, should raise an exception.
-    default:            return Exception { InvalidAccessError };
+    default:            return Exception { ExceptionCode::InvalidAccessError };
     }
 }
 
 ExceptionOr<Ref<DeprecatedCSSOMCounter>> DeprecatedCSSOMPrimitiveValue::getCounterValue() const
 {
-    if (!m_value->isCounter())
-        return Exception { InvalidAccessError };
-    auto& value = downcast<CSSCounterValue>(m_value.get());
-    return DeprecatedCSSOMCounter::create(value.identifier(), value.separator(), value.counterStyleCSSText());
+    if (auto* value = dynamicDowncast<CSSCounterValue>(m_value.get()))
+        return DeprecatedCSSOMCounter::create(value->identifier(), value->separator(), value->counterStyleCSSText());
+    return Exception { ExceptionCode::InvalidAccessError };
 }
 
 ExceptionOr<Ref<DeprecatedCSSOMRect>> DeprecatedCSSOMPrimitiveValue::getRectValue() const
 {
-    if (!m_value->isRect())
-        return Exception { InvalidAccessError };
-    return DeprecatedCSSOMRect::create(downcast<CSSRectValue>(m_value.get()).rect(), m_owner);
+    if (auto* rectValue = dynamicDowncast<CSSRectValue>(m_value.get()))
+        return DeprecatedCSSOMRect::create(rectValue->rect(), m_owner);
+    return Exception { ExceptionCode::InvalidAccessError };
 }
 
 ExceptionOr<Ref<DeprecatedCSSOMRGBColor>> DeprecatedCSSOMPrimitiveValue::getRGBColorValue() const
 {
     if (primitiveType() != CSS_RGBCOLOR)
-        return Exception { InvalidAccessError };
-    return DeprecatedCSSOMRGBColor::create(m_owner, downcast<CSSPrimitiveValue>(m_value.get()).color());
+        return Exception { ExceptionCode::InvalidAccessError };
+    return DeprecatedCSSOMRGBColor::create(m_owner, downcast<CSSColorValue>(m_value.get()).color().absoluteColor());
 }
 
 }

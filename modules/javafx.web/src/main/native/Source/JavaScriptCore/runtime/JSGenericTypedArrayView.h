@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -98,12 +98,16 @@ public:
     static JSGenericTypedArrayView* create(JSGlobalObject*, Structure*, RefPtr<ArrayBuffer>&&, size_t byteOffset, std::optional<size_t> length);
     static JSGenericTypedArrayView* create(VM&, Structure*, RefPtr<typename Adaptor::ViewType>&& impl);
     static JSGenericTypedArrayView* create(Structure*, JSGlobalObject*, RefPtr<typename Adaptor::ViewType>&& impl);
+    static JSGenericTypedArrayView* tryCreate(JSGlobalObject*, Structure*, RefPtr<typename Adaptor::ViewType>&& impl);
 
     inline size_t byteLength() const;
     inline size_t byteLengthRaw() const;
 
     inline const typename Adaptor::Type* typedVector() const;
     inline typename Adaptor::Type* typedVector();
+
+    std::span<const typename Adaptor::Type> typedSpan() const { return unsafeMakeSpan(typedVector(), length()); }
+    std::span<typename Adaptor::Type> typedSpan() { return unsafeMakeSpan(typedVector(), length()); }
 
     inline bool inBounds(size_t) const;
 
@@ -120,7 +124,8 @@ public:
     static inline ElementType toAdaptorNativeFromValue(JSGlobalObject*, JSValue);
     static inline std::optional<ElementType> toAdaptorNativeFromValueWithoutCoercion(JSValue);
 
-    inline bool sort();
+    enum class SortResult { Success, OutOfMemory, Failed };
+    inline SortResult sort();
 
     inline bool canAccessRangeQuickly(size_t offset, size_t length);
 
@@ -207,7 +212,7 @@ protected:
     // For NaN, we normalize the NaN to a peticular representation; the sign bit is 0, all exponential bits
     // are 1 and only the MSB of the mantissa is 1. So, NaN is recognized as the largest integral numbers.
 
-    template<typename IntegralType> inline bool sortFloat();
+    template<typename IntegralType> inline void sortFloat(ElementType* begin, ElementType* end);
 };
 
 template<typename PassedAdaptor>
@@ -222,6 +227,8 @@ public:
 
     static inline const ClassInfo* info();
     static inline Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
+
+    static bool preventExtensions(JSObject*, JSGlobalObject*);
 };
 
 template<typename Adaptor> inline RefPtr<typename Adaptor::ViewType> toPossiblySharedNativeTypedView(VM&, JSValue);

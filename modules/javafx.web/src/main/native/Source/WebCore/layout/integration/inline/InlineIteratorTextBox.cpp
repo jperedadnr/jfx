@@ -42,16 +42,10 @@ TextBoxIterator TextBox::nextTextBox() const
     return TextBoxIterator(*this).traverseNextTextBox();
 }
 
-bool TextBox::isCombinedText() const
-{
-    auto& renderer = this->renderer();
-    return is<RenderCombineText>(renderer) && downcast<RenderCombineText>(renderer).isCombined();
-}
-
 const FontCascade& TextBox::fontCascade() const
 {
-    if (isCombinedText())
-        return downcast<RenderCombineText>(renderer()).textCombineFont();
+    if (auto* renderer = dynamicDowncast<RenderCombineText>(this->renderer()); renderer && renderer->isCombined())
+        return renderer->textCombineFont();
 
     return style().fontCascade();
 }
@@ -74,12 +68,16 @@ TextBoxIterator& TextBoxIterator::traverseNextTextBox()
     return *this;
 }
 
-TextBoxIterator firstTextBoxFor(const RenderText& text)
+TextBoxIterator lineLeftmostTextBoxFor(const RenderText& text)
 {
     if (auto* lineLayout = LayoutIntegration::LineLayout::containing(text))
         return lineLayout->textBoxesFor(text);
 
-    return { BoxLegacyPath { text.firstTextBox() } };
+    if (CheckedPtr svgText = dynamicDowncast<RenderSVGInlineText>(text))
+        return { BoxLegacyPath { svgText->firstLegacyTextBox() } };
+
+    // During teardown we may hit this codepath _after_ the display content is destroyed (e.g. calling repaint on RenderText).
+    return { BoxLegacyPath { nullptr } };
 }
 
 TextBoxIterator textBoxFor(const LegacyInlineTextBox* legacyInlineTextBox)
@@ -98,9 +96,9 @@ TextBoxIterator textBoxFor(const LayoutIntegration::InlineContent& content, size
     return { BoxModernPath { content, boxIndex } };
 }
 
-TextBoxRange textBoxesFor(const RenderText& text)
+BoxRange<TextBoxIterator> textBoxesFor(const RenderText& text)
 {
-    return { firstTextBoxFor(text) };
+    return { lineLeftmostTextBoxFor(text) };
 }
 
 }

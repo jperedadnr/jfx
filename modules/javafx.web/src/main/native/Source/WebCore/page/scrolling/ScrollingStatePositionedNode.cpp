@@ -29,15 +29,20 @@
 #include "GraphicsLayer.h"
 #include "Logging.h"
 #include "ScrollingStateTree.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 #if ENABLE(ASYNC_SCROLLING)
 
 namespace WebCore {
 
-Ref<ScrollingStatePositionedNode> ScrollingStatePositionedNode::create(ScrollingStateTree& stateTree, ScrollingNodeID nodeID)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScrollingStatePositionedNode);
+
+ScrollingStatePositionedNode::ScrollingStatePositionedNode(ScrollingNodeID nodeID, Vector<Ref<ScrollingStateNode>>&& children, OptionSet<ScrollingStateNodeProperty> changedProperties, std::optional<PlatformLayerIdentifier> layerID, Vector<ScrollingNodeID>&& relatedOverflowScrollingNodes, AbsolutePositionConstraints&& constraints)
+    : ScrollingStateNode(ScrollingNodeType::Positioned, nodeID, WTFMove(children), changedProperties, layerID)
+    , m_relatedOverflowScrollingNodes(WTFMove(relatedOverflowScrollingNodes))
+    , m_constraints(WTFMove(constraints))
 {
-    return adoptRef(*new ScrollingStatePositionedNode(stateTree, nodeID));
 }
 
 ScrollingStatePositionedNode::ScrollingStatePositionedNode(ScrollingStateTree& tree, ScrollingNodeID nodeID)

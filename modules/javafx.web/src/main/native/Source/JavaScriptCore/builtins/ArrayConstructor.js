@@ -27,7 +27,7 @@ function of(/* items... */)
 {
     "use strict";
 
-    var length = arguments.length;
+    var length = @argumentCount();
     var array = this !== @Array && @isConstructor(this) ? new this(length) : @newArrayWithSize(length);
     for (var k = 0; k < length; ++k)
         @putByValDirect(array, k, arguments[k]);
@@ -52,6 +52,12 @@ function from(items /*, mapFn, thisArg */)
 
     var arrayLike = @toObject(items, "Array.from requires an array-like object - not null or undefined");
 
+    if (mapFn === @undefined) {
+        var fastResult = @arrayFromFastFillWithUndefined(this, arrayLike);
+        if (fastResult)
+            return fastResult;
+    }
+
     var iteratorMethod = items.@@iterator;
     if (!@isUndefinedOrNull(iteratorMethod)) {
         if (!@isCallable(iteratorMethod))
@@ -72,10 +78,10 @@ function from(items /*, mapFn, thisArg */)
         for (var value of wrapper) {
             if (k >= @MAX_SAFE_INTEGER)
                 @throwTypeError("Length exceeded the maximum array length");
-            if (mapFn)
-                @putByValDirect(result, k, thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k));
-            else
+            if (mapFn === @undefined)
                 @putByValDirect(result, k, value);
+            else
+                @putByValDirect(result, k, thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k));
             k += 1;
         }
 
@@ -90,10 +96,10 @@ function from(items /*, mapFn, thisArg */)
     var k = 0;
     while (k < arrayLikeLength) {
         var value = arrayLike[k];
-        if (mapFn)
-            @putByValDirect(result, k, thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k));
-        else
+        if (mapFn === @undefined)
             @putByValDirect(result, k, value);
+        else
+            @putByValDirect(result, k, thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k));
         k += 1;
     }
 
@@ -114,9 +120,11 @@ function isArray(array)
 
 @linkTimeConstant
 @visibility=PrivateRecursive
-async function defaultAsyncFromAsyncIterator(result, iterator, mapFn, thisArg)
+async function defaultAsyncFromAsyncIterator(iterator, mapFn, thisArg)
 {
     "use strict";
+
+    var result = this !== @Array && @isConstructor(this) ? new this() : [];
 
     var k = 0;
 
@@ -130,10 +138,10 @@ async function defaultAsyncFromAsyncIterator(result, iterator, mapFn, thisArg)
     for await (var value of wrapper) {
         if (k >= @MAX_SAFE_INTEGER)
             @throwTypeError("Length exceeded the maximum array length");
-        if (mapFn)
-            @putByValDirect(result, k, await (thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k)));
-        else
+        if (mapFn === @undefined)
             @putByValDirect(result, k, value);
+        else
+            @putByValDirect(result, k, await (thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k)));
         k += 1;
     }
 
@@ -156,10 +164,10 @@ async function defaultAsyncFromAsyncArrayLike(asyncItems, mapFn, thisArg)
     var k = 0;
     while (k < arrayLikeLength) {
         var value = await arrayLike[k];
-        if (mapFn)
-            @putByValDirect(result, k, await (thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k)));
-        else
+        if (mapFn === @undefined)
             @putByValDirect(result, k, value);
+        else
+            @putByValDirect(result, k, await (thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k)));
         k += 1;
     }
 
@@ -196,14 +204,12 @@ function fromAsync(asyncItems  /*, mapFn, thisArg */)
             }
         }
 
-        var result = this !== @Array && @isConstructor(this) ? new this() : [];
-
         if (!@isUndefinedOrNull(usingAsyncIterator))
-            return @defaultAsyncFromAsyncIterator(result, usingAsyncIterator.@call(asyncItems), mapFn, thisArg);
+            return @defaultAsyncFromAsyncIterator.@call(this, usingAsyncIterator.@call(asyncItems), mapFn, thisArg);
 
         if (!@isUndefinedOrNull(usingSyncIterator)) {
             var iterator = usingSyncIterator.@call(asyncItems);
-            return @defaultAsyncFromAsyncIterator(result, @createAsyncFromSyncIterator(iterator, iterator.next), mapFn, thisArg);
+            return @defaultAsyncFromAsyncIterator.@call(this, @createAsyncFromSyncIterator(iterator, iterator.next), mapFn, thisArg);
         }
 
         return @defaultAsyncFromAsyncArrayLike.@call(this, asyncItems, mapFn, thisArg);

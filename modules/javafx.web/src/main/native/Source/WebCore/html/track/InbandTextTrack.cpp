@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,45 +28,48 @@
 
 #if ENABLE(VIDEO)
 
-#include "Document.h"
 #include "InbandDataTextTrack.h"
 #include "InbandGenericTextTrack.h"
 #include "InbandTextTrackPrivate.h"
 #include "InbandWebVTTTextTrack.h"
+#include "ScriptExecutionContext.h"
 #include "TextTrackClient.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(InbandTextTrack);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(InbandTextTrack);
 
-Ref<InbandTextTrack> InbandTextTrack::create(Document& document, InbandTextTrackPrivate& trackPrivate)
+Ref<InbandTextTrack> InbandTextTrack::create(ScriptExecutionContext& context, InbandTextTrackPrivate& trackPrivate)
 {
     switch (trackPrivate.cueFormat()) {
     case InbandTextTrackPrivate::CueFormat::Data:
-        return InbandDataTextTrack::create(document, trackPrivate);
+        return InbandDataTextTrack::create(context, trackPrivate);
     case InbandTextTrackPrivate::CueFormat::Generic:
-        return InbandGenericTextTrack::create(document, trackPrivate);
+        return InbandGenericTextTrack::create(context, trackPrivate);
     case InbandTextTrackPrivate::CueFormat::WebVTT:
-        return InbandWebVTTTextTrack::create(document, trackPrivate);
+        return InbandWebVTTTextTrack::create(context, trackPrivate);
+    case InbandTextTrackPrivate::CueFormat::Unknown:
+        break;
     }
+
     ASSERT_NOT_REACHED();
-    auto textTrack = InbandDataTextTrack::create(document, trackPrivate);
+    auto textTrack = InbandDataTextTrack::create(context, trackPrivate);
     textTrack->suspendIfNeeded();
     return textTrack;
 }
 
-InbandTextTrack::InbandTextTrack(Document& document, InbandTextTrackPrivate& trackPrivate)
-    : TextTrack(&document, emptyAtom(), trackPrivate.id(), trackPrivate.label(), trackPrivate.language(), InBand)
+InbandTextTrack::InbandTextTrack(ScriptExecutionContext& context, InbandTextTrackPrivate& trackPrivate)
+    : TextTrack(&context, emptyAtom(), trackPrivate.id(), trackPrivate.label(), trackPrivate.language(), InBand)
     , m_private(trackPrivate)
 {
-    m_private->setClient(*this);
+    addClientToTrackPrivateBase(*this, trackPrivate);
     updateKindFromPrivate();
 }
 
 InbandTextTrack::~InbandTextTrack()
 {
-    m_private->clearClient();
+    removeClientFromTrackPrivateBase(Ref { m_private });
 }
 
 void InbandTextTrack::setPrivate(InbandTextTrackPrivate& trackPrivate)
@@ -74,9 +77,9 @@ void InbandTextTrack::setPrivate(InbandTextTrackPrivate& trackPrivate)
     if (m_private.ptr() == &trackPrivate)
         return;
 
-    m_private->clearClient();
+    removeClientFromTrackPrivateBase(Ref { m_private });
     m_private = trackPrivate;
-    m_private->setClient(*this);
+    addClientToTrackPrivateBase(*this, trackPrivate);
 
     setModeInternal(mode());
     updateKindFromPrivate();
@@ -148,7 +151,7 @@ AtomString InbandTextTrack::inBandMetadataTrackDispatchType() const
     return m_private->inBandMetadataTrackDispatchType();
 }
 
-void InbandTextTrack::idChanged(const AtomString& id)
+void InbandTextTrack::idChanged(TrackID id)
 {
     setId(id);
 }
@@ -203,7 +206,7 @@ MediaTime InbandTextTrack::startTimeVariance() const
 }
 
 #if !RELEASE_LOG_DISABLED
-void InbandTextTrack::setLogger(const Logger& logger, const void* logIdentifier)
+void InbandTextTrack::setLogger(const Logger& logger, uint64_t logIdentifier)
 {
     TextTrack::setLogger(logger, logIdentifier);
     m_private->setLogger(logger, this->logIdentifier());

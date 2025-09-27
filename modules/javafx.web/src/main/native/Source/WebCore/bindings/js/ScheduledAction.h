@@ -22,6 +22,7 @@
 #include <JavaScriptCore/Strong.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <memory>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace JSC {
@@ -36,7 +37,7 @@ class ScriptExecutionContext;
 class WorkerGlobalScope;
 
 class ScheduledAction {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ScheduledAction);
 public:
     static std::unique_ptr<ScheduledAction> create(DOMWrapperWorld&, JSC::Strong<JSC::JSObject>&&);
     static std::unique_ptr<ScheduledAction> create(DOMWrapperWorld&, String&&);
@@ -63,6 +64,7 @@ private:
     JSC::Strong<JSC::JSObject> m_function;
     FixedVector<JSC::Strong<JSC::Unknown>> m_arguments;
     String m_code;
+    JSC::SourceTaintedOrigin m_sourceTaintedOrigin;
 };
 
 } // namespace WebCore

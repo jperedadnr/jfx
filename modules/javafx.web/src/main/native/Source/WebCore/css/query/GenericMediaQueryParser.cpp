@@ -26,9 +26,19 @@
 #include "GenericMediaQueryParser.h"
 
 #include "CSSAspectRatioValue.h"
-#include "CSSPropertyParserHelpers.h"
+#include "CSSCustomPropertyValue.h"
+#include "CSSParserImpl.h"
+#include "CSSPropertyParser.h"
+#include "CSSPropertyParserConsumer+Ident.h"
+#include "CSSPropertyParserConsumer+Integer.h"
+#include "CSSPropertyParserConsumer+Length.h"
+#include "CSSPropertyParserConsumer+Number.h"
+#include "CSSPropertyParserConsumer+Primitives.h"
+#include "CSSPropertyParserConsumer+Resolution.h"
 #include "CSSValue.h"
+#include "CSSVariableParser.h"
 #include "MediaQueryParserContext.h"
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 namespace MQ {
@@ -37,33 +47,52 @@ static AtomString consumeFeatureName(CSSParserTokenRange& range)
 {
     if (range.peek().type() != IdentToken)
         return nullAtom();
-    return range.consumeIncludingWhitespace().value().convertToASCIILowercaseAtom();
+    auto name = range.consumeIncludingWhitespace().value();
+    if (isCustomPropertyName(name))
+        return name.toAtomString();
+    return name.convertToASCIILowercaseAtom();
 }
 
-std::optional<Feature> GenericMediaQueryParserBase::consumeFeature(CSSParserTokenRange& range)
+std::optional<Feature> FeatureParser::consumeFeature(CSSParserTokenRange& range, const MediaQueryParserContext& context)
 {
     auto rangeCopy = range;
-    if (auto feature = consumeBooleanOrPlainFeature(range))
+    if (auto feature = consumeBooleanOrPlainFeature(range, context))
         return feature;
 
     range = rangeCopy;
-    return consumeRangeFeature(range);
+    return consumeRangeFeature(range, context);
 };
 
-std::optional<Feature> GenericMediaQueryParserBase::consumeBooleanOrPlainFeature(CSSParserTokenRange& range)
+static RefPtr<CSSValue> consumeCustomPropertyValue(AtomString propertyName, CSSParserTokenRange& range, const MediaQueryParserContext& context)
+{
+    auto valueRange = range;
+    range.consumeAll();
+
+    // Syntax is that of a valid declaration so !important is allowed. It just gets ignored.
+    CSSParserImpl::consumeTrailingImportantAndWhitespace(valueRange);
+
+    if (valueRange.atEnd())
+        return CSSCustomPropertyValue::createEmpty(propertyName);
+
+    return CSSVariableParser::parseDeclarationValue(propertyName, valueRange, context.context);
+}
+
+std::optional<Feature> FeatureParser::consumeBooleanOrPlainFeature(CSSParserTokenRange& range, const MediaQueryParserContext& context)
 {
     auto consumePlainFeatureName = [&]() -> std::pair<AtomString, ComparisonOperator> {
         auto name = consumeFeatureName(range);
         if (name.isEmpty())
             return { };
+        if (isCustomPropertyName(name))
+            return { name, ComparisonOperator::Equal };
         if (name.startsWith("min-"_s))
             return { StringView(name).substring(4).toAtomString(), ComparisonOperator::GreaterThanOrEqual };
         if (name.startsWith("max-"_s))
             return { StringView(name).substring(4).toAtomString(), ComparisonOperator::LessThanOrEqual };
         if (name.startsWith("-webkit-min-"_s))
-            return { "-webkit-"_s + StringView(name).substring(12), ComparisonOperator::GreaterThanOrEqual };
+            return { makeAtomString("-webkit-"_s, StringView(name).substring(12)), ComparisonOperator::GreaterThanOrEqual };
         if (name.startsWith("-webkit-max-"_s))
-            return { "-webkit-"_s + StringView(name).substring(12), ComparisonOperator::LessThanOrEqual };
+            return { makeAtomString("-webkit-"_s, StringView(name).substring(12)), ComparisonOperator::LessThanOrEqual };
 
         return { name, ComparisonOperator::Equal };
     };
@@ -85,10 +114,9 @@ std::optional<Feature> GenericMediaQueryParserBase::consumeBooleanOrPlainFeature
         return { };
 
     range.consumeIncludingWhitespace();
-    if (range.atEnd())
-        return { };
 
-    auto value = consumeValue(range);
+    RefPtr value = isCustomPropertyName(featureName) ? consumeCustomPropertyValue(featureName, range, context) : consumeValue(range, context);
+
     if (!value)
         return { };
 
@@ -98,7 +126,7 @@ std::optional<Feature> GenericMediaQueryParserBase::consumeBooleanOrPlainFeature
     return Feature { featureName, Syntax::Plain, { }, Comparison { op, WTFMove(value) } };
 }
 
-std::optional<Feature> GenericMediaQueryParserBase::consumeRangeFeature(CSSParserTokenRange& range)
+std::optional<Feature> FeatureParser::consumeRangeFeature(CSSParserTokenRange& range, const MediaQueryParserContext& context)
 {
     auto consumeRangeOperator = [&]() -> std::optional<ComparisonOperator> {
         if (range.atEnd())
@@ -135,7 +163,7 @@ std::optional<Feature> GenericMediaQueryParserBase::consumeRangeFeature(CSSParse
     auto consumeLeftComparison = [&]() -> std::optional<Comparison> {
         if (range.peek().type() == IdentToken)
             return { };
-        auto value = consumeValue(range);
+        RefPtr value = consumeValue(range, context);
         if (!value)
             return { };
         auto op = consumeRangeOperator();
@@ -151,7 +179,7 @@ std::optional<Feature> GenericMediaQueryParserBase::consumeRangeFeature(CSSParse
         auto op = consumeRangeOperator();
         if (!op)
             return { };
-        auto value = consumeValue(range);
+        RefPtr value = consumeValue(range, context);
         if (!value) {
             didFailParsing = true;
             return { };
@@ -190,51 +218,54 @@ std::optional<Feature> GenericMediaQueryParserBase::consumeRangeFeature(CSSParse
     return Feature { WTFMove(featureName), Syntax::Range, WTFMove(leftComparison), WTFMove(rightComparison) };
 }
 
-static RefPtr<CSSValue> consumeRatioWithSlash(CSSParserTokenRange& range)
+static RefPtr<CSSValue> consumeRatioWithSlash(CSSParserTokenRange& range, const MediaQueryParserContext& context)
 {
-    auto leftValue = CSSPropertyParserHelpers::consumeNumber(range, ValueRange::NonNegative);
+    RefPtr leftValue = CSSPropertyParserHelpers::consumeNumber(range, context.context, ValueRange::NonNegative);
     if (!leftValue)
         return nullptr;
 
     if (!CSSPropertyParserHelpers::consumeSlashIncludingWhitespace(range))
         return nullptr;
 
-    auto rightValue = CSSPropertyParserHelpers::consumeNumber(range, ValueRange::NonNegative);
+    RefPtr rightValue = CSSPropertyParserHelpers::consumeNumber(range, context.context, ValueRange::NonNegative);
     if (!rightValue)
         return nullptr;
 
-    return CSSAspectRatioValue::create(leftValue->floatValue(), rightValue->floatValue());
+    return CSSAspectRatioValue::create(
+        leftValue->resolveAsNumberDeprecated<float>(),
+        rightValue->resolveAsNumberDeprecated<float>()
+    );
 }
 
-RefPtr<CSSValue> GenericMediaQueryParserBase::consumeValue(CSSParserTokenRange& range)
+RefPtr<CSSValue> FeatureParser::consumeValue(CSSParserTokenRange& range, const MediaQueryParserContext& context)
 {
     if (range.atEnd())
         return nullptr;
 
-    if (auto value = CSSPropertyParserHelpers::consumeIdent(range))
+    if (RefPtr value = CSSPropertyParserHelpers::consumeIdent(range))
         return value;
 
     auto rangeCopy = range;
-    if (auto value = consumeRatioWithSlash(range))
+    if (RefPtr value = consumeRatioWithSlash(range, context))
         return value;
     range = rangeCopy;
 
-    if (auto value = CSSPropertyParserHelpers::consumeInteger(range))
+    if (RefPtr value = CSSPropertyParserHelpers::consumeInteger(range, context.context))
         return value;
-    if (auto value = CSSPropertyParserHelpers::consumeNumber(range, ValueRange::All))
+    if (RefPtr value = CSSPropertyParserHelpers::consumeNumber(range, context.context))
         return value;
-    if (auto value = CSSPropertyParserHelpers::consumeLength(range, HTMLStandardMode, ValueRange::All))
+    if (RefPtr value = CSSPropertyParserHelpers::consumeLength(range, context.context, HTMLStandardMode))
         return value;
-    if (auto value = CSSPropertyParserHelpers::consumeResolution(range))
+    if (RefPtr value = CSSPropertyParserHelpers::consumeResolution(range, context.context))
         return value;
 
     return nullptr;
 }
 
-bool GenericMediaQueryParserBase::validateFeatureAgainstSchema(Feature& feature, const FeatureSchema& schema)
+bool FeatureParser::validateFeatureAgainstSchema(Feature& feature, const FeatureSchema& schema)
 {
     auto validateValue = [&](auto& value) {
-        auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value.get());
+        RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value);
         switch (schema.valueType) {
         case FeatureSchema::ValueType::Integer:
             return primitiveValue && primitiveValue->isInteger();
@@ -245,24 +276,28 @@ bool GenericMediaQueryParserBase::validateFeatureAgainstSchema(Feature& feature,
         case FeatureSchema::ValueType::Length:
             if (!primitiveValue)
                 return false;
-            if (primitiveValue->isInteger() && !primitiveValue->intValue())
+            if (primitiveValue->isInteger() && !primitiveValue->resolveAsIntegerDeprecated())
                 return true;
             return primitiveValue->isLength();
 
         case FeatureSchema::ValueType::Resolution:
-            return primitiveValue && primitiveValue->isResolution() && primitiveValue->doubleValue() >= 0;
+            return primitiveValue && primitiveValue->isResolution();
 
         case FeatureSchema::ValueType::Identifier:
             return primitiveValue && primitiveValue->isValueID() && schema.valueIdentifiers.contains(primitiveValue->valueID());
 
         case FeatureSchema::ValueType::Ratio:
             if (primitiveValue && primitiveValue->isNumberOrInteger()) {
-                if (primitiveValue->floatValue() < 0)
+                auto number = primitiveValue->template resolveAsNumberDeprecated<float>();
+                if (number < 0)
                     return false;
-                value = CSSAspectRatioValue::create(primitiveValue->floatValue(), 1);
+                value = CSSAspectRatioValue::create(number, 1);
                 return true;
             }
             return is<CSSAspectRatioValue>(value.get());
+
+        case FeatureSchema::ValueType::CustomProperty:
+            return value && value->isCustomPropertyValue();
         }
         ASSERT_NOT_REACHED();
         return false;
@@ -275,7 +310,10 @@ bool GenericMediaQueryParserBase::validateFeatureAgainstSchema(Feature& feature,
             if (feature.rightComparison && feature.rightComparison->op != ComparisonOperator::Equal)
                 return false;
         }
-
+        if (schema.valueType == FeatureSchema::ValueType::CustomProperty) {
+            if (!isCustomPropertyName(feature.name))
+                return false;
+        }
         if (feature.leftComparison) {
             if (!validateValue(feature.leftComparison->value))
                 return false;

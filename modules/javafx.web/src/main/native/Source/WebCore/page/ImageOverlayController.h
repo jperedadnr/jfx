@@ -28,6 +28,8 @@
 #include "Color.h"
 #include "LayoutRect.h"
 #include "PageOverlay.h"
+#include <wtf/OptionSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
@@ -40,6 +42,8 @@ namespace WebCore {
 class Document;
 class Element;
 class GraphicsContext;
+class GraphicsLayer;
+class GraphicsLayerClient;
 class HTMLElement;
 class IntRect;
 class FloatQuad;
@@ -47,14 +51,15 @@ class LocalFrame;
 class Page;
 class RenderElement;
 class WeakPtrImplWithEventTargetData;
+enum class RenderingUpdateStep : uint32_t;
 struct GapRects;
 
-class ImageOverlayController final : private PageOverlay::Client
+class ImageOverlayController final : private PageOverlayClient
 #if PLATFORM(MAC)
     , DataDetectorHighlightClient
 #endif
 {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ImageOverlayController);
 public:
     explicit ImageOverlayController(Page&);
 
@@ -85,11 +90,20 @@ private:
     void clearDataDetectorHighlights();
     bool handleDataDetectorAction(const HTMLElement&, const IntPoint&);
 
+    // DataDetectorHighlightClient
+#if ENABLE(DATA_DETECTION)
     DataDetectorHighlight* activeHighlight() const final { return m_activeDataDetectorHighlight.get(); }
+    void scheduleRenderingUpdate(OptionSet<RenderingUpdateStep>) final;
+    float deviceScaleFactor() const final;
+    RefPtr<GraphicsLayer> createGraphicsLayer(GraphicsLayerClient&) final;
+#endif
 #endif
 
     void platformUpdateElementUnderMouse(LocalFrame&, Element* elementUnderMouse);
     bool platformHandleMouseEvent(const PlatformMouseEvent&);
+
+    RefPtr<Page> protectedPage() const;
+    RefPtr<PageOverlay> protectedOverlay() const { return m_overlay; }
 
     WeakPtr<Page> m_page;
     RefPtr<PageOverlay> m_overlay;

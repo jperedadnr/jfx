@@ -34,17 +34,15 @@
 namespace WebCore {
 
 struct CookieListItem {
-    CookieListItem() { };
+    CookieListItem() = default;
 
     CookieListItem(Cookie&& cookie)
+        : name(WTFMove(cookie.name))
+        , value(WTFMove(cookie.value))
+        , domain(WTFMove(cookie.domain))
+        , path(WTFMove(cookie.path))
+        , expires(cookie.expires)
     {
-        name = WTFMove(cookie.name);
-        value = WTFMove(cookie.value);
-        domain = WTFMove(cookie.domain);
-        path = WTFMove(cookie.path);
-        expires = cookie.expires.has_value() ? std::optional { *cookie.expires } : std::nullopt;
-        secure = cookie.secure;
-
         switch (cookie.sameSite) {
         case Cookie::SameSitePolicy::Strict:
             sameSite = CookieSameSite::Strict;
@@ -56,6 +54,11 @@ struct CookieListItem {
             sameSite = CookieSameSite::None;
             break;
         }
+
+        // Due to how CFNetwork handles host-only cookies, we may need to prepend a '.' to the domain when
+        // setting a cookie (see CookieStore::set). So we must strip this '.' when returning the cookie.
+        if (domain.startsWith('.'))
+            domain = domain.substring(1, domain.length() - 1);
     }
 
     String name;
@@ -63,8 +66,8 @@ struct CookieListItem {
     String domain;
     String path;
     std::optional<DOMHighResTimeStamp> expires;
-    bool secure;
-    CookieSameSite sameSite;
+    bool secure { true };
+    CookieSameSite sameSite { CookieSameSite::Strict };
 };
 
 }

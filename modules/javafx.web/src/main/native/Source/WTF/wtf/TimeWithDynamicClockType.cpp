@@ -42,6 +42,10 @@ TimeWithDynamicClockType TimeWithDynamicClockType::now(ClockType type)
         return MonotonicTime::now();
     case ClockType::Approximate:
         return ApproximateTime::now();
+    case ClockType::Continuous:
+        return ContinuousTime::now();
+    case ClockType::ContinuousApproximate:
+        return ContinuousApproximateTime::now();
     }
     RELEASE_ASSERT_NOT_REACHED();
     return TimeWithDynamicClockType();
@@ -70,6 +74,18 @@ ApproximateTime TimeWithDynamicClockType::approximateTime() const
     return ApproximateTime::fromRawSeconds(m_value);
 }
 
+ContinuousTime TimeWithDynamicClockType::continuousTime() const
+{
+    RELEASE_ASSERT(m_type == ClockType::Continuous);
+    return ContinuousTime::fromRawSeconds(m_value);
+}
+
+ContinuousApproximateTime TimeWithDynamicClockType::continuousApproximateTime() const
+{
+    RELEASE_ASSERT(m_type == ClockType::ContinuousApproximate);
+    return ContinuousApproximateTime::fromRawSeconds(m_value);
+}
+
 WallTime TimeWithDynamicClockType::approximateWallTime() const
 {
     switch (m_type) {
@@ -79,6 +95,10 @@ WallTime TimeWithDynamicClockType::approximateWallTime() const
         return monotonicTime().approximateWallTime();
     case ClockType::Approximate:
         return approximateTime().approximateWallTime();
+    case ClockType::Continuous:
+        return continuousTime().approximateWallTime();
+    case ClockType::ContinuousApproximate:
+        return ContinuousApproximateTime().approximateWallTime();
     }
     RELEASE_ASSERT_NOT_REACHED();
     return WallTime();
@@ -93,6 +113,10 @@ MonotonicTime TimeWithDynamicClockType::approximateMonotonicTime() const
         return monotonicTime();
     case ClockType::Approximate:
         return approximateTime().approximateMonotonicTime();
+    case ClockType::Continuous:
+        return continuousTime().approximateMonotonicTime();
+    case ClockType::ContinuousApproximate:
+        return ContinuousApproximateTime().approximateMonotonicTime();
     }
     RELEASE_ASSERT_NOT_REACHED();
     return MonotonicTime();
@@ -146,7 +170,7 @@ bool hasElapsed(const TimeWithDynamicClockType& time)
     // Avoid doing now().
     if (!(time > time.withSameClockAndRawSeconds(0)))
         return true;
-    if (std::isinf(time.secondsSinceEpoch().value()))
+    if (time.secondsSinceEpoch().isInfinity())
         return false;
 
     return time <= time.nowWithSameClock();

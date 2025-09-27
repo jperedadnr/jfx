@@ -28,13 +28,15 @@
 
 #include "CSSAnimation.h"
 #include "CSSTransition.h"
+#include "KeyframeEffect.h"
 #include "KeyframeEffectStack.h"
 #include "RenderStyle.h"
+#include "ScriptExecutionContext.h"
 
 namespace WebCore {
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ElementAnimationRareData);
 
-ElementAnimationRareData::ElementAnimationRareData(PseudoId pseudoId)
-    : m_pseudoId(pseudoId)
+ElementAnimationRareData::ElementAnimationRareData()
 {
 }
 
@@ -51,6 +53,13 @@ KeyframeEffectStack& ElementAnimationRareData::ensureKeyframeEffectStack()
 
 void ElementAnimationRareData::setAnimationsCreatedByMarkup(CSSAnimationCollection&& animations)
 {
+    if (m_keyframeEffectStack) {
+        for (auto& animation : m_animationsCreatedByMarkup) {
+            if (RefPtr keyframeEffect = dynamicDowncast<KeyframeEffect>(animation->effect()))
+                m_keyframeEffectStack->removeEffect(*keyframeEffect);
+        }
+    }
+
     m_animationsCreatedByMarkup = WTFMove(animations);
 }
 

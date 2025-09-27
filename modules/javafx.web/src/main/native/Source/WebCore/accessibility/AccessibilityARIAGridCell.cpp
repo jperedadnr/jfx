@@ -37,26 +37,26 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-AccessibilityARIAGridCell::AccessibilityARIAGridCell(RenderObject* renderer)
-    : AccessibilityTableCell(renderer)
+AccessibilityARIAGridCell::AccessibilityARIAGridCell(AXID axID, RenderObject& renderer)
+    : AccessibilityTableCell(axID, renderer)
 {
 }
 
-AccessibilityARIAGridCell::AccessibilityARIAGridCell(Node& node)
-    : AccessibilityTableCell(node)
+AccessibilityARIAGridCell::AccessibilityARIAGridCell(AXID axID, Node& node)
+    : AccessibilityTableCell(axID, node)
 {
 }
 
 AccessibilityARIAGridCell::~AccessibilityARIAGridCell() = default;
 
-Ref<AccessibilityARIAGridCell> AccessibilityARIAGridCell::create(RenderObject* renderer)
+Ref<AccessibilityARIAGridCell> AccessibilityARIAGridCell::create(AXID axID, RenderObject& renderer)
 {
-    return adoptRef(*new AccessibilityARIAGridCell(renderer));
+    return adoptRef(*new AccessibilityARIAGridCell(axID, renderer));
 }
 
-Ref<AccessibilityARIAGridCell> AccessibilityARIAGridCell::create(Node& node)
+Ref<AccessibilityARIAGridCell> AccessibilityARIAGridCell::create(AXID axID, Node& node)
 {
-    return adoptRef(*new AccessibilityARIAGridCell(node));
+    return adoptRef(*new AccessibilityARIAGridCell(axID, node));
 }
 
 AccessibilityTable* AccessibilityARIAGridCell::parentTable() const
@@ -65,8 +65,8 @@ AccessibilityTable* AccessibilityARIAGridCell::parentTable() const
     // including rows and interactive rowgroups. In addition, poorly-formed grids may contain elements
     // which pass the tests for inclusion.
     return dynamicDowncast<AccessibilityTable>(Accessibility::findAncestor<AccessibilityObject>(*this, false, [] (const auto& ancestor) {
-        auto* ancestorTable = dynamicDowncast<AccessibilityTable>(ancestor);
-        return ancestorTable && ancestorTable->isExposable() && !ancestorTable->accessibilityIsIgnored();
+        RefPtr ancestorTable = dynamicDowncast<AccessibilityTable>(ancestor);
+        return ancestorTable && ancestorTable->isExposable() && !ancestorTable->isIgnored();
     }));
 }
 
@@ -77,7 +77,7 @@ String AccessibilityARIAGridCell::readOnlyValue() const
 
     // ARIA 1.1 requires user agents to propagate the grid's aria-readonly value to all
     // gridcell elements if the property is not present on the gridcell element itelf.
-    if (auto* parent = parentTable())
+    if (RefPtr parent = parentTable())
         return parent->readOnlyValue();
 
     return String();

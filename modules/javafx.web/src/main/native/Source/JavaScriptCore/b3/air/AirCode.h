@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,6 +41,7 @@
 #include <wtf/HashSet.h>
 #include <wtf/IndexMap.h>
 #include <wtf/SmallSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakRandom.h>
 
 namespace JSC {
@@ -50,6 +51,7 @@ class CCallHelpers;
 namespace B3 {
 
 class Procedure;
+class WasmBoundsCheckValue;
 
 #if !ASSERT_ENABLED
 IGNORE_RETURN_TYPE_WARNINGS_BEGIN
@@ -64,7 +66,7 @@ class CFG;
 class Code;
 class Disassembler;
 
-typedef void WasmBoundsCheckGeneratorFunction(CCallHelpers&, GPRReg);
+typedef void WasmBoundsCheckGeneratorFunction(CCallHelpers&, WasmBoundsCheckValue*, GPRReg);
 typedef SharedTask<WasmBoundsCheckGeneratorFunction> WasmBoundsCheckGenerator;
 
 typedef void PrologueGeneratorFunction(CCallHelpers&, Code&);
@@ -78,7 +80,7 @@ extern const char* const tierName;
 
 class Code {
     WTF_MAKE_NONCOPYABLE(Code);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Code);
 public:
     ~Code();
 
@@ -100,7 +102,7 @@ public:
     RegisterSet mutableRegs() const { return m_mutableRegs.toRegisterSet().includeWholeRegisterWidth(); }
 
     bool isPinned(Reg reg) const { return !mutableRegs().contains(reg, IgnoreVectors); }
-    void pinRegister(Reg);
+    JS_EXPORT_PRIVATE void pinRegister(Reg);
 
     void setOptLevel(unsigned optLevel) { m_optLevel = optLevel; }
     unsigned optLevel() const { return m_optLevel; }
@@ -152,6 +154,14 @@ public:
         }
     }
 
+    template<Bank bank, typename Func>
+    void forEachTmp(const Func& func)
+    {
+        unsigned numTmps = this->numTmps(bank);
+        for (unsigned i = 0; i < numTmps; ++i)
+            func(Tmp::tmpForIndex(bank, i));
+    }
+
     unsigned callArgAreaSizeInBytes() const { return m_callArgAreaSize; }
 
     // You can call this before code generation to force a minimum call arg area size.
@@ -159,7 +169,7 @@ public:
     {
         m_callArgAreaSize = std::max(
             m_callArgAreaSize,
-            static_cast<unsigned>(WTF::roundUpToMultipleOf(stackAlignmentBytes(), size)));
+            static_cast<unsigned>(WTF::roundUpToMultipleOf<stackAlignmentBytes()>(size)));
     }
 
     unsigned frameSize() const

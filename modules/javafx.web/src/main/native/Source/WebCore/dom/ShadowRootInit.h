@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "CustomElementRegistry.h"
 #include "ShadowRootMode.h"
 #include "SlotAssignmentMode.h"
 
@@ -33,8 +34,11 @@ namespace WebCore {
 struct ShadowRootInit {
     ShadowRootMode mode;
     bool delegatesFocus { false };
-    bool cloneable { false };
+    bool clonable { false };
+    bool serializable { false };
     SlotAssignmentMode slotAssignment { SlotAssignmentMode::Named };
+    RefPtr<CustomElementRegistry> customElements;
+    String referenceTarget;
 };
 
 }

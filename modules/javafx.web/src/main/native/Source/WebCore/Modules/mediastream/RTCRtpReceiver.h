@@ -51,7 +51,7 @@ class RTCRtpReceiver final : public RefCounted<RTCRtpReceiver>
     , private LoggerHelper
 #endif
     {
-    WTF_MAKE_ISO_ALLOCATED(RTCRtpReceiver);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RTCRtpReceiver);
 public:
     static Ref<RTCRtpReceiver> create(PeerConnectionBackend& connection, Ref<MediaStreamTrack>&& track, std::unique_ptr<RTCRtpReceiverBackend>&& backend)
     {
@@ -86,8 +86,8 @@ private:
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger.get(); }
-    const void* logIdentifier() const final { return m_logIdentifier; }
-    const char* logClassName() const final { return "RTCRtpReceiver"; }
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const final { return "RTCRtpReceiver"_s; }
     WTFLogChannel& logChannel() const final;
 #endif
 
@@ -99,7 +99,7 @@ private:
     Vector<WeakPtr<MediaStream>> m_associatedStreams;
 #if !RELEASE_LOG_DISABLED
     Ref<const Logger> m_logger;
-    const void* m_logIdentifier { nullptr };
+    uint64_t m_logIdentifier { 0 };
 #endif
 };
 

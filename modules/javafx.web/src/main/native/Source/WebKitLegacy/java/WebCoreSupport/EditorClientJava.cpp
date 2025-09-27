@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -624,11 +624,6 @@ void EditorClientJava::handleInputMethodKeydown(KeyboardEvent&)
     notImplemented();
 }
 
-void EditorClientJava::willSetInputMethodState()
-{
-    notImplemented();
-}
-
 bool EditorClientJava::canCopyCut(LocalFrame*, bool defaultValue) const
 {
     return defaultValue;
@@ -643,7 +638,7 @@ void EditorClientJava::discardedComposition(const Document&)
 {
 }
 
-DOMPasteAccessResponse EditorClientJava::requestDOMPasteAccess(DOMPasteAccessCategory, const String& originIdentifier)
+DOMPasteAccessResponse EditorClientJava::requestDOMPasteAccess(DOMPasteAccessCategory, FrameIdentifier, const String& originIdentifier)
 {
     return DOMPasteAccessResponse::DeniedForGesture;
 }
@@ -673,7 +668,7 @@ void EditorClientJava::clearUndoRedoOperations()
     m_redoStack.clear();
 }
 
-void EditorClientJava::getClientPasteboardData(const std::optional<SimpleRange>&, Vector<String>&, Vector<RefPtr<SharedBuffer> >&)
+void EditorClientJava::getClientPasteboardData(const std::optional<SimpleRange>&, Vector<std::pair<String, RefPtr<WebCore::SharedBuffer>>>& pasteboardTypesAndData)
 {
     notImplemented();
 }

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2003-2017 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2023 Apple Inc. All rights reserved.
  *  Copyright (C) 2007 Eric Seidel <eric@webkit.org>
  *  Copyright (C) 2009 Acision BV. All rights reserved.
  *
@@ -27,8 +27,13 @@
 #include <wtf/BitVector.h>
 #include <wtf/PageBlock.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MachineThreads);
 
 MachineThreads::MachineThreads()
     : m_threadGroup(ThreadGroup::create())
@@ -50,7 +55,6 @@ void MachineThreads::gatherFromCurrentThread(ConservativeRoots& conservativeRoot
 static inline int osRedZoneAdjustment()
 {
     int redZoneAdjustment = 0;
-#if !OS(WINDOWS)
 #if CPU(X86_64)
     // See http://people.freebsd.org/~obrien/amd64-elf-abi.pdf Section 3.2.2.
     redZoneAdjustment = -128;
@@ -58,14 +62,13 @@ static inline int osRedZoneAdjustment()
     // See https://developer.apple.com/library/ios/documentation/Xcode/Conceptual/iPhoneOSABIReference/Articles/ARM64FunctionCallingConventions.html#//apple_ref/doc/uid/TP40013702-SW7
     redZoneAdjustment = -128;
 #endif
-#endif // !OS(WINDOWS)
     return redZoneAdjustment;
 }
 
 static std::pair<void*, size_t> captureStack(Thread& thread, void* stackTop)
 {
     char* begin = reinterpret_cast_ptr<char*>(thread.stack().origin());
-    char* end = bitwise_cast<char*>(WTF::roundUpToMultipleOf<sizeof(void*)>(reinterpret_cast<uintptr_t>(stackTop)));
+    char* end = std::bit_cast<char*>(WTF::roundUpToMultipleOf<sizeof(void*)>(reinterpret_cast<uintptr_t>(stackTop)));
     ASSERT(begin >= end);
 
     char* endWithRedZone = end + osRedZoneAdjustment();
@@ -226,3 +229,5 @@ NEVER_INLINE int callWithCurrentThreadState(const ScopedLambda<void(CurrentThrea
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

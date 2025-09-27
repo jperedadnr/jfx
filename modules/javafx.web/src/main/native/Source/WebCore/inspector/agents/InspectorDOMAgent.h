@@ -36,10 +36,12 @@
 #include <JavaScriptCore/Breakpoint.h>
 #include <JavaScriptCore/InspectorBackendDispatchers.h>
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakHashMap.h>
 #include <wtf/text/AtomString.h>
@@ -80,11 +82,12 @@ enum class PlatformEventModifier : uint8_t;
 
 struct Styleable;
 
-class InspectorDOMAgent final : public InspectorAgentBase, public Inspector::DOMBackendDispatcherHandler {
+class InspectorDOMAgent final : public InspectorAgentBase, public Inspector::DOMBackendDispatcherHandler, public CanMakeCheckedPtr<InspectorDOMAgent> {
     WTF_MAKE_NONCOPYABLE(InspectorDOMAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorDOMAgent);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(InspectorDOMAgent);
 public:
-    InspectorDOMAgent(PageAgentContext&, InspectorOverlay*);
+    InspectorDOMAgent(PageAgentContext&, InspectorOverlay&);
     ~InspectorDOMAgent();
 
     static String toErrorString(ExceptionCode);
@@ -170,6 +173,7 @@ public:
     Inspector::Protocol::ErrorStringOr<void> focus(Inspector::Protocol::DOM::NodeId);
     Inspector::Protocol::ErrorStringOr<void> setInspectedNode(Inspector::Protocol::DOM::NodeId);
     Inspector::Protocol::ErrorStringOr<void> setAllowEditingUserAgentShadowTrees(bool);
+    Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::DOM::MediaStats>> getMediaStats(Inspector::Protocol::DOM::NodeId);
 
     // InspectorInstrumentation
     Inspector::Protocol::DOM::NodeId identifierForNode(Node&);
@@ -268,17 +272,19 @@ private:
 
     void relayoutDocument();
 
+    Ref<InspectorOverlay> protectedOverlay() const;
+
     Inspector::InjectedScriptManager& m_injectedScriptManager;
     std::unique_ptr<Inspector::DOMFrontendDispatcher> m_frontendDispatcher;
     RefPtr<Inspector::DOMBackendDispatcher> m_backendDispatcher;
-    Page& m_inspectedPage;
-    InspectorOverlay* m_overlay { nullptr };
+    WeakRef<Page> m_inspectedPage;
+    WeakRef<InspectorOverlay> m_overlay;
     WeakHashMap<Node, Inspector::Protocol::DOM::NodeId, WeakPtrImplWithEventTargetData> m_nodeToId;
     HashMap<Inspector::Protocol::DOM::NodeId, WeakPtr<Node, WeakPtrImplWithEventTargetData>> m_idToNode;
     HashSet<Inspector::Protocol::DOM::NodeId> m_childrenRequested;
     Inspector::Protocol::DOM::NodeId m_lastNodeId { 1 };
     RefPtr<Document> m_document;
-    typedef HashMap<String, Vector<RefPtr<Node>>> SearchResults;
+    using SearchResults = HashMap<String, Vector<RefPtr<Node>>>;
     SearchResults m_searchResults;
     std::unique_ptr<RevalidateStyleAttributeTask> m_revalidateStyleAttrTask;
     RefPtr<Node> m_nodeToFocus;
@@ -289,7 +295,7 @@ private:
     std::optional<InspectorOverlay::Flex::Config> m_inspectModeFlexOverlayConfig;
     std::unique_ptr<InspectorHistory> m_history;
     std::unique_ptr<DOMEditor> m_domEditor;
-    WeakHashMap<RenderObject, Vector<size_t>> m_flexibleBoxRendererCachedItemsAtStartOfLine;
+    SingleThreadWeakHashMap<RenderObject, Vector<size_t>> m_flexibleBoxRendererCachedItemsAtStartOfLine;
 
     Vector<Inspector::Protocol::DOM::NodeId> m_destroyedDetachedNodeIdentifiers;
     Vector<std::pair<Inspector::Protocol::DOM::NodeId, Inspector::Protocol::DOM::NodeId>> m_destroyedAttachedNodeIdentifiers;
@@ -310,7 +316,7 @@ private:
     };
 
     // The pointer key for this map should not be used for anything other than matching.
-    WeakHashMap<HTMLMediaElement, MediaMetrics, WeakPtrImplWithEventTargetData> m_mediaMetrics;
+    WeakHashMap<HTMLMediaElement, MediaMetrics> m_mediaMetrics;
 #endif
 
     struct InspectorEventListener {

@@ -35,10 +35,11 @@
 #include "EventNames.h"
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
-#include "InspectorInstrumentation.h"
+#include "LoaderStrategy.h"
 #include "LocalFrame.h"
 #include "LocalFrameLoaderClient.h"
 #include "Page.h"
+#include "PlatformStrategies.h"
 #include "ProgressEvent.h"
 #include "ResourceRequest.h"
 #include "Settings.h"
@@ -49,7 +50,7 @@
 namespace WebCore {
 
 ApplicationCacheHost::ApplicationCacheHost(DocumentLoader& documentLoader)
-    : m_documentLoader(CheckedRef { documentLoader })
+    : m_documentLoader(documentLoader)
 {
 }
 
@@ -189,12 +190,10 @@ bool ApplicationCacheHost::maybeLoadResource(ResourceLoader& loader, const Resou
     if (request.url() != originalURL)
         return false;
 
-#if ENABLE(SERVICE_WORKER)
     if (loader.options().serviceWorkerRegistrationIdentifier)
         return false;
-#endif
 
-    ApplicationCacheResource* resource;
+    RefPtr<ApplicationCacheResource> resource;
     if (!shouldLoadResourceFromApplicationCache(request, resource))
         return false;
 
@@ -257,13 +256,13 @@ static inline RefPtr<SharedBuffer> bufferFromResource(ApplicationCacheResource& 
 
 bool ApplicationCacheHost::maybeLoadSynchronously(ResourceRequest& request, ResourceError& error, ResourceResponse& response, RefPtr<SharedBuffer>& data)
 {
-    ApplicationCacheResource* resource;
+    RefPtr<ApplicationCacheResource> resource;
     if (!shouldLoadResourceFromApplicationCache(request, resource))
         return false;
 
     auto responseData = resource ? bufferFromResource(*resource) : nullptr;
     if (!responseData) {
-        error = m_documentLoader->frameLoader()->client().cannotShowURLError(request);
+        error = platformStrategies()->loaderStrategy()->cannotShowURLError(request);
         return true;
     }
 
@@ -280,7 +279,7 @@ void ApplicationCacheHost::maybeLoadFallbackSynchronously(const ResourceRequest&
     if ((!error.isNull() && !error.isCancellation())
          || response.httpStatusCode() / 100 == 4 || response.httpStatusCode() / 100 == 5
          || !protocolHostAndPortAreEqual(request.url(), response.url())) {
-        ApplicationCacheResource* resource;
+        RefPtr<ApplicationCacheResource> resource;
         if (getApplicationCacheFallbackResource(request, resource)) {
             response = resource->response();
             data = resource->data().makeContiguous();
@@ -301,9 +300,6 @@ void ApplicationCacheHost::setDOMApplicationCache(DOMApplicationCache* domApplic
 
 void ApplicationCacheHost::notifyDOMApplicationCache(const AtomString& eventType, int total, int done)
 {
-    if (eventType != eventNames().progressEvent)
-        InspectorInstrumentation::updateApplicationCacheStatus(m_documentLoader->frame());
-
     if (m_defersEvents) {
         // Event dispatching is deferred until document.onload has fired.
         m_deferredEvents.append({ eventType, total, done });
@@ -400,16 +396,16 @@ void ApplicationCacheHost::setApplicationCache(RefPtr<ApplicationCache>&& applic
     m_applicationCache = WTFMove(applicationCache);
 }
 
-bool ApplicationCacheHost::shouldLoadResourceFromApplicationCache(const ResourceRequest& originalRequest, ApplicationCacheResource*& resource)
+bool ApplicationCacheHost::shouldLoadResourceFromApplicationCache(const ResourceRequest& originalRequest, RefPtr<ApplicationCacheResource>& resource)
 {
     auto* cache = applicationCache();
     if (!cache || !cache->isComplete())
         return false;
 
     ResourceRequest request(originalRequest);
-    if (auto* loaderFrame = m_documentLoader->frame()) {
-        if (auto* document = loaderFrame->document())
-            document->contentSecurityPolicy()->upgradeInsecureRequestIfNeeded(request, ContentSecurityPolicy::InsecureRequestType::Load);
+    if (RefPtr loaderFrame = m_documentLoader->frame()) {
+        if (RefPtr document = loaderFrame->document())
+            document->checkedContentSecurityPolicy()->upgradeInsecureRequestIfNeeded(request, ContentSecurityPolicy::InsecureRequestType::Load);
     }
 
     // If the resource is not to be fetched using the HTTP GET mechanism or equivalent, or if its URL has a different
@@ -431,7 +427,7 @@ bool ApplicationCacheHost::shouldLoadResourceFromApplicationCache(const Resource
     return true;
 }
 
-bool ApplicationCacheHost::getApplicationCacheFallbackResource(const ResourceRequest& request, ApplicationCacheResource*& resource, ApplicationCache* cache)
+bool ApplicationCacheHost::getApplicationCacheFallbackResource(const ResourceRequest& request, RefPtr<ApplicationCacheResource>& resource, ApplicationCache* cache)
 {
     if (!cache) {
         cache = applicationCache();
@@ -464,12 +460,10 @@ bool ApplicationCacheHost::scheduleLoadFallbackResourceFromApplicationCache(Reso
     if (!isApplicationCacheEnabled() && !isApplicationCacheBlockedForRequest(loader->request()))
         return false;
 
-#if ENABLE(SERVICE_WORKER)
     if (loader->options().serviceWorkerRegistrationIdentifier)
         return false;
-#endif
 
-    ApplicationCacheResource* resource;
+    RefPtr<ApplicationCacheResource> resource;
     if (!getApplicationCacheFallbackResource(loader->request(), resource, cache))
         return false;
 
@@ -536,7 +530,6 @@ bool ApplicationCacheHost::swapCache()
 
     ASSERT(group == newestCache->group());
     setApplicationCache(newestCache);
-    InspectorInstrumentation::updateApplicationCacheStatus(m_documentLoader->frame());
     return true;
 }
 
@@ -553,7 +546,7 @@ void ApplicationCacheHost::abort()
 
 bool ApplicationCacheHost::isApplicationCacheEnabled()
 {
-    return m_documentLoader->frame() && m_documentLoader->frame()->settings().offlineWebApplicationCacheEnabled() && m_documentLoader->frame()->page() && !m_documentLoader->frame()->page()->usesEphemeralSession();
+    return false;
 }
 
 bool ApplicationCacheHost::isApplicationCacheBlockedForRequest(const ResourceRequest&)

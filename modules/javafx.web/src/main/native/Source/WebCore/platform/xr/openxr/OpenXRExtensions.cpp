@@ -20,12 +20,15 @@
 
 #include "config.h"
 #include "OpenXRExtensions.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(WEBXR) && USE(OPENXR)
 
 using namespace WebCore;
 
 namespace PlatformXR {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(OpenXRExtensions);
 
 std::unique_ptr<OpenXRExtensions> OpenXRExtensions::create()
 {
@@ -57,9 +60,7 @@ OpenXRExtensions::OpenXRExtensions(Vector<XrExtensionProperties>&& extensions)
 
 void OpenXRExtensions::loadMethods(XrInstance instance)
 {
-#if USE(EGL)
     m_methods.getProcAddressFunc = eglGetProcAddress;
-#endif
     xrGetInstanceProcAddr(instance, "xrGetOpenGLGraphicsRequirementsKHR", reinterpret_cast<PFN_xrVoidFunction*>(&m_methods.xrGetOpenGLGraphicsRequirementsKHR));
 }
 

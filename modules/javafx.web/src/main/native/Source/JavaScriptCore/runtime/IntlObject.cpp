@@ -71,10 +71,13 @@
 #include <wtf/Assertions.h>
 #include <wtf/Language.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringImpl.h>
 #include <wtf/text/StringParsingBuffer.h>
 #include <wtf/unicode/icu/ICUHelpers.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -166,6 +169,8 @@ namespace JSC {
   Collator              createCollatorConstructor                    DontEnum|PropertyCallback
   DateTimeFormat        createDateTimeFormatConstructor              DontEnum|PropertyCallback
   DisplayNames          createDisplayNamesConstructor                DontEnum|PropertyCallback
+  DurationFormat        createDurationFormatConstructor              DontEnum|PropertyCallback
+  ListFormat            createListFormatConstructor                  DontEnum|PropertyCallback
   Locale                createLocaleConstructor                      DontEnum|PropertyCallback
   NumberFormat          createNumberFormatConstructor                DontEnum|PropertyCallback
   PluralRules           createPluralRulesConstructor                 DontEnum|PropertyCallback
@@ -253,14 +258,6 @@ void IntlObject::finishCreation(VM& vm, JSGlobalObject*)
     Base::finishCreation(vm);
     ASSERT(inherits(info()));
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
-#if HAVE(ICU_U_LIST_FORMATTER)
-    if (Options::useIntlDurationFormat())
-        putDirectWithoutTransition(vm, vm.propertyNames->DurationFormat, createDurationFormatConstructor(vm, this), static_cast<unsigned>(PropertyAttribute::DontEnum));
-    putDirectWithoutTransition(vm, vm.propertyNames->ListFormat, createListFormatConstructor(vm, this), static_cast<unsigned>(PropertyAttribute::DontEnum));
-#else
-    UNUSED_PARAM(&createDurationFormatConstructor);
-    UNUSED_PARAM(&createListFormatConstructor);
-#endif
 }
 
 Structure* IntlObject::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
@@ -333,7 +330,7 @@ Vector<char, 32> localeIDBufferForLanguageTagWithNullTerminator(const CString& t
 
 Vector<char, 32> canonicalizeUnicodeExtensionsAfterICULocaleCanonicalization(Vector<char, 32>&& buffer)
 {
-    StringView locale(buffer.data(), buffer.size());
+    StringView locale(buffer.span());
     ASSERT(locale.is8Bit());
     size_t extensionIndex = locale.find("-u-"_s);
     if (extensionIndex == notFound)
@@ -354,8 +351,7 @@ Vector<char, 32> canonicalizeUnicodeExtensionsAfterICULocaleCanonicalization(Vec
         end++;
     }
 
-    Vector<char, 32> result;
-    result.append(buffer.data(), extensionIndex + 2); // "-u" is included.
+    Vector<char, 32> result(buffer.span().first(extensionIndex + 2)); // "-u" is included.
     StringView extension = locale.substring(extensionIndex, extensionLength);
     ASSERT(extension.is8Bit());
     auto subtags = unicodeExtensionComponents(extension);
@@ -363,7 +359,7 @@ Vector<char, 32> canonicalizeUnicodeExtensionsAfterICULocaleCanonicalization(Vec
         auto subtag = subtags[index];
         ASSERT(subtag.is8Bit());
         result.append('-');
-        result.append(subtag.characters8(), subtag.length());
+        result.append(subtag.span8());
 
         if (subtag.length() != 2) {
             ++index;
@@ -384,15 +380,13 @@ Vector<char, 32> canonicalizeUnicodeExtensionsAfterICULocaleCanonicalization(Vec
             auto value = subtags[valueIndex];
             if (value != "true"_s) {
                 result.append('-');
-                result.append(value.characters8(), value.length());
+                result.append(value.span8());
             }
         }
         index = valueIndexEnd;
     }
 
-    unsigned remainingStart = extensionIndex + extensionLength;
-    unsigned remainingLength = buffer.size() - remainingStart;
-    result.append(buffer.data() + remainingStart, remainingLength);
+    result.append(buffer.subspan(extensionIndex + extensionLength));
     return result;
 }
 
@@ -407,8 +401,8 @@ String languageTagForLocaleID(const char* localeID, bool isImmortal)
         // This is used to store into static variables that may be shared across JSC execution threads.
         // This must be immortal to make concurrent ref/deref safe.
         if (isImmortal)
-            return StringImpl::createStaticStringImpl(buffer.data(), buffer.size());
-        return String(buffer.data(), buffer.size());
+            return StringImpl::createStaticStringImpl(buffer.span());
+        return buffer.span();
     };
 
     return createResult(canonicalizeUnicodeExtensionsAfterICULocaleCanonicalization(WTFMove(buffer)));
@@ -432,12 +426,12 @@ static void addScriptlessLocaleIfNeeded(LocaleSet& availableLocales, StringView 
 
     Vector<char, 12> buffer;
     ASSERT(subtags[0].is8Bit() && subtags[0].containsOnlyASCII());
-    buffer.append(reinterpret_cast<const char*>(subtags[0].characters8()), subtags[0].length());
+    buffer.append(subtags[0].span8());
     buffer.append('-');
     ASSERT(subtags[2].is8Bit() && subtags[2].containsOnlyASCII());
-    buffer.append(reinterpret_cast<const char*>(subtags[2].characters8()), subtags[2].length());
+    buffer.append(subtags[2].span8());
 
-    availableLocales.add(StringImpl::createStaticStringImpl(buffer.data(), buffer.size()));
+    availableLocales.add(StringImpl::createStaticStringImpl(buffer.span()));
 }
 
 const LocaleSet& intlAvailableLocales()
@@ -695,7 +689,7 @@ unsigned intlDefaultNumberOption(JSGlobalObject* globalObject, JSValue value, Pr
         RETURN_IF_EXCEPTION(scope, 0);
 
         if (!(doubleValue >= minimum && doubleValue <= maximum)) {
-            throwException(globalObject, scope, createRangeError(globalObject, *property.publicName() + " is out of range"_s));
+            throwException(globalObject, scope, createRangeError(globalObject, makeString(property.publicName(), " is out of range"_s)));
             return 0;
         }
         return static_cast<unsigned>(doubleValue);
@@ -773,7 +767,7 @@ Vector<String> canonicalizeLocaleList(JSGlobalObject* globalObject, JSValue loca
     uint64_t length = lengthProperty.toLength(globalObject);
     RETURN_IF_EXCEPTION(scope, Vector<String>());
 
-    HashSet<String> seenSet;
+    UncheckedKeyHashSet<String> seenSet;
     for (uint64_t k = 0; k < length; ++k) {
         bool kPresent = localesObject->hasProperty(globalObject, k);
         RETURN_IF_EXCEPTION(scope, Vector<String>());
@@ -1091,7 +1085,7 @@ Vector<String> numberingSystemsForLocale(const String& locale)
             ASSERT(U_SUCCESS(status));
             // Only support algorithmic if it is the default fot the locale, handled below.
             if (!unumsys_isAlgorithmic(numsys))
-                availableNumberingSystems->append(String(StringImpl::createStaticStringImpl(result, resultLength)));
+                availableNumberingSystems->append(String(StringImpl::createStaticStringImpl({ result, static_cast<size_t>(resultLength) })));
             unumsys_close(numsys);
         }
         uenum_close(numberingSystemNames);
@@ -1153,7 +1147,7 @@ static VariantCode parseVariantCode(StringView string)
     Code code { };
     for (unsigned index = 0; index < string.length(); ++index)
         code.characters[index] = toASCIILower(string[index]);
-    VariantCode result = bitwise_cast<VariantCode>(code);
+    VariantCode result = std::bit_cast<VariantCode>(code);
     ASSERT(result); // Not possible since some characters exist.
     ASSERT(result != static_cast<VariantCode>(-1)); // Not possible since all characters are ASCII (not Latin-1).
     return result;
@@ -1301,7 +1295,7 @@ bool LanguageTagParser::parseUnicodeLanguageId()
             return true;
     }
 
-    HashSet<VariantCode> variantCodes;
+    UncheckedKeyHashSet<VariantCode> variantCodes;
     while (true) {
         if (!isUnicodeVariantSubtag(m_current))
             return true;
@@ -1561,8 +1555,6 @@ std::optional<String> mapICUCalendarKeywordToBCP47(const String& calendar)
 {
     if (calendar == "gregorian"_s)
         return "gregory"_s;
-    // islamicc is deprecated in BCP47, and islamic-civil is preferred.
-    // https://github.com/unicode-org/cldr/blob/master/common/bcp47/calendar.xml
     if (calendar == "ethiopic-amete-alem"_s)
         return "ethioaa"_s;
     return std::nullopt;
@@ -1572,8 +1564,6 @@ std::optional<String> mapBCP47ToICUCalendarKeyword(const String& calendar)
 {
     if (calendar == "gregory"_s)
         return "gregorian"_s;
-    if (calendar == "islamicc"_s)
-        return "islamic-civil"_s;
     if (calendar == "ethioaa"_s)
         return "ethiopic-amete-alem"_s;
     return std::nullopt;
@@ -1622,33 +1612,28 @@ const Vector<String>& intlAvailableCalendars()
     static LazyNeverDestroyed<Vector<String>> availableCalendars;
     static std::once_flag initializeOnce;
     std::call_once(initializeOnce, [&] {
-        availableCalendars.construct();
-        ASSERT(availableCalendars->isEmpty());
-
         UErrorCode status = U_ZERO_ERROR;
         auto enumeration = std::unique_ptr<UEnumeration, ICUDeleter<uenum_close>>(ucal_getKeywordValuesForLocale("calendars", "und", false, &status));
         ASSERT(U_SUCCESS(status));
 
         int32_t count = uenum_count(enumeration.get(), &status);
         ASSERT(U_SUCCESS(status));
-        availableCalendars->reserveInitialCapacity(count);
 
         auto createImmortalThreadSafeString = [&](String&& string) {
             if (string.is8Bit())
-                return StringImpl::createStaticStringImpl(string.characters8(), string.length());
-            return StringImpl::createStaticStringImpl(string.characters16(), string.length());
+                return StringImpl::createStaticStringImpl(string.span8());
+            return StringImpl::createStaticStringImpl(string.span16());
         };
 
-        for (int32_t index = 0; index < count; ++index) {
+        availableCalendars.construct(count, [&](size_t) {
             int32_t length = 0;
             const char* pointer = uenum_next(enumeration.get(), &length, &status);
             ASSERT(U_SUCCESS(status));
-            String calendar(pointer, length);
+            String calendar(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
             if (auto mapped = mapICUCalendarKeywordToBCP47(calendar))
-                availableCalendars->append(createImmortalThreadSafeString(WTFMove(mapped.value())));
-            else
-                availableCalendars->append(createImmortalThreadSafeString(WTFMove(calendar)));
-        }
+                return createImmortalThreadSafeString(WTFMove(mapped.value()));
+            return createImmortalThreadSafeString(WTFMove(calendar));
+        });
 
         // The AvailableCalendars abstract operation returns a List, ordered as if an Array of the same
         // values had been sorted using %Array.prototype.sort% using undefined as comparator
@@ -1715,7 +1700,7 @@ static JSArray* availableCollations(JSGlobalObject* globalObject)
             throwTypeError(globalObject, scope, "failed to enumerate available collations"_s);
             return { };
         }
-        String collation(pointer, length);
+        String collation(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
         if (collation == "standard"_s || collation == "search"_s)
             continue;
         if (auto mapped = mapICUCollationKeywordToBCP47(collation))
@@ -1731,7 +1716,7 @@ static JSArray* availableCollations(JSGlobalObject* globalObject)
             return WTF::codePointCompare(a, b) < 0;
         });
     auto end = std::unique(elements.begin(), elements.end());
-    elements.resize(elements.size() - (elements.end() - end));
+    elements.shrink(elements.size() - (elements.end() - end));
 
     RELEASE_AND_RETURN(scope, createArrayFromStringVector(globalObject, WTFMove(elements)));
 }
@@ -1772,7 +1757,7 @@ static JSArray* availableCurrencies(JSGlobalObject* globalObject)
             throwTypeError(globalObject, scope, "failed to enumerate available currencies"_s);
             return { };
         }
-        String currency(pointer, length);
+        String currency(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
         if (currency == "EQE"_s)
             continue;
         if (currency == "LSM"_s)
@@ -1787,7 +1772,7 @@ static JSArray* availableCurrencies(JSGlobalObject* globalObject)
             return WTF::codePointCompare(a, b) < 0;
         });
     auto end = std::unique(elements.begin(), elements.end());
-    elements.resize(elements.size() - (elements.end() - end));
+    elements.shrink(elements.size() - (elements.end() - end));
 
     RELEASE_AND_RETURN(scope, createArrayFromStringVector(globalObject, WTFMove(elements)));
 }
@@ -1827,7 +1812,7 @@ static JSArray* availableNumberingSystems(JSGlobalObject* globalObject)
         }
         if (unumsys_isAlgorithmic(numberingSystem.get()))
             continue;
-        elements.constructAndAppend(name, length);
+        elements.constructAndAppend(std::span { name, static_cast<size_t>(length) });
     }
 
     // The AvailableNumberingSystems abstract operation returns a List, ordered as if an Array of the same
@@ -1881,7 +1866,7 @@ const Vector<String>& intlAvailableTimeZones()
             int32_t length = 0;
             const char* pointer = uenum_next(enumeration.get(), &length, &status);
             ASSERT(U_SUCCESS(status));
-            String timeZone(pointer, length);
+            String timeZone(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
             if (isValidTimeZoneNameFromICUTimeZone(timeZone)) {
                 if (auto mapped = canonicalizeTimeZoneNameFromICUTimeZone(WTFMove(timeZone)))
                     temporary.append(WTFMove(mapped.value()));
@@ -1896,15 +1881,15 @@ const Vector<String>& intlAvailableTimeZones()
             });
         auto end = std::unique(temporary.begin(), temporary.end());
         availableTimeZones.construct();
-        availableTimeZones->reserveInitialCapacity(end - temporary.begin());
 
         auto createImmortalThreadSafeString = [&](String&& string) {
             if (string.is8Bit())
-                return StringImpl::createStaticStringImpl(string.characters8(), string.length());
-            return StringImpl::createStaticStringImpl(string.characters16(), string.length());
+                return StringImpl::createStaticStringImpl(string.span8());
+            return StringImpl::createStaticStringImpl(string.span16());
         };
-        for (auto iterator = temporary.begin(); iterator != end; ++iterator)
-            availableTimeZones->uncheckedAppend(createImmortalThreadSafeString(WTFMove(*iterator)));
+        availableTimeZones.get() = WTF::map(std::span(temporary.begin(), end), [&](auto&& string) -> String {
+            return createImmortalThreadSafeString(WTFMove(string));
+        });
     });
     return availableTimeZones;
 }
@@ -1986,3 +1971,5 @@ JSC_DEFINE_HOST_FUNCTION(intlObjectFuncSupportedValuesOf, (JSGlobalObject* globa
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

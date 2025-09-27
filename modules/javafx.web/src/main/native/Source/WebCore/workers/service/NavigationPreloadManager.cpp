@@ -26,12 +26,13 @@
 #include "config.h"
 #include "NavigationPreloadManager.h"
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "ServiceWorkerContainer.h"
 #include "ServiceWorkerRegistration.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigationPreloadManager);
 
 void NavigationPreloadManager::enable(Promise&& promise)
 {
@@ -54,5 +55,3 @@ void NavigationPreloadManager::getState(StatePromise&& promise)
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

@@ -32,8 +32,12 @@
 
 #include "FontCache.h"
 #include "FontCascadeDescription.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FontDescriptionKeyRareData);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FontCascadeCache);
 
 FontFamilyName::FontFamilyName() = default;
 
@@ -57,14 +61,6 @@ void add(Hasher& hasher, const FontFamilyName& name)
 bool operator==(const FontFamilyName& a, const FontFamilyName& b)
 {
     return (a.string().isNull() || b.string().isNull()) ? a.string() == b.string() : FontCascadeDescription::familyNamesAreEqual(a.string(), b.string());
-}
-
-bool operator==(const FontCascadeCacheKey& a, const FontCascadeCacheKey& b)
-{
-    return a.fontDescriptionKey == b.fontDescriptionKey
-        && a.fontSelectorId == b.fontSelectorId
-        && a.fontSelectorVersion == b.fontSelectorVersion
-        && a.families == b.families;
 }
 
 FontCascadeCache& FontCascadeCache::forCurrentThread()
@@ -93,20 +89,18 @@ void FontCascadeCache::pruneUnreferencedEntries()
 void FontCascadeCache::pruneSystemFallbackFonts()
 {
     for (auto& entry : m_entries.values())
-        entry->fonts->pruneSystemFallbacks();
+        Ref { entry->fonts }->pruneSystemFallbacks();
 }
 
 static FontCascadeCacheKey makeFontCascadeCacheKey(const FontCascadeDescription& description, FontSelector* fontSelector)
 {
-    FontCascadeCacheKey key;
-    key.fontDescriptionKey = FontDescriptionKey(description);
     unsigned familyCount = description.familyCount();
-    key.families.reserveInitialCapacity(familyCount);
-    for (unsigned i = 0; i < familyCount; ++i)
-        key.families.uncheckedAppend(description.familyAt(i));
-    key.fontSelectorId = fontSelector ? fontSelector->uniqueId() : 0;
-    key.fontSelectorVersion = fontSelector ? fontSelector->version() : 0;
-    return key;
+    return FontCascadeCacheKey {
+        FontDescriptionKey(description),
+        Vector<FontFamilyName, 3>(familyCount, [&](size_t i) { return description.familyAt(i); }),
+        fontSelector ? fontSelector->uniqueId() : 0,
+        fontSelector ? fontSelector->version() : 0
+    };
 }
 
 Ref<FontCascadeFonts> FontCascadeCache::retrieveOrAddCachedFonts(const FontCascadeDescription& fontDescription, RefPtr<FontSelector>&& fontSelector)
@@ -118,7 +112,7 @@ Ref<FontCascadeFonts> FontCascadeCache::retrieveOrAddCachedFonts(const FontCasca
 
     auto& newEntry = addResult.iterator->value;
     newEntry = makeUnique<FontCascadeCacheEntry>(FontCascadeCacheEntry { WTFMove(key), FontCascadeFonts::create(WTFMove(fontSelector)) });
-    Ref<FontCascadeFonts> glyphs = newEntry->fonts.get();
+    Ref<FontCascadeFonts> fonts = newEntry->fonts.get();
 
     static constexpr unsigned unreferencedPruneInterval = 50;
     static constexpr int maximumEntries = 400;
@@ -129,7 +123,7 @@ Ref<FontCascadeFonts> FontCascadeCache::retrieveOrAddCachedFonts(const FontCasca
     // Prevent pathological growth.
     if (m_entries.size() > maximumEntries)
         m_entries.remove(m_entries.random());
-    return glyphs;
+    return fonts;
 }
 
 } // namespace WebCore

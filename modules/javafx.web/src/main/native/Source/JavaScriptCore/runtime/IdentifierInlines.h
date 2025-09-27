@@ -85,14 +85,14 @@ ALWAYS_INLINE Identifier Identifier::fromString(VM& vm, ASCIILiteral s)
     return Identifier(vm, s);
 }
 
-inline Identifier Identifier::fromString(VM& vm, const LChar* s, int length)
+inline Identifier Identifier::fromString(VM& vm, std::span<const LChar> s)
 {
-    return Identifier(vm, s, length);
+    return Identifier(vm, s);
 }
 
-inline Identifier Identifier::fromString(VM& vm, const UChar* s, int length)
+inline Identifier Identifier::fromString(VM& vm, std::span<const UChar> s)
 {
-    return Identifier(vm, s, length);
+    return Identifier(vm, s);
 }
 
 inline Identifier Identifier::fromString(VM& vm, const String& string)
@@ -118,11 +118,6 @@ inline Identifier Identifier::fromString(VM& vm, const AtomString& atomString)
 inline Identifier Identifier::fromString(VM& vm, SymbolImpl* symbolImpl)
 {
     return Identifier(vm, symbolImpl);
-}
-
-inline Identifier Identifier::fromLatin1(VM& vm, const char* s)
-{
-    return Identifier(vm, AtomString::fromLatin1(s));
 }
 
 inline JSValue identifierToJSValue(VM& vm, const Identifier& identifier)

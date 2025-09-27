@@ -26,6 +26,7 @@
 #include "config.h"
 #include "TextIndicator.h"
 
+#include "BitmapImage.h"
 #include "ColorBlending.h"
 #include "ColorHash.h"
 #include "Document.h"
@@ -76,7 +77,7 @@ RefPtr<TextIndicator> TextIndicator::createWithRange(const SimpleRange& range, O
             Ref indicatorNode = *commonAncestor;
 
             for (auto& ancestorElement : ancestorsOfType<Element>(*commonAncestor)) {
-                if (auto* renderer = ancestorElement.renderer(); renderer && renderer->style().effectiveUserSelect() == UserSelect::All)
+                if (auto* renderer = ancestorElement.renderer(); renderer && renderer->style().usedUserSelect() == UserSelect::All)
                     indicatorNode = ancestorElement;
             }
 
@@ -134,7 +135,7 @@ static bool hasNonInlineOrReplacedElements(const SimpleRange& range)
 {
     for (auto& node : intersectingNodes(range)) {
         auto renderer = node.renderer();
-        if (renderer && (!renderer->isInline() || renderer->isReplacedOrInlineBlock()))
+        if (renderer && (!renderer->isInline() || renderer->isReplacedOrAtomicInline()))
             return true;
     }
     return false;
@@ -142,7 +143,7 @@ static bool hasNonInlineOrReplacedElements(const SimpleRange& range)
 
 static SnapshotOptions snapshotOptionsForTextIndicatorOptions(OptionSet<TextIndicatorOption> options)
 {
-    SnapshotOptions snapshotOptions { { SnapshotFlags::PaintWithIntegralScaleFactor }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() };
+    SnapshotOptions snapshotOptions { { SnapshotFlags::PaintWithIntegralScaleFactor }, ImageBufferPixelFormat::BGRA8, DestinationColorSpace::SRGB() };
 
     if (!options.contains(TextIndicatorOption::PaintAllContent)) {
         if (options.contains(TextIndicatorOption::PaintBackgrounds))
@@ -153,8 +154,13 @@ static SnapshotOptions snapshotOptionsForTextIndicatorOptions(OptionSet<TextIndi
             if (!options.contains(TextIndicatorOption::RespectTextColor))
                 snapshotOptions.flags.add(SnapshotFlags::ForceBlackText);
         }
+        if (options.contains(TextIndicatorOption::SkipReplacedContent))
+            snapshotOptions.flags.add(SnapshotFlags::ExcludeReplacedContent);
     } else
         snapshotOptions.flags.add(SnapshotFlags::ExcludeSelectionHighlighting);
+
+    if (options.contains(TextIndicatorOption::SnapshotContentAt3xBaseScale))
+        snapshotOptions.flags.add(SnapshotFlags::PaintWith3xBaseScale);
 
     return snapshotOptions;
 }
@@ -165,7 +171,7 @@ static RefPtr<Image> takeSnapshot(LocalFrame& frame, IntRect rect, SnapshotOptio
     if (!buffer)
         return nullptr;
     scaleFactor = buffer->resolutionScale();
-    return ImageBuffer::sinkIntoImage(WTFMove(buffer), PreserveResolution::Yes);
+    return BitmapImage::create(ImageBuffer::sinkIntoNativeImage(WTFMove(buffer)));
 }
 
 static bool takeSnapshots(TextIndicatorData& data, LocalFrame& frame, IntRect snapshotRect, const Vector<FloatRect>& clipRectsInDocumentCoordinates)
@@ -175,24 +181,32 @@ static bool takeSnapshots(TextIndicatorData& data, LocalFrame& frame, IntRect sn
         return false;
 
     if (data.options.contains(TextIndicatorOption::IncludeSnapshotWithSelectionHighlight)) {
+        SnapshotOptions snapshotOptions { { }, ImageBufferPixelFormat::BGRA8, DestinationColorSpace::SRGB() };
+        if (data.options.contains(TextIndicatorOption::SnapshotContentAt3xBaseScale))
+            snapshotOptions.flags.add(SnapshotFlags::PaintWith3xBaseScale);
+
         float snapshotScaleFactor;
-        data.contentImageWithHighlight = takeSnapshot(frame, snapshotRect, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, snapshotScaleFactor, clipRectsInDocumentCoordinates);
+        data.contentImageWithHighlight = takeSnapshot(frame, snapshotRect, WTFMove(snapshotOptions), snapshotScaleFactor, clipRectsInDocumentCoordinates);
         ASSERT(!data.contentImageWithHighlight || data.contentImageScaleFactor >= snapshotScaleFactor);
     }
 
     if (data.options.contains(TextIndicatorOption::IncludeSnapshotOfAllVisibleContentWithoutSelection)) {
+        SnapshotOptions snapshotOptions { { SnapshotFlags::PaintEverythingExcludingSelection }, ImageBufferPixelFormat::BGRA8, DestinationColorSpace::SRGB() };
+        if (data.options.contains(TextIndicatorOption::SnapshotContentAt3xBaseScale))
+            snapshotOptions.flags.add(SnapshotFlags::PaintWith3xBaseScale);
+
         float snapshotScaleFactor;
-        auto snapshotRect = frame.view()->visibleContentRect();
-        data.contentImageWithoutSelection = takeSnapshot(frame, snapshotRect, { { SnapshotFlags::PaintEverythingExcludingSelection }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, snapshotScaleFactor, { });
-        data.contentImageWithoutSelectionRectInRootViewCoordinates = frame.view()->contentsToRootView(snapshotRect);
+        auto snapshotRect = frame.protectedView()->visibleContentRect();
+        data.contentImageWithoutSelection = takeSnapshot(frame, snapshotRect, WTFMove(snapshotOptions), snapshotScaleFactor, { });
+        data.contentImageWithoutSelectionRectInRootViewCoordinates = frame.protectedView()->contentsToRootView(snapshotRect);
     }
 
     return true;
 }
 
-static HashSet<Color> estimatedTextColorsForRange(const SimpleRange& range)
+static UncheckedKeyHashSet<Color> estimatedTextColorsForRange(const SimpleRange& range)
 {
-    HashSet<Color> colors;
+    UncheckedKeyHashSet<Color> colors;
     for (TextIterator iterator(range); !iterator.atEnd(); iterator.advance()) {
         auto node = iterator.node();
         if (!node)
@@ -213,7 +227,7 @@ static FloatRect absoluteBoundingRectForRange(const SimpleRange& range)
     }));
 }
 
-static bool hasAnyIllegibleColors(TextIndicatorData& data, const Color& backgroundColor, HashSet<Color>&& textColors)
+static bool hasAnyIllegibleColors(TextIndicatorData& data, const Color& backgroundColor, UncheckedKeyHashSet<Color>&& textColors)
 {
     if (data.options.contains(TextIndicatorOption::PaintAllContent))
         return false;
@@ -248,7 +262,7 @@ static bool containsOnlyWhiteSpaceText(const SimpleRange& range)
 
 static bool initializeIndicator(TextIndicatorData& data, LocalFrame& frame, const SimpleRange& range, FloatSize margin, bool indicatesCurrentSelection)
 {
-    if (auto* document = frame.document())
+    if (RefPtr document = frame.document())
         document->updateLayoutIgnorePendingStylesheets();
 
     bool treatRangeAsComplexDueToIllegibleTextColors = false;
@@ -292,7 +306,7 @@ static bool initializeIndicator(TextIndicatorData& data, LocalFrame& frame, cons
     if (textRects.isEmpty())
         textRects.append(absoluteBoundingRectForRange(range));
 
-    auto frameView = frame.view();
+    RefPtr frameView = frame.view();
 
     // Use the exposedContentRect/viewExposedRect instead of visibleContentRect to avoid creating a huge indicator for a large view inside a scroll view.
     IntRect contentsClipRect;
@@ -330,7 +344,7 @@ static bool initializeIndicator(TextIndicatorData& data, LocalFrame& frame, cons
         textRectInDocumentCoordinatesIncludingMargin.inflateY(margin.height());
         textBoundingRectInDocumentCoordinates.unite(textRectInDocumentCoordinatesIncludingMargin);
 
-        FloatRect textRectInRootViewCoordinates = frame.view()->contentsToRootView(enclosingIntRect(textRectInDocumentCoordinatesIncludingMargin));
+        FloatRect textRectInRootViewCoordinates = frame.protectedView()->contentsToRootView(enclosingIntRect(textRectInDocumentCoordinatesIncludingMargin));
         textRectsInRootViewCoordinates.append(textRectInRootViewCoordinates);
         textBoundingRectInRootViewCoordinates.unite(textRectInRootViewCoordinates);
     }
@@ -342,7 +356,7 @@ static bool initializeIndicator(TextIndicatorData& data, LocalFrame& frame, cons
 
     // Store the selection rect in window coordinates, to be used subsequently
     // to determine if the indicator and selection still precisely overlap.
-    data.selectionRectInRootViewCoordinates = frame.view()->contentsToRootView(enclosingIntRect(frame.selection().selectionBounds(FrameSelection::ClipToVisibleContent::No)));
+    data.selectionRectInRootViewCoordinates = frame.protectedView()->contentsToRootView(enclosingIntRect(frame.selection().selectionBounds(FrameSelection::ClipToVisibleContent::No)));
     data.textBoundingRectInRootViewCoordinates = textBoundingRectInRootViewCoordinates;
     data.textRectsInBoundingRectCoordinates = WTFMove(textRectsInBoundingRectCoordinates);
 

@@ -122,6 +122,7 @@ private:
 template <typename T, uintptr_t Tag>
 struct IsSmartPtr<SignedPtr<T, Tag>> {
     static constexpr bool value = true;
+    static constexpr bool isNullable = true;
 };
 
 template<typename T, uintptr_t Tag>
@@ -135,7 +136,7 @@ struct SignedPtrTraits {
 
     static ALWAYS_INLINE T* unwrap(const StorageType& ptr) { return ptr.get(); }
 
-    static StorageType hashTableDeletedValue() { return bitwise_cast<StorageType>(static_cast<uintptr_t>(-1)); }
+    static StorageType hashTableDeletedValue() { return std::bit_cast<StorageType>(static_cast<uintptr_t>(-1)); }
     static ALWAYS_INLINE bool isHashTableDeletedValue(const StorageType& ptr) { return ptr == hashTableDeletedValue(); }
 };
 

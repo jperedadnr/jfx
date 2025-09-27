@@ -56,6 +56,7 @@ const ClassInfo IntlDateTimeFormatPrototype::s_info = { "Intl.DateTimeFormat"_s,
 @begin dateTimeFormatPrototypeTable
   format                intlDateTimeFormatPrototypeGetterFormat              DontEnum|ReadOnly|CustomAccessor
   formatRange           intlDateTimeFormatPrototypeFuncFormatRange           DontEnum|Function 2
+  formatRangeToParts    intlDateTimeFormatPrototypeFuncFormatRangeToParts    DontEnum|Function 2
   formatToParts         intlDateTimeFormatPrototypeFuncFormatToParts         DontEnum|Function 1
   resolvedOptions       intlDateTimeFormatPrototypeFuncResolvedOptions       DontEnum|Function 0
 @end
@@ -82,12 +83,7 @@ void IntlDateTimeFormatPrototype::finishCreation(VM& vm, JSGlobalObject* globalO
 {
     Base::finishCreation(vm);
     ASSERT(inherits(info()));
-#if HAVE(ICU_U_DATE_INTERVAL_FORMAT_FORMAT_RANGE_TO_PARTS)
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("formatRangeToParts"_s, intlDateTimeFormatPrototypeFuncFormatRangeToParts, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public);
-#else
     UNUSED_PARAM(globalObject);
-    UNUSED_PARAM(&intlDateTimeFormatPrototypeFuncFormatRangeToParts);
-#endif
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
 }
 
@@ -119,7 +115,9 @@ JSC_DEFINE_HOST_FUNCTION(intlDateTimeFormatFuncFormatDateTime, (JSGlobalObject* 
     // 12.1.7 DateTime Format Functions (ECMA-402)
     // https://tc39.github.io/ecma402/#sec-formatdatetime
 
-    IntlDateTimeFormat* format = jsCast<IntlDateTimeFormat*>(callFrame->thisValue());
+    IntlDateTimeFormat* format = jsDynamicCast<IntlDateTimeFormat*>(callFrame->thisValue());
+    if (UNLIKELY(!format))
+        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.format called on value that's not a DateTimeFormat"_s));
 
     JSValue date = callFrame->argument(0);
     double value = IntlDateTimeFormat::handleDateTimeValue(globalObject, date);
@@ -151,7 +149,7 @@ JSC_DEFINE_CUSTOM_GETTER(intlDateTimeFormatPrototypeGetterFormat, (JSGlobalObjec
         // c. Let bf be BoundFunctionCreate(F, «this value»).
         boundFormat = JSBoundFunction::create(vm, globalObject, targetObject, dtf, { }, 1, jsEmptyString(vm));
         RETURN_IF_EXCEPTION(scope, { });
-        boundFormat->reifyLazyPropertyIfNeeded(vm, globalObject, vm.propertyNames->name);
+        boundFormat->reifyLazyPropertyIfNeeded<>(vm, globalObject, vm.propertyNames->name);
         RETURN_IF_EXCEPTION(scope, { });
         boundFormat->putDirect(vm, vm.propertyNames->name, jsEmptyString(vm), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
         // d. Set dtf.[[boundFormat]] to bf.

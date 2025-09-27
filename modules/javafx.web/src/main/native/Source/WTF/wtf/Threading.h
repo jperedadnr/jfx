@@ -33,6 +33,7 @@
 #include <mutex>
 #include <stdint.h>
 #include <wtf/Atomics.h>
+#include <wtf/Compiler.h>
 #include <wtf/Expected.h>
 #include <wtf/FastTLS.h>
 #include <wtf/Function.h>
@@ -125,19 +126,25 @@ public:
         Background
     };
 
+    enum class SchedulingPolicy : uint8_t {
+        Other = 0,
+        FIFO,
+        Realtime,
+    };
+
 #if HAVE(QOS_CLASSES)
     static dispatch_qos_class_t dispatchQOSClass(QOS);
 #endif
 
     // Returns nullptr if thread creation failed.
     // The thread name must be a literal since on some platforms it's passed in to the thread.
-    WTF_EXPORT_PRIVATE static Ref<Thread> create(const char* threadName, Function<void()>&&, ThreadType = ThreadType::Unknown, QOS = QOS::UserInitiated);
+    WTF_EXPORT_PRIVATE static Ref<Thread> create(ASCIILiteral threadName, Function<void()>&&, ThreadType = ThreadType::Unknown, QOS = QOS::UserInitiated, SchedulingPolicy = SchedulingPolicy::Other);
 
     // Returns Thread object.
     static Thread& current();
 
     // Set of all WTF::Thread created threads.
-    WTF_EXPORT_PRIVATE static HashSet<Thread*>& allThreads() WTF_REQUIRES_LOCK(allThreadsLock());
+    WTF_EXPORT_PRIVATE static UncheckedKeyHashSet<Thread*>& allThreads() WTF_REQUIRES_LOCK(allThreadsLock());
     WTF_EXPORT_PRIVATE static Lock& allThreadsLock() WTF_RETURNS_LOCK(s_allThreadsLock);
 
     WTF_EXPORT_PRIVATE unsigned numberOfThreadGroups();
@@ -163,7 +170,7 @@ public:
 
     private:
         static constexpr size_t s_maxKeys = 32;
-        static Atomic<int> s_numberOfKeys;
+        static Atomic<size_t> s_numberOfKeys;
         static std::array<Atomic<DestroyFunction>, s_maxKeys> s_destroyFunctions;
         std::array<void*, s_maxKeys> m_slots { };
     };
@@ -205,6 +212,12 @@ public:
 
 #if HAVE(QOS_CLASSES)
     WTF_EXPORT_PRIVATE static void setGlobalMaxQOSClass(qos_class_t);
+#endif
+
+#if HAVE(THREAD_TIME_CONSTRAINTS)
+    // Set thread timing constraints, which allows the scheduler to demote
+    // threads which exceed their own reported constraints.
+    WTF_EXPORT_PRIVATE void setThreadTimeConstraints(MonotonicTime period, MonotonicTime nominalComputation, MonotonicTime constraint, bool isPremptable);
 #endif
 
     // Called in the thread during initialization.
@@ -293,7 +306,7 @@ protected:
     void initializeInThread();
 
     // Internal platform-specific Thread establishment implementation.
-    bool establishHandle(NewThreadContext*, std::optional<size_t> stackSize, QOS);
+    bool establishHandle(NewThreadContext*, std::optional<size_t> stackSize, QOS, SchedulingPolicy);
 
 #if USE(PTHREADS)
     void establishPlatformSpecificHandle(PlatformThreadHandle);
@@ -333,6 +346,7 @@ protected:
 
     // These functions are only called from ThreadGroup.
     ThreadGroupAddResult addToThreadGroup(const AbstractLocker& threadGroupLocker, ThreadGroup&);
+    void removeFromThreadGroup(const AbstractLocker& threadGroupLocker, ThreadGroup&);
 
     // For pthread, the Thread instance is ref'ed and held in thread-specific storage. It will be deref'ed by destructTLS at thread destruction time.
     // It employs pthreads-specific 2-pass destruction to reliably remove Thread.
@@ -369,7 +383,7 @@ protected:
     // Use WordLock since WordLock does not depend on ThreadSpecific and this "Thread".
     WordLock m_mutex;
     StackBounds m_stack { StackBounds::emptyBounds() };
-    ThreadSafeWeakHashSet<ThreadGroup> m_threadGroups;
+    HashMap<ThreadGroup*, std::weak_ptr<ThreadGroup>> m_threadGroupMap;
     PlatformThreadHandle m_handle;
     uint32_t m_uid { ++s_uid };
 #if OS(WINDOWS)
@@ -425,7 +439,7 @@ inline Thread& Thread::current()
     if (UNLIKELY(Thread::s_key == InvalidThreadSpecificKey))
         WTF::initialize();
 #endif
-    if (auto* thread = currentMayBeNull(); LIKELY(thread))
+    if (SUPPRESS_UNCOUNTED_LOCAL auto* thread = currentMayBeNull(); LIKELY(thread))
         return *thread;
     return initializeCurrentTLS();
 }

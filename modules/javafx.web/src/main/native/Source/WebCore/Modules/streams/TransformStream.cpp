@@ -73,9 +73,7 @@ TransformStream::TransformStream(JSC::JSValue internalTransformStream, Ref<Reada
 {
 }
 
-TransformStream::~TransformStream()
-{
-}
+TransformStream::~TransformStream() = default;
 
 static ExceptionOr<JSC::JSValue> invokeTransformStreamFunction(JSC::JSGlobalObject& globalObject, const JSC::Identifier& identifier, const JSC::MarkedArgumentBuffer& arguments)
 {
@@ -91,14 +89,14 @@ static ExceptionOr<JSC::JSValue> invokeTransformStreamFunction(JSC::JSGlobalObje
     auto callData = JSC::getCallData(function);
 
     auto result = call(&globalObject, function, callData, JSC::jsUndefined(), arguments);
-    RETURN_IF_EXCEPTION(scope, Exception { ExistingExceptionError });
+    RETURN_IF_EXCEPTION(scope, Exception { ExceptionCode::ExistingExceptionError });
 
     return result;
 }
 
 ExceptionOr<CreateInternalTransformStreamResult> createInternalTransformStream(JSDOMGlobalObject& globalObject, JSC::JSValue transformer, JSC::JSValue writableStrategy, JSC::JSValue readableStrategy)
 {
-    auto* clientData = static_cast<JSVMClientData*>(globalObject.vm().clientData);
+    auto* clientData = downcast<JSVMClientData>(globalObject.vm().clientData);
     auto& privateName = clientData->builtinFunctions().transformStreamInternalsBuiltins().createInternalTransformStreamFromTransformerPrivateName();
 
     JSC::MarkedArgumentBuffer arguments;
@@ -111,7 +109,14 @@ ExceptionOr<CreateInternalTransformStreamResult> createInternalTransformStream(J
     if (UNLIKELY(result.hasException()))
         return result.releaseException();
 
-    auto results = Detail::SequenceConverter<IDLObject>::convert(globalObject, result.returnValue());
+    JSC::VM& vm = globalObject.vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto resultsConversionResult = convert<IDLSequence<IDLObject>>(globalObject, result.returnValue());
+    if (UNLIKELY(resultsConversionResult.hasException(scope)))
+        return Exception { ExceptionCode::ExistingExceptionError };
+
+    auto results = resultsConversionResult.releaseReturnValue();
     ASSERT(results.size() == 3);
 
     return CreateInternalTransformStreamResult { results[0].get(), JSC::jsDynamicCast<JSReadableStream*>(results[1].get())->wrapped(), JSC::jsDynamicCast<JSWritableStream*>(results[2].get())->wrapped() };

@@ -27,7 +27,9 @@
 #include "config.h"
 #include "HTMLTreeBuilder.h"
 
+#include "CSSTokenizerInputStream.h"
 #include "CommonAtomStrings.h"
+#include "CustomElementRegistry.h"
 #include "DocumentFragment.h"
 #include "HTMLDocument.h"
 #include "HTMLDocumentParser.h"
@@ -51,6 +53,9 @@
 #include "XMLNames.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RobinHoodHashMap.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/ParsingUtilities.h>
 #include <wtf/unicode/CharacterNames.h>
 
 #if ENABLE(TELEPHONE_NUMBER_DETECTION) && PLATFORM(IOS_FAMILY)
@@ -59,11 +64,14 @@
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLTreeBuilder);
+
 using namespace ElementNames;
 using namespace HTMLNames;
 
-CustomElementConstructionData::CustomElementConstructionData(Ref<JSCustomElementInterface>&& customElementInterface, const AtomString& name, Vector<Attribute>&& attributes)
+CustomElementConstructionData::CustomElementConstructionData(Ref<JSCustomElementInterface>&& customElementInterface, Ref<CustomElementRegistry>&& registry, const AtomString& name, Vector<Attribute>&& attributes)
     : elementInterface(WTFMove(customElementInterface))
+    , registry(WTFMove(registry))
     , name(name)
     , attributes(WTFMove(attributes))
 {
@@ -233,7 +241,7 @@ private:
     {
         if (stringView.is8Bit() || !isAll8BitData())
             return stringView.toString();
-        return String::make8Bit(stringView.characters16(), stringView.length());
+        return String::make8Bit(stringView.span16());
     }
 
     StringView m_text;
@@ -261,11 +269,11 @@ HTMLTreeBuilder::HTMLTreeBuilder(HTMLDocumentParser& parser, HTMLDocument& docum
 #endif
 }
 
-HTMLTreeBuilder::HTMLTreeBuilder(HTMLDocumentParser& parser, DocumentFragment& fragment, Element& contextElement, OptionSet<ParserContentPolicy> parserContentPolicy, const HTMLParserOptions& options)
+HTMLTreeBuilder::HTMLTreeBuilder(HTMLDocumentParser& parser, DocumentFragment& fragment, Element& contextElement, OptionSet<ParserContentPolicy> parserContentPolicy, const HTMLParserOptions& options, CustomElementRegistry* registry)
     : m_parser(parser)
     , m_options(options)
     , m_fragmentContext(fragment, contextElement)
-    , m_tree(fragment, parserContentPolicy, options.maximumDOMTreeDepth)
+    , m_tree(fragment, parserContentPolicy, options.maximumDOMTreeDepth, registry)
     , m_scriptToProcessStartPosition(uninitializedPositionValue1())
 {
     ASSERT(isMainThread());
@@ -279,7 +287,8 @@ HTMLTreeBuilder::HTMLTreeBuilder(HTMLDocumentParser& parser, DocumentFragment& f
 
     resetInsertionModeAppropriately();
 
-    m_tree.setForm(is<HTMLFormElement>(contextElement) ? &downcast<HTMLFormElement>(contextElement) : HTMLFormElement::findClosestFormAncestor(contextElement));
+    auto* formElement = dynamicDowncast<HTMLFormElement>(contextElement);
+    m_tree.setForm(formElement ? formElement : HTMLFormElement::findClosestFormAncestor(contextElement));
 
 #if ASSERT_ENABLED
     m_destructionProhibited = false;
@@ -784,9 +793,6 @@ void HTMLTreeBuilder::processStartTagForInBody(AtomHTMLToken&& token)
     case TagName::applet:
     case TagName::embed:
     case TagName::object:
-        if (!pluginContentIsAllowed(m_tree.parserContentPolicy()))
-            return;
-        FALLTHROUGH;
     case TagName::marquee:
         m_tree.reconstructTheActiveFormattingElements();
         if (token.tagName() == TagName::embed) {
@@ -972,13 +978,8 @@ bool HTMLTreeBuilder::processTemplateEndTag(AtomHTMLToken&& token)
     if (m_tree.currentStackItem().elementName() != HTML::template_)
         parseError(token);
     m_tree.openElements().popUntil(HTML::template_);
-    RELEASE_ASSERT(is<HTMLTemplateElement>(m_tree.openElements().top()));
     Ref templateElement = downcast<HTMLTemplateElement>(m_tree.openElements().top());
     m_tree.openElements().pop();
-
-    auto& item = adjustedCurrentStackItem();
-    RELEASE_ASSERT(item.isElement());
-    Ref shadowHost = item.element();
 
     m_tree.activeFormattingElements().clearToLastMarker();
     m_templateInsertionModes.removeLast();
@@ -1643,7 +1644,7 @@ void HTMLTreeBuilder::callTheAdoptionAgency(AtomHTMLToken& token)
             // 4.13.5.
             auto* nodeEntry = m_tree.activeFormattingElements().find(node->element());
             if (!nodeEntry) {
-                m_tree.openElements().remove(node->element());
+                m_tree.openElements().remove(node->protectedElement());
                 node = nullptr;
                 continue;
             }
@@ -2458,35 +2459,45 @@ void HTMLTreeBuilder::linkifyPhoneNumbers(const String& string)
 
     // relativeStartPosition and relativeEndPosition are the endpoints of the phone number range,
     // relative to the scannerPosition
-    unsigned length = string.length();
-    unsigned scannerPosition = 0;
     int relativeStartPosition = 0;
     int relativeEndPosition = 0;
 
     auto characters = StringView(string).upconvertedCharacters();
+    auto span = characters.span();
 
+    bool shouldCheckElementAncestors = true;
     // While there's a phone number in the rest of the string...
-    while (scannerPosition < length && TelephoneNumberDetector::find(&characters[scannerPosition], length - scannerPosition, &relativeStartPosition, &relativeEndPosition)) {
+    while (!span.empty() && TelephoneNumberDetector::find(span, &relativeStartPosition, &relativeEndPosition)) {
+        if (std::exchange(shouldCheckElementAncestors, false)) {
+            for (RefPtr ancestor = &m_tree.currentElement(); ancestor; ancestor = ancestor->parentElement()) {
+                if (auto value = ancestor->getAttribute("data-mime-type"_s); value == "text/latex"_s) {
+                    m_tree.insertTextNode(string);
+                    return;
+                }
+            }
+        }
+
+        auto scannerPosition = span.data() - characters.span().data();
+
         // The convention in the Data Detectors framework is that the end position is the first character NOT in the phone number
         // (that is, the length of the range is relativeEndPosition - relativeStartPosition). So substract 1 to get the same
         // convention as the old WebCore phone number parser (so that the rest of the code is still valid if we want to go back
         // to the old parser).
         --relativeEndPosition;
 
-        ASSERT(scannerPosition + relativeEndPosition < length);
+        ASSERT(static_cast<unsigned>(scannerPosition + relativeEndPosition) < string.length());
 
         m_tree.insertTextNode(string.substring(scannerPosition, relativeStartPosition));
         insertPhoneNumberLink(string.substring(scannerPosition + relativeStartPosition, relativeEndPosition - relativeStartPosition + 1));
 
-        scannerPosition += relativeEndPosition + 1;
+        skip(span, relativeEndPosition + 1);
     }
 
     // Append the rest as a text node.
+    size_t scannerPosition = span.data() - characters.span().data();
     if (scannerPosition > 0) {
-        if (scannerPosition < length) {
-            String after = string.substring(scannerPosition, length - scannerPosition);
-            m_tree.insertTextNode(after);
-        }
+        if (scannerPosition < string.length())
+            m_tree.insertTextNode(string.substring(scannerPosition));
     } else
         m_tree.insertTextNode(string);
 }
@@ -2494,13 +2505,17 @@ void HTMLTreeBuilder::linkifyPhoneNumbers(const String& string)
 // Looks at the ancestors of the element to determine whether we're inside an element which disallows parsing phone numbers.
 static inline bool disallowTelephoneNumberParsing(const ContainerNode& node)
 {
-    if (node.isLink() || is<HTMLFormControlElement>(node))
+    if (is<HTMLFormControlElement>(node))
         return true;
 
-    if (!is<Element>(node))
+    auto* element = dynamicDowncast<Element>(node);
+    if (!element)
         return false;
 
-    switch (downcast<Element>(node).elementName()) {
+    if (element->isLink())
+        return true;
+
+    switch (element->elementName()) {
     case HTML::a:
     case HTML::script:
     case HTML::style:
@@ -2515,6 +2530,14 @@ static inline bool disallowTelephoneNumberParsing(const ContainerNode& node)
 
 static inline bool shouldParseTelephoneNumbersInNode(const ContainerNode& node)
 {
+    if (node.namespaceURI() != HTMLNames::xhtmlNamespaceURI)
+        return false;
+
+    // FIXME: It seems very wasteful to perform a full ancestor walk to check whether we should create
+    // telephone number links, when parsing every text node in the document. Ideally, we should maintain
+    // the count of elements that disallow telephone number parsing while pushing or popping from the
+    // HTML element stack, so that the check for whether or not we should parse telephone numbers in any
+    // given text node becomes constant time.
     for (const ContainerNode* ancestor = &node; ancestor; ancestor = ancestor->parentNode()) {
         if (disallowTelephoneNumberParsing(*ancestor))
             return false;
@@ -3029,7 +3052,7 @@ void HTMLTreeBuilder::processTokenInForeignContent(AtomHTMLToken&& token)
         default:
             break;
         }
-        const AtomString& currentNamespace = adjustedCurrentNode.namespaceURI();
+        auto& currentNamespace = adjustedCurrentNode.namespaceURI();
         if (currentNamespace == MathMLNames::mathmlNamespaceURI)
             adjustMathMLAttributes(token);
         if (currentNamespace == SVGNames::svgNamespaceURI) {
@@ -3037,6 +3060,15 @@ void HTMLTreeBuilder::processTokenInForeignContent(AtomHTMLToken&& token)
             adjustSVGAttributes(token);
         }
         adjustForeignAttributes(token);
+
+        if (token.tagName() == TagName::script && token.selfClosing() && currentNamespace == SVGNames::svgNamespaceURI) {
+            token.setSelfClosingToFalse();
+            m_tree.insertForeignElement(WTFMove(token), currentNamespace);
+            AtomHTMLToken fakeToken(HTMLToken::Type::EndTag, TagName::script);
+            processTokenInForeignContent(WTFMove(fakeToken));
+            return;
+        }
+
         m_tree.insertForeignElement(WTFMove(token), currentNamespace);
         break;
     }
@@ -3107,6 +3139,16 @@ void HTMLTreeBuilder::finished()
 
 inline void HTMLTreeBuilder::parseError(const AtomHTMLToken&)
 {
+}
+
+bool HTMLTreeBuilder::isOnStackOfOpenElements(Element& element) const
+{
+    return m_tree.openElements().contains(element);
+}
+
+RefPtr<const ScriptElement> HTMLTreeBuilder::protectedScriptToProcess() const
+{
+    return m_scriptToProcess;
 }
 
 }

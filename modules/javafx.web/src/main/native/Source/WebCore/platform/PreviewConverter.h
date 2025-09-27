@@ -32,11 +32,21 @@
 #include "SharedBuffer.h"
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 OBJC_CLASS QLPreviewConverter;
 OBJC_CLASS WebPreviewConverterDelegate;
+
+namespace WebCore {
+struct PreviewPlatformDelegate;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::PreviewPlatformDelegate> : std::true_type { };
+}
 
 namespace WebCore {
 
@@ -54,7 +64,7 @@ struct PreviewPlatformDelegate : CanMakeWeakPtr<PreviewPlatformDelegate> {
 };
 
 class PreviewConverter final : private PreviewPlatformDelegate, public RefCounted<PreviewConverter> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PreviewConverter);
     WTF_MAKE_NONCOPYABLE(PreviewConverter);
 public:
     static Ref<PreviewConverter> create(const ResourceResponse& response, PreviewConverterProvider& provider)
@@ -85,7 +95,7 @@ public:
     WEBCORE_EXPORT static void setPasswordForTesting(const String&);
 
 private:
-    static HashSet<String, ASCIICaseInsensitiveHash> platformSupportedMIMETypes();
+    static UncheckedKeyHashSet<String, ASCIICaseInsensitiveHash> platformSupportedMIMETypes();
 
     PreviewConverter(const ResourceResponse&, PreviewConverterProvider&);
 

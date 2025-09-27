@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,17 +32,48 @@ namespace WebCore {
 
 Ref<ByteArrayPixelBuffer> ByteArrayPixelBuffer::create(const PixelBufferFormat& format, const IntSize& size, JSC::Uint8ClampedArray& data)
 {
+    ASSERT(format.pixelFormat == PixelFormat::RGBA8 || format.pixelFormat == PixelFormat::BGRA8);
     return adoptRef(*new ByteArrayPixelBuffer(format, size, { data }));
+}
+
+std::optional<Ref<ByteArrayPixelBuffer>> ByteArrayPixelBuffer::create(const PixelBufferFormat& format, const IntSize& size, std::span<const uint8_t> data)
+{
+    if (!(format.pixelFormat == PixelFormat::RGBA8 || format.pixelFormat == PixelFormat::BGRA8)) {
+        ASSERT_NOT_REACHED();
+        return std::nullopt;
+    }
+
+    auto computedBufferSize = PixelBuffer::computeBufferSize(format.pixelFormat, size);
+    if (computedBufferSize.hasOverflowed()) {
+        ASSERT_NOT_REACHED();
+        return std::nullopt;
+    }
+
+    if (data.size_bytes() != computedBufferSize.value()) {
+        ASSERT_NOT_REACHED();
+        return std::nullopt;
+    }
+
+    auto buffer = Uint8ClampedArray::tryCreate(data.data(), data.size_bytes());
+    if (!buffer) {
+        ASSERT_NOT_REACHED();
+        return std::nullopt;
+    }
+
+    return ByteArrayPixelBuffer::create(format, size, buffer.releaseNonNull());
 }
 
 RefPtr<ByteArrayPixelBuffer> ByteArrayPixelBuffer::tryCreate(const PixelBufferFormat& format, const IntSize& size)
 {
     ASSERT(supportedPixelFormat(format.pixelFormat));
 
-    auto bufferSize = computeBufferSize(format, size);
-    if (bufferSize.hasOverflowed())
+    if (!(format.pixelFormat == PixelFormat::RGBA8 || format.pixelFormat == PixelFormat::BGRA8)) {
+        ASSERT_NOT_REACHED();
         return nullptr;
-    if (bufferSize > std::numeric_limits<int32_t>::max())
+    }
+
+    auto bufferSize = computeBufferSize(format.pixelFormat, size);
+    if (bufferSize.hasOverflowed())
         return nullptr;
 
     auto data = Uint8ClampedArray::tryCreateUninitialized(bufferSize);
@@ -56,21 +87,23 @@ RefPtr<ByteArrayPixelBuffer> ByteArrayPixelBuffer::tryCreate(const PixelBufferFo
 {
     ASSERT(supportedPixelFormat(format.pixelFormat));
 
-    auto bufferSize = computeBufferSize(format, size);
+    if (!(format.pixelFormat == PixelFormat::RGBA8 || format.pixelFormat == PixelFormat::BGRA8)) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    auto bufferSize = computeBufferSize(format.pixelFormat, size);
     if (bufferSize.hasOverflowed())
         return nullptr;
     if (bufferSize != arrayBuffer->byteLength())
         return nullptr;
 
-    auto data = Uint8ClampedArray::tryCreate(WTFMove(arrayBuffer), 0, bufferSize);
-    if (!data)
-        return nullptr;
-
-    return create(format, size, data.releaseNonNull());
+    Ref data = Uint8ClampedArray::create(WTFMove(arrayBuffer));
+    return create(format, size, WTFMove(data));
 }
 
 ByteArrayPixelBuffer::ByteArrayPixelBuffer(const PixelBufferFormat& format, const IntSize& size, Ref<JSC::Uint8ClampedArray>&& data)
-    : PixelBuffer(format, size, data->data(), data->byteLength())
+    : PixelBuffer(format, size, data->mutableSpan())
     , m_data(WTFMove(data))
 {
 }
@@ -78,6 +111,13 @@ ByteArrayPixelBuffer::ByteArrayPixelBuffer(const PixelBufferFormat& format, cons
 RefPtr<PixelBuffer> ByteArrayPixelBuffer::createScratchPixelBuffer(const IntSize& size) const
 {
     return ByteArrayPixelBuffer::tryCreate(m_format, size);
+}
+
+std::span<const uint8_t> ByteArrayPixelBuffer::span() const
+{
+    Ref data = m_data;
+    ASSERT(data->byteLength() == (m_size.area() * 4));
+    return data->span();
 }
 
 } // namespace WebCore

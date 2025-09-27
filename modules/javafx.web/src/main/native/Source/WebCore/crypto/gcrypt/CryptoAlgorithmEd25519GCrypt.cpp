@@ -27,7 +27,7 @@
 
 namespace WebCore {
 
-static bool extractEDDSASignatureInteger(Vector<uint8_t>& signature, gcry_sexp_t signatureSexp, const char* integerName, size_t keySizeInBytes)
+static bool extractEDDSASignatureInteger(Vector<uint8_t>& signature, gcry_sexp_t signatureSexp, ASCIILiteral integerName, size_t keySizeInBytes)
 {
     // Retrieve byte data of the specified integer.
     PAL::GCrypt::Handle<gcry_sexp_t> integerSexp(gcry_sexp_find_token(signatureSexp, integerName, 0));
@@ -41,11 +41,11 @@ static bool extractEDDSASignatureInteger(Vector<uint8_t>& signature, gcry_sexp_t
     size_t dataSize = integerData->size();
     if (dataSize >= keySizeInBytes) {
         // Append the last `keySizeInBytes` bytes of the data Vector, if available.
-        signature.append(&integerData->at(dataSize - keySizeInBytes), keySizeInBytes);
+        signature.append(integerData->subspan(dataSize - keySizeInBytes, keySizeInBytes));
     } else {
         // If not, prefix the binary data with zero bytes.
         for (size_t paddingSize = keySizeInBytes - dataSize; paddingSize > 0; --paddingSize)
-            signature.uncheckedAppend(0x00);
+            signature.append(0x00);
         signature.appendVector(*integerData);
     }
 
@@ -63,7 +63,7 @@ static ExceptionOr<Vector<uint8_t>> signEd25519(const Vector<uint8_t>& sk, size_
             data.size(), data.data());
         if (error != GPG_ERR_NO_ERROR) {
             PAL::GCrypt::logError(error);
-            return Exception { OperationError };
+            return Exception { ExceptionCode::OperationError };
         }
     }
 
@@ -73,7 +73,7 @@ static ExceptionOr<Vector<uint8_t>> signEd25519(const Vector<uint8_t>& sk, size_
         sk.size(), sk.data());
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     }
 
     // Perform the PK signing, retrieving a sig-val s-expression of the following form:
@@ -85,7 +85,7 @@ static ExceptionOr<Vector<uint8_t>> signEd25519(const Vector<uint8_t>& sk, size_
     error = gcry_pk_sign(&signatureSexp, dataSexp, keySexp);
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     }
 
     // Retrieve MPI data of the resulting r and s integers. They are concatenated into
@@ -93,9 +93,9 @@ static ExceptionOr<Vector<uint8_t>> signEd25519(const Vector<uint8_t>& sk, size_
     Vector<uint8_t> signature;
     signature.reserveInitialCapacity(64);
 
-    if (!extractEDDSASignatureInteger(signature, signatureSexp, "r", keySizeInBytes)
-        || !extractEDDSASignatureInteger(signature, signatureSexp, "s", keySizeInBytes))
-        return Exception { OperationError };
+    if (!extractEDDSASignatureInteger(signature, signatureSexp, "r"_s, keySizeInBytes)
+        || !extractEDDSASignatureInteger(signature, signatureSexp, "s"_s, keySizeInBytes))
+        return Exception { ExceptionCode::OperationError };
 
     return signature;
 }
@@ -108,7 +108,7 @@ static ExceptionOr<bool> verifyEd25519(const Vector<uint8_t>& key, size_t keyLen
     // Construct the sig-val s-expression, extracting the r and s components from the signature vector.
     PAL::GCrypt::Handle<gcry_sexp_t> signatureSexp;
     gcry_error_t error = gcry_sexp_build(&signatureSexp, nullptr, "(sig-val(eddsa(r %b)(s %b)))",
-        keyLengthInBytes, signature.data(), keyLengthInBytes, signature.data() + keyLengthInBytes);
+        keyLengthInBytes, signature.data(), keyLengthInBytes, signature.subspan(keyLengthInBytes).data());
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
         return false;

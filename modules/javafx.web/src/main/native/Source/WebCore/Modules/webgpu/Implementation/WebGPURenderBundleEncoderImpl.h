@@ -30,13 +30,14 @@
 #include "WebGPUPtr.h"
 #include "WebGPURenderBundleEncoder.h"
 #include <WebGPU/WebGPU.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore::WebGPU {
 
 class ConvertToBackingContext;
 
 class RenderBundleEncoderImpl final : public RenderBundleEncoder {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RenderBundleEncoderImpl);
 public:
     static Ref<RenderBundleEncoderImpl> create(WebGPUPtr<WGPURenderBundleEncoder>&& renderBundleEncoder, ConvertToBackingContext& convertToBackingContext)
     {
@@ -60,7 +61,7 @@ private:
     void setPipeline(const RenderPipeline&) final;
 
     void setIndexBuffer(const Buffer&, IndexFormat, std::optional<Size64> offset, std::optional<Size64>) final;
-    void setVertexBuffer(Index32 slot, const Buffer&, std::optional<Size64> offset, std::optional<Size64>) final;
+    void setVertexBuffer(Index32 slot, const Buffer*, std::optional<Size64> offset, std::optional<Size64>) final;
 
     void draw(Size32 vertexCount, std::optional<Size32> instanceCount,
         std::optional<Size32> firstVertex, std::optional<Size32> firstInstance) final;
@@ -76,8 +77,7 @@ private:
         std::optional<Vector<BufferDynamicOffset>>&& dynamicOffsets) final;
 
     void setBindGroup(Index32, const BindGroup&,
-        const uint32_t* dynamicOffsetsArrayBuffer,
-        size_t dynamicOffsetsArrayBufferLength,
+        std::span<const uint32_t> dynamicOffsetsArrayBuffer,
         Size64 dynamicOffsetsDataStart,
         Size32 dynamicOffsetsDataLength) final;
 
@@ -85,9 +85,11 @@ private:
     void popDebugGroup() final;
     void insertDebugMarker(String&& markerLabel) final;
 
-    Ref<RenderBundle> finish(const RenderBundleDescriptor&) final;
+    RefPtr<RenderBundle> finish(const RenderBundleDescriptor&) final;
 
     void setLabelInternal(const String&) final;
+
+    Ref<ConvertToBackingContext> protectedConvertToBackingContext() const { return m_convertToBackingContext; }
 
     WebGPUPtr<WGPURenderBundleEncoder> m_backing;
     Ref<ConvertToBackingContext> m_convertToBackingContext;

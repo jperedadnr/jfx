@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "ExceptionOr.h"
 #include "GPUColorDict.h"
 #include "GPUIndexFormat.h"
 #include "GPUIntegralTypes.h"
@@ -45,11 +46,15 @@ class GPUQuerySet;
 class GPURenderBundle;
 class GPURenderPipeline;
 
+namespace WebGPU {
+class Device;
+}
+
 class GPURenderPassEncoder : public RefCounted<GPURenderPassEncoder> {
 public:
-    static Ref<GPURenderPassEncoder> create(Ref<WebGPU::RenderPassEncoder>&& backing)
+    static Ref<GPURenderPassEncoder> create(Ref<WebGPU::RenderPassEncoder>&& backing, WebGPU::Device& device)
     {
-        return adoptRef(*new GPURenderPassEncoder(WTFMove(backing)));
+        return adoptRef(*new GPURenderPassEncoder(WTFMove(backing), device));
     }
 
     String label() const;
@@ -58,7 +63,7 @@ public:
     void setPipeline(const GPURenderPipeline&);
 
     void setIndexBuffer(const GPUBuffer&, GPUIndexFormat, std::optional<GPUSize64> offset, std::optional<GPUSize64>);
-    void setVertexBuffer(GPUIndex32 slot, const GPUBuffer&, std::optional<GPUSize64> offset, std::optional<GPUSize64>);
+    void setVertexBuffer(GPUIndex32 slot, const GPUBuffer*, std::optional<GPUSize64> offset, std::optional<GPUSize64>);
 
     void draw(GPUSize32 vertexCount, std::optional<GPUSize32> instanceCount,
         std::optional<GPUSize32> firstVertex, std::optional<GPUSize32> firstInstance);
@@ -73,7 +78,7 @@ public:
     void setBindGroup(GPUIndex32, const GPUBindGroup&,
         std::optional<Vector<GPUBufferDynamicOffset>>&& dynamicOffsets);
 
-    void setBindGroup(GPUIndex32, const GPUBindGroup&,
+    ExceptionOr<void> setBindGroup(GPUIndex32, const GPUBindGroup&,
         const Uint32Array& dynamicOffsetsData,
         GPUSize64 dynamicOffsetsDataStart,
         GPUSize32 dynamicOffsetsDataLength);
@@ -95,19 +100,17 @@ public:
     void beginOcclusionQuery(GPUSize32 queryIndex);
     void endOcclusionQuery();
 
-    void executeBundles(Vector<RefPtr<GPURenderBundle>>&&);
+    void executeBundles(Vector<Ref<GPURenderBundle>>&&);
     void end();
 
     WebGPU::RenderPassEncoder& backing() { return m_backing; }
     const WebGPU::RenderPassEncoder& backing() const { return m_backing; }
 
 private:
-    GPURenderPassEncoder(Ref<WebGPU::RenderPassEncoder>&& backing)
-        : m_backing(WTFMove(backing))
-    {
-    }
+    GPURenderPassEncoder(Ref<WebGPU::RenderPassEncoder>&& backing, WebGPU::Device&);
 
     Ref<WebGPU::RenderPassEncoder> m_backing;
+    WeakPtr<WebGPU::Device> m_device;
 };
 
 }

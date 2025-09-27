@@ -82,10 +82,8 @@ public:
         return *this;
     }
 
-    bool operator!() const
-    {
-        return !get();
-    }
+    bool operator!() const { return !get(); }
+    explicit operator bool() const { return !!get(); }
 
     RetainPtr<ValueType> get() const;
 
@@ -108,6 +106,8 @@ private:
     mutable id m_weakReference { nullptr };
 #endif
 };
+
+template<typename T> WeakObjCPtr(T) -> WeakObjCPtr<std::remove_pointer_t<T>>;
 
 #ifdef __OBJC__
 template<typename T>

@@ -32,17 +32,27 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakHashMap.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+class PlatformGamepad;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::PlatformGamepad> : std::true_type { };
+}
+
+namespace WebCore {
 
 struct GamepadEffectParameters;
 
 class PlatformGamepad : public CanMakeWeakPtr<PlatformGamepad> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(PlatformGamepad);
 public:
     virtual ~PlatformGamepad() = default;
 
@@ -58,7 +68,7 @@ public:
     virtual void playEffect(GamepadHapticEffectType, const GamepadEffectParameters&, CompletionHandler<void(bool)>&& completionHandler) { completionHandler(false); }
     virtual void stopEffects(CompletionHandler<void()>&& completionHandler) { completionHandler(); }
 
-    virtual const char* source() const { return "Unknown"_s; }
+    virtual ASCIILiteral source() const { return "Unknown"_s; }
 
 protected:
     explicit PlatformGamepad(unsigned index)

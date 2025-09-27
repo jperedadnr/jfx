@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2010, Google Inc. All rights reserved.
- * Copyright (C) 2008, 2011, 2014-2016 Apple Inc. All Rights Reserved.
+ * Copyright (c) 2010-2023 Google Inc. All rights reserved.
+ * Copyright (C) 2008-2024 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -41,18 +41,34 @@
 #include "Logging.h"
 #include "PlatformWheelEvent.h"
 #include "ScrollAnimator.h"
+#include "ScrollbarColor.h"
 #include "ScrollbarGutter.h"
 #include "ScrollbarTheme.h"
 #include "ScrollbarsControllerMock.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
+struct SameSizeAsScrollableArea;
+}
 
-struct SameSizeAsScrollableArea : public CanMakeWeakPtr<SameSizeAsScrollableArea>, public CanMakeCheckedPtr {
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::SameSizeAsScrollableArea> : std::true_type { };
+}
+
+namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScrollableArea);
+
+struct SameSizeAsScrollableArea final : public CanMakeWeakPtr<SameSizeAsScrollableArea> {
+    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+
     ~SameSizeAsScrollableArea() { }
     SameSizeAsScrollableArea() { }
     void* pointer[3];
     IntPoint origin;
+    Markable<ScrollingNodeID> testID;
     bool bytes[9];
 };
 
@@ -75,7 +91,7 @@ ScrollbarsController& ScrollableArea::scrollbarsController() const
 {
     if (!m_scrollbarsController)
         const_cast<ScrollableArea&>(*this).internalCreateScrollbarsController();
-
+    RELEASE_ASSERT(m_scrollbarsController);
     return *m_scrollbarsController.get();
 }
 
@@ -116,7 +132,7 @@ float ScrollableArea::adjustVerticalPageScrollStepForFixedContent(float step)
 
 bool ScrollableArea::scroll(ScrollDirection direction, ScrollGranularity granularity, unsigned stepCount)
 {
-    auto* scrollbar = scrollbarForDirection(direction);
+    RefPtr scrollbar = scrollbarForDirection(direction);
     if (!scrollbar)
         return false;
 
@@ -143,7 +159,7 @@ bool ScrollableArea::scroll(ScrollDirection direction, ScrollGranularity granula
 
     auto scrollDelta = step * stepCount;
 
-    if (direction == ScrollUp || direction == ScrollLeft)
+    if (direction == ScrollDirection::ScrollUp || direction == ScrollDirection::ScrollLeft)
         scrollDelta = -scrollDelta;
 
     return scrollAnimator().singleAxisScroll(axis, scrollDelta, ScrollAnimator::ScrollBehavior::RespectScrollSnap);
@@ -165,10 +181,10 @@ void ScrollableArea::endKeyboardScroll(bool immediate)
         setScrollAnimationStatus(ScrollAnimationStatus::NotAnimating);
 }
 
-void ScrollableArea::scrollToPositionWithoutAnimation(const FloatPoint& position, ScrollClamping clamping)
+bool ScrollableArea::scrollToPositionWithoutAnimation(const FloatPoint& position, ScrollClamping clamping)
 {
     LOG_WITH_STREAM(Scrolling, stream << "ScrollableArea " << this << " scrollToPositionWithoutAnimation " << position);
-    scrollAnimator().scrollToPositionWithoutAnimation(position, clamping);
+    return scrollAnimator().scrollToPositionWithoutAnimation(position, clamping);
 }
 
 void ScrollableArea::scrollToPositionWithAnimation(const FloatPoint& position, const ScrollPositionChangeOptions& options)
@@ -204,11 +220,11 @@ void ScrollableArea::scrollToOffsetWithoutAnimation(const FloatPoint& offset, Sc
 
 void ScrollableArea::scrollToOffsetWithoutAnimation(ScrollbarOrientation orientation, float offset)
 {
-    auto currentPosition = scrollAnimator().currentPosition();
+    auto currentOffset = scrollOffsetFromPosition(scrollAnimator().currentPosition(), toFloatSize(scrollOrigin()));
     if (orientation == ScrollbarOrientation::Horizontal)
-        scrollAnimator().scrollToPositionWithoutAnimation(FloatPoint(offset, currentPosition.y()));
+        scrollToOffsetWithoutAnimation(FloatPoint(offset, currentOffset.y()));
     else
-        scrollAnimator().scrollToPositionWithoutAnimation(FloatPoint(currentPosition.x(), offset));
+        scrollToOffsetWithoutAnimation(FloatPoint(currentOffset.x(), offset));
 }
 
 void ScrollableArea::notifyScrollPositionChanged(const ScrollPosition& position)
@@ -246,8 +262,11 @@ void ScrollableArea::scrollPositionChanged(const ScrollPosition& position)
             verticalScrollbar->invalidate();
     }
 
-    if (scrollPosition() != oldPosition)
+    if (scrollPosition() != oldPosition) {
         scrollbarsController().notifyContentAreaScrolled(scrollPosition() - oldPosition);
+        invalidateScrollAnchoringElement();
+        updateScrollAnchoringElement();
+    }
 }
 
 bool ScrollableArea::handleWheelEventForScrolling(const PlatformWheelEvent& wheelEvent, std::optional<WheelScrollGestureState>)
@@ -522,6 +541,16 @@ String ScrollableArea::verticalScrollbarStateForTesting() const
     return scrollbarsController().verticalScrollbarStateForTesting();
 }
 
+Color ScrollableArea::scrollbarThumbColorStyle() const
+{
+    return { };
+}
+
+Color ScrollableArea::scrollbarTrackColorStyle() const
+{
+    return { };
+}
+
 ScrollbarGutter ScrollableArea::scrollbarGutterStyle() const
 {
     return { };
@@ -761,12 +790,12 @@ IntSize ScrollableArea::totalContentsSize() const
 
 IntRect ScrollableArea::visibleContentRect(VisibleContentRectBehavior visibleContentRectBehavior) const
 {
-    return visibleContentRectInternal(ExcludeScrollbars, visibleContentRectBehavior);
+    return visibleContentRectInternal(VisibleContentRectIncludesScrollbars::No, visibleContentRectBehavior);
 }
 
 IntRect ScrollableArea::visibleContentRectIncludingScrollbars(VisibleContentRectBehavior visibleContentRectBehavior) const
 {
-    return visibleContentRectInternal(IncludeScrollbars, visibleContentRectBehavior);
+    return visibleContentRectInternal(VisibleContentRectIncludesScrollbars::Yes, visibleContentRectBehavior);
 }
 
 IntRect ScrollableArea::visibleContentRectInternal(VisibleContentRectIncludesScrollbars scrollbarInclusion, VisibleContentRectBehavior) const
@@ -774,7 +803,7 @@ IntRect ScrollableArea::visibleContentRectInternal(VisibleContentRectIncludesScr
     int verticalScrollbarWidth = 0;
     int horizontalScrollbarHeight = 0;
 
-    if (scrollbarInclusion == IncludeScrollbars) {
+    if (scrollbarInclusion == VisibleContentRectIncludesScrollbars::Yes) {
         if (Scrollbar* verticalBar = verticalScrollbar())
             verticalScrollbarWidth = verticalBar->occupiedWidth();
         if (Scrollbar* horizontalBar = horizontalScrollbar())
@@ -886,10 +915,8 @@ LayoutRect ScrollableArea::getRectToExposeForScrollIntoView(const LayoutRect& vi
             // then treat it as fully visible to avoid unnecessary horizontal scrolling
             scrollX = alignX.getVisibleBehavior();
         } else if (intersectWidth == visibleBounds.width()) {
-            // If the rect is bigger than the visible area, don't bother trying to center. Other alignments will work.
+            // The rect is bigger than the visible area.
             scrollX = alignX.getVisibleBehavior();
-            if (scrollX == ScrollAlignment::Behavior::AlignCenter)
-                scrollX = ScrollAlignment::Behavior::NoScroll;
         } else if (intersectWidth > 0)
             // If the rectangle is partially visible, but not above the minimum threshold, use the specified partial behavior
             scrollX = alignX.getPartialBehavior();
@@ -928,10 +955,8 @@ LayoutRect ScrollableArea::getRectToExposeForScrollIntoView(const LayoutRect& vi
             // If the rectangle is fully visible, use the specified visible behavior.
             scrollY = alignY.getVisibleBehavior();
         } else if (intersectHeight == visibleBounds.height()) {
-            // If the rect is bigger than the visible area, don't bother trying to center. Other alignments will work.
+            // The rect is bigger than the visible area.
             scrollY = alignY.getVisibleBehavior();
-            if (scrollY == ScrollAlignment::Behavior::AlignCenter)
-                scrollY = ScrollAlignment::Behavior::NoScroll;
         } else if (intersectHeight > 0)
             // If the rectangle is partially visible, use the specified partial behavior
             scrollY = alignY.getPartialBehavior();
@@ -950,9 +975,10 @@ LayoutRect ScrollableArea::getRectToExposeForScrollIntoView(const LayoutRect& vi
         y = visibleBounds.y();
     else if (scrollY == ScrollAlignment::Behavior::AlignBottom)
         y = exposeRect.maxY() - visibleBounds.height();
-    else if (scrollY == ScrollAlignment::Behavior::AlignCenter)
-        y = exposeRect.y() + (exposeRect.height() - visibleBounds.height()) / 2;
-    else
+    else if (scrollY == ScrollAlignment::Behavior::AlignCenter) {
+        auto halfHeight = (exposeRect.height() - visibleBounds.height()) / 2;
+        y = exposeRect.y() + halfHeight.ceil();
+    } else
         y = exposeRect.y();
 
     return LayoutRect(LayoutPoint(x, y), visibleBounds.size());
@@ -976,10 +1002,28 @@ FloatSize ScrollableArea::deltaForPropagation(const FloatSize& biasedDelta) cons
 
 bool ScrollableArea::shouldBlockScrollPropagation(const FloatSize& biasedDelta) const
 {
-    return ((horizontalOverscrollBehaviorPreventsPropagation() || verticalOverscrollBehaviorPreventsPropagation())
-        && ((horizontalOverscrollBehaviorPreventsPropagation() && verticalOverscrollBehaviorPreventsPropagation())
-        || (horizontalOverscrollBehaviorPreventsPropagation() && !biasedDelta.height()) || (verticalOverscrollBehaviorPreventsPropagation()
-        && !biasedDelta.width())));
+    bool preventsHorizontalPropagation = horizontalOverscrollBehaviorPreventsPropagation();
+    bool preventsVerticalPropagation = verticalOverscrollBehaviorPreventsPropagation();
+    if (preventsHorizontalPropagation && preventsVerticalPropagation)
+        return true;
+
+    if (preventsHorizontalPropagation)
+        return !biasedDelta.height();
+
+    if (preventsVerticalPropagation)
+        return !biasedDelta.width();
+
+    return false;
+}
+
+ScrollingNodeID ScrollableArea::scrollingNodeIDForTesting()
+{
+    if (m_scrollingNodeIDForTesting)
+        return *m_scrollingNodeIDForTesting;
+    auto testingNodeID = scrollingNodeID();
+    if (!testingNodeID)
+        m_scrollingNodeIDForTesting = testingNodeID = ScrollingNodeID::generate();
+    return *testingNodeID;
 }
 
 } // namespace WebCore

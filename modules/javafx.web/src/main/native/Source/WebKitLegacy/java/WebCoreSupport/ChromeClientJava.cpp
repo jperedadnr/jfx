@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,16 +25,16 @@
 
 
 #include "ChromeClientJava.h"
+#include "DataListSuggestionPicker.h"
+#include <WebCore/DateTimeChooser.h>
 #if ENABLE(INPUT_TYPE_COLOR)
 #include "ColorChooserJava.h"
 #endif
 #include <WebCore/ContextMenu.h>
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-#include <WebCore/DateTimeChooser.h>
-#endif
 #include "PopupMenuJava.h"
 #include "SearchPopupMenuJava.h"
 #include "WebPage.h"
+#include "Cursor.h"
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/DragController.h>
 #include <WebCore/FileChooser.h>
@@ -216,9 +216,9 @@ void ChromeClientJava::chromeDestroyed()
 }
 
 #if ENABLE(INPUT_TYPE_COLOR)
-std::unique_ptr<ColorChooser> ChromeClientJava::createColorChooser(ColorChooserClient& client, const Color& initialColor)
+RefPtr<ColorChooser> ChromeClientJava::createColorChooser(ColorChooserClient& client, const Color& initialColor)
 {
-    return std::make_unique<ColorChooserJava>(m_webPage, &client, initialColor);
+    return adoptRef(new ColorChooserJava(m_webPage, &client, initialColor));
 }
 #endif
 
@@ -321,13 +321,23 @@ void ChromeClientJava::focusedElementChanged(Element*)
     notImplemented();
 }
 
-void ChromeClientJava::focusedFrameChanged(LocalFrame*)
+void ChromeClientJava::focusedFrameChanged(Frame*)
 {
     notImplemented();
 }
 
-Page* ChromeClientJava::createWindow(
-    LocalFrame& frame,
+void ChromeClientJava::rootFrameAdded(const LocalFrame&)
+{
+   notImplemented();
+}
+
+void ChromeClientJava::rootFrameRemoved(const LocalFrame&)
+{
+    notImplemented();
+}
+
+RefPtr<Page> ChromeClientJava::createWindow(
+    LocalFrame& frame, const String& openedMainFrameName,
     const WindowFeatures& features,
     const NavigationAction& na)
 {
@@ -345,13 +355,16 @@ Page* ChromeClientJava::createWindow(
     WTF::CheckAndClearException(env);
 
     if (!newWebPage) {
-        return 0;
+        return nullptr;
     }
 
     Page* p = WebPage::pageFromJObject(newWebPage);
     auto localFrame =  dynamicDowncast<LocalFrame>(p->mainFrame());
+    //set opened frame name
+    if (!openedMainFrameName.isEmpty())
+        localFrame->tree().setSpecifiedName(AtomString(openedMainFrameName));
     localFrame->loader().load(FrameLoadRequest(*localFrame, ResourceRequest(na.url())));
-    return p;
+    return RefPtr<Page>(p);
 }
 
 void ChromeClientJava::closeWindow()
@@ -712,6 +725,26 @@ IntPoint ChromeClientJava::screenToRootView(const IntPoint& p) const
     );
 }
 
+IntPoint ChromeClientJava::rootViewToScreen(const IntPoint& point) const
+{
+    return IntPoint();
+}
+
+bool ChromeClientJava::canShowDataListSuggestionLabels() const
+{
+    return false;
+}
+
+RefPtr<DateTimeChooser> ChromeClientJava::createDateTimeChooser(DateTimeChooserClient& client)
+{
+    return nullptr;
+}
+
+RefPtr<DataListSuggestionPicker> ChromeClientJava::createDataListSuggestionPicker(DataListSuggestionsClient& client)
+{
+    return nullptr;
+}
+
 IntRect ChromeClientJava::rootViewToScreen(const IntRect& r) const
 {
     using namespace ChromeClientJavaInternal;
@@ -775,7 +808,7 @@ void ChromeClientJava::contentsSizeChanged(LocalFrame&, const IntSize&) const
 void ChromeClientJava::invalidateRootView(const IntRect&)
 {
     // Nothing to do here as all necessary repaints are scheduled
-    // by ChromeClientJava::scroll(). See also RT-29123.
+    // by ChromeClientJava::scroll(). See also JDK-8124810.
 }
 
 void ChromeClientJava::invalidateContentsAndRootView(const IntRect& updateRect)

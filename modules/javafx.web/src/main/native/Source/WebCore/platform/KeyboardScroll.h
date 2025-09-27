@@ -28,6 +28,10 @@
 #include "FloatSize.h"
 #include "ScrollTypes.h"
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
 WEBCORE_EXPORT FloatSize unitVectorForScrollDirection(ScrollDirection);
@@ -40,14 +44,7 @@ struct KeyboardScroll {
     ScrollGranularity granularity { ScrollGranularity::Line };
     ScrollDirection direction { ScrollDirection::ScrollUp };
 
-    bool operator==(const KeyboardScroll& other) const
-    {
-        return offset == other.offset
-            && maximumVelocity == other.maximumVelocity
-            && force == other.force
-            && granularity == other.granularity
-            && direction == other.direction;
-    }
+    friend bool operator==(const KeyboardScroll&, const KeyboardScroll&) = default;
 };
 
 struct KeyboardScrollParameters {
@@ -83,5 +80,8 @@ struct KeyboardScrollParameters {
 #endif
     }
 };
+
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const KeyboardScroll&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const KeyboardScrollParameters&);
 
 } // namespace WebCore

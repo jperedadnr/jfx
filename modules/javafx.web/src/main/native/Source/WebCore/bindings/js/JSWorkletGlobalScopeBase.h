@@ -29,10 +29,9 @@
 #include "JSDOMGlobalObject.h"
 #include "JSDOMWrapper.h"
 #include "JSEventTarget.h"
+#include "WorkletGlobalScope.h"
 
 namespace WebCore {
-
-class WorkletGlobalScope;
 
 class JSWorkletGlobalScopeBase : public JSDOMGlobalObject {
 public:
@@ -59,7 +58,7 @@ public:
     static JSC::RuntimeFlags javaScriptRuntimeFlags(const JSC::JSGlobalObject*);
     static JSC::ScriptExecutionStatus scriptExecutionStatus(JSC::JSGlobalObject*, JSC::JSObject*);
     static void queueMicrotaskToEventLoop(JSC::JSGlobalObject&, Ref<JSC::Microtask>&&);
-    static void reportViolationForUnsafeEval(JSC::JSGlobalObject*, JSC::JSString*);
+    static void reportViolationForUnsafeEval(JSC::JSGlobalObject*, const String&);
 
 protected:
     JSWorkletGlobalScopeBase(JSC::VM&, JSC::Structure*, RefPtr<WorkletGlobalScope>&&);

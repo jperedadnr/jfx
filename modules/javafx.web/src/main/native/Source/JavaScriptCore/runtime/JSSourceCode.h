@@ -36,7 +36,7 @@ public:
     using Base = JSCell;
 
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     DECLARE_EXPORT_INFO;
 
@@ -46,10 +46,7 @@ public:
         return vm.sourceCodeSpace<mode>();
     }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(JSSourceCodeType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     static JSSourceCode* create(VM& vm, Structure* structure, SourceCode&& sourceCode)
     {

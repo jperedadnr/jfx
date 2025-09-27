@@ -30,22 +30,21 @@
 
 #include "DOMAudioSession.h"
 #include "Navigator.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-NavigatorAudioSession::NavigatorAudioSession()
-{
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigatorAudioSession);
 
-NavigatorAudioSession::~NavigatorAudioSession()
-{
-}
+NavigatorAudioSession::NavigatorAudioSession() = default;
+
+NavigatorAudioSession::~NavigatorAudioSession() = default;
 
 RefPtr<DOMAudioSession> NavigatorAudioSession::audioSession(Navigator& navigator)
 {
     auto* navigatorAudioSession = NavigatorAudioSession::from(navigator);
     if (!navigatorAudioSession->m_audioSession)
-        navigatorAudioSession->m_audioSession = DOMAudioSession::create(navigator.scriptExecutionContext());
+        navigatorAudioSession->m_audioSession = DOMAudioSession::create(navigator.protectedScriptExecutionContext().get());
     return navigatorAudioSession->m_audioSession;
 }
 
@@ -60,9 +59,9 @@ NavigatorAudioSession* NavigatorAudioSession::from(Navigator& navigator)
     return supplement;
 }
 
-const char* NavigatorAudioSession::supplementName()
+ASCIILiteral NavigatorAudioSession::supplementName()
 {
-    return "NavigatorAudioSession";
+    return "NavigatorAudioSession"_s;
 }
 
 }

@@ -36,7 +36,7 @@
 #include "Editor.h"
 #include "ElementInlines.h"
 #include "HTMLBodyElement.h"
-#include "HighlightRegister.h"
+#include "HighlightRegistry.h"
 #include "Node.h"
 #include "Position.h"
 #include "RenderedDocumentMarker.h"
@@ -44,6 +44,7 @@
 #include "StaticRange.h"
 #include "TextIndicator.h"
 #include "TextIterator.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/UUID.h>
 
 namespace WebCore {
@@ -54,10 +55,7 @@ static constexpr unsigned textPreviewLength = 500;
 
 static RefPtr<Node> findNodeByPathIndex(const Node& parent, unsigned pathIndex, const String& nodeName)
 {
-    if (!is<ContainerNode>(parent))
-        return nullptr;
-
-    for (auto* child = downcast<ContainerNode>(parent).firstChild(); child; child = child->nextSibling()) {
+    for (RefPtr child = parent.firstChild(); child; child = child->nextSibling()) {
         if (nodeName != child->nodeName())
             continue;
 
@@ -80,7 +78,8 @@ static std::pair<RefPtr<Node>, size_t> findNodeStartingAtPathComponentIndex(cons
         if (!nextNode)
             return { nullptr, currentPathIndex };
 
-        if (is<CharacterData>(*nextNode) && downcast<CharacterData>(*nextNode).data() != component.textData)
+        auto* chararacterData = dynamicDowncast<CharacterData>(*nextNode);
+        if (chararacterData && chararacterData->data() != component.textData)
             return { nullptr, currentPathIndex };
 
         currentNode = WTFMove(nextNode);
@@ -124,8 +123,8 @@ static std::optional<SimpleRange> findRangeByIdentifyingStartAndEndPositions(con
     if (!endContainer)
         return std::nullopt;
 
-    auto start = makeContainerOffsetPosition(startContainer.get(), range.startOffset());
-    auto end = makeContainerOffsetPosition(endContainer.get(), range.endOffset());
+    auto start = makeContainerOffsetPosition(WTFMove(startContainer), range.startOffset());
+    auto end = makeContainerOffsetPosition(WTFMove(endContainer), range.endOffset());
     if (start.isOrphan() || end.isOrphan())
         return std::nullopt;
 
@@ -174,7 +173,7 @@ static unsigned computePathIndex(const Node& node)
 {
     String nodeName = node.nodeName();
     unsigned index = 0;
-    for (auto* previousSibling = node.previousSibling(); previousSibling; previousSibling = previousSibling->previousSibling()) {
+    for (RefPtr previousSibling = node.previousSibling(); previousSibling; previousSibling = previousSibling->previousSibling()) {
         if (previousSibling->nodeName() == nodeName)
             index++;
     }
@@ -183,10 +182,12 @@ static unsigned computePathIndex(const Node& node)
 
 static AppHighlightRangeData::NodePathComponent createNodePathComponent(const Node& node)
 {
+    auto* element = dynamicDowncast<Element>(node);
+    auto* characterData = dynamicDowncast<CharacterData>(node);
     return {
-        is<Element>(node) ? downcast<Element>(node).getIdAttribute().string() : nullString(),
+        element ? element->getIdAttribute().string() : nullString(),
         node.nodeName(),
-        is<CharacterData>(node) ? downcast<CharacterData>(node).data() : nullString(),
+        characterData ? characterData->data() : nullString(),
         computePathIndex(node)
     };
 }
@@ -216,6 +217,8 @@ static AppHighlightRangeData createAppHighlightRangeData(const StaticRange& rang
     };
 }
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AppHighlightStorage);
+
 AppHighlightStorage::AppHighlightStorage(Document& document)
     : m_document(document)
 {
@@ -223,7 +226,17 @@ AppHighlightStorage::AppHighlightStorage(Document& document)
 
 AppHighlightStorage::~AppHighlightStorage() = default;
 
-void AppHighlightStorage::storeAppHighlight(Ref<StaticRange>&& range)
+bool AppHighlightStorage::shouldRestoreHighlights(MonotonicTime timestamp)
+{
+    static constexpr auto highlightRestorationCheckDelay = 1_s;
+    if (timestamp - m_timeAtLastRangeSearch < highlightRestorationCheckDelay)
+        return false;
+
+    m_timeAtLastRangeSearch = timestamp;
+    return true;
+}
+
+void AppHighlightStorage::storeAppHighlight(Ref<StaticRange>&& range, CompletionHandler<void(AppHighlight&&)>&& completionHandler)
 {
     auto data = createAppHighlightRangeData(range);
     std::optional<String> text;
@@ -231,9 +244,8 @@ void AppHighlightStorage::storeAppHighlight(Ref<StaticRange>&& range)
     if (!data.text().isEmpty())
         text = data.text();
 
-    AppHighlight highlight = {data.toSharedBuffer(), text, CreateNewGroupForHighlight::No, HighlightRequestOriginatedInApp::No};
-
-    m_document->page()->chrome().storeAppHighlight(WTFMove(highlight));
+    AppHighlight highlight = { data.toSharedBuffer(), text, CreateNewGroupForHighlight::No, HighlightRequestOriginatedInApp::No };
+    completionHandler(WTFMove(highlight));
 }
 
 void AppHighlightStorage::restoreAndScrollToAppHighlight(Ref<FragmentedSharedBuffer>&& buffer, ScrollToHighlight scroll)
@@ -264,7 +276,7 @@ bool AppHighlightStorage::attemptToRestoreHighlightAndScroll(AppHighlightRangeDa
     if (!range)
         return false;
 
-    strongDocument->appHighlightRegister().addAnnotationHighlightWithRange(StaticRange::create(*range));
+    strongDocument->appHighlightRegistry().addAnnotationHighlightWithRange(StaticRange::create(*range));
 
     if (scroll == ScrollToHighlight::Yes) {
         auto textIndicator = TextIndicator::createWithRange(range.value(), { TextIndicatorOption::DoNotClipToVisibleRect }, WebCore::TextIndicatorPresentationTransition::Bounce);

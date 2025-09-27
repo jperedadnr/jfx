@@ -27,8 +27,10 @@
 // FIXME: The current standard says this should be annotated with 'SecureContext'.
 [
     Conditional=GEOLOCATION,
+    EnabledBySetting=GeolocationAPIEnabled,
     Exposed=Window
 ] interface GeolocationPosition {
     readonly attribute GeolocationCoordinates coords;
     readonly attribute EpochTimeStamp timestamp;
+    [Default] object toJSON();
 };

@@ -44,7 +44,7 @@ void AttributeChangeInvalidation::invalidateStyle(const QualifiedName& attribute
     if (newValue == oldValue)
         return;
 
-    bool isHTML = m_element.isHTMLElement() && m_element.document().isHTMLDocument();
+    bool isHTML = m_element->isHTMLElement() && m_element->document().isHTMLDocument();
 
     bool shouldInvalidateCurrent = false;
     bool mayAffectStyleInShadowTree = false;
@@ -62,19 +62,21 @@ void AttributeChangeInvalidation::invalidateStyle(const QualifiedName& attribute
 
     if (mayAffectStyleInShadowTree) {
         // FIXME: More fine-grained invalidation.
-        m_element.invalidateStyleForSubtree();
+        m_element->invalidateStyleForSubtree();
     }
 
     if (shouldInvalidateCurrent)
-        m_element.invalidateStyle();
+        m_element->invalidateStyle();
 
-    auto& ruleSets = m_element.styleResolver().ruleSets();
-
+    auto collect = [&](auto& ruleSets, std::optional<MatchElement> onlyMatchElement = { }) {
     auto* invalidationRuleSets = ruleSets.attributeInvalidationRuleSets(attributeNameForLookups);
     if (!invalidationRuleSets)
         return;
 
     for (auto& invalidationRuleSet : *invalidationRuleSets) {
+            if (onlyMatchElement && invalidationRuleSet.matchElement != onlyMatchElement)
+                continue;
+
         for (auto* selector : invalidationRuleSet.invalidationSelectors) {
             if (!selector->isAttributeSelector()) {
                 ASSERT_NOT_REACHED();
@@ -88,6 +90,12 @@ void AttributeChangeInvalidation::invalidateStyle(const QualifiedName& attribute
             }
         }
     }
+    };
+
+    collect(m_element->styleResolver().ruleSets());
+
+    if (auto* shadowRoot = m_element->shadowRoot())
+        collect(shadowRoot->styleScope().resolver().ruleSets(), MatchElement::Host);
 }
 
 void AttributeChangeInvalidation::invalidateStyleWithRuleSets()

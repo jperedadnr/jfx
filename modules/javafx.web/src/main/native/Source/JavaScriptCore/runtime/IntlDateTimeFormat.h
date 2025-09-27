@@ -32,12 +32,6 @@
 
 struct UDateIntervalFormat;
 
-#if !defined(HAVE_ICU_U_DATE_INTERVAL_FORMAT_FORMAT_RANGE_TO_PARTS)
-#if U_ICU_VERSION_MAJOR_NUM >= 64
-#define HAVE_ICU_U_DATE_INTERVAL_FORMAT_FORMAT_RANGE_TO_PARTS 1
-#endif
-#endif
-
 namespace JSC {
 
 enum class RelevantExtensionKey : uint8_t;
@@ -52,7 +46,7 @@ class IntlDateTimeFormat final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     static void destroy(JSCell* cell)
     {
@@ -70,7 +64,9 @@ public:
 
     DECLARE_INFO;
 
-    void initializeDateTimeFormat(JSGlobalObject*, JSValue locales, JSValue options);
+    enum class RequiredComponent : uint8_t { Date, Time, Any };
+    enum class Defaults : uint8_t { Date, Time, All };
+    void initializeDateTimeFormat(JSGlobalObject*, JSValue locales, JSValue options, RequiredComponent, Defaults);
     JSValue format(JSGlobalObject*, double value) const;
     JSValue formatToParts(JSGlobalObject*, double value, JSString* sourceType = nullptr) const;
     JSValue formatRange(JSGlobalObject*, double startDate, double endDate);
@@ -126,6 +122,7 @@ private:
     static HourCycle parseHourCycle(const String&);
     static void replaceHourCycleInSkeleton(Vector<UChar, 32>&, bool hour12);
     static void replaceHourCycleInPattern(Vector<UChar, 32>&, HourCycle);
+    static String buildSkeleton(Weekday, Era, Year, Month, Day, TriState, HourCycle, Hour, DayPeriod, Minute, Second, unsigned, TimeZoneName);
 
     using UDateFormatDeleter = ICUDeleter<udat_close>;
 
@@ -138,6 +135,7 @@ private:
     String m_calendar;
     String m_numberingSystem;
     String m_timeZone;
+    String m_timeZoneForICU;
     HourCycle m_hourCycle { HourCycle::None };
     Weekday m_weekday { Weekday::None };
     Era m_era { Era::None };

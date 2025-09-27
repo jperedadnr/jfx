@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2007 David Smith (catfish.man@gmail.com)
- * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -28,7 +28,6 @@
 #include "RenderBlock.h"
 #include "RenderButton.h"
 #include "RenderInline.h"
-#include "RenderRubyRun.h"
 #include "RenderSVGText.h"
 #include "RenderStyleSetters.h"
 #include "RenderTable.h"
@@ -36,13 +35,16 @@
 #include "RenderTreeBuilder.h"
 #include "RenderView.h"
 #include "StyleChange.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderTreeBuilder::FirstLetter);
 
 static std::optional<RenderStyle> styleForFirstLetter(const RenderElement& firstLetterContainer)
 {
     auto& styleContainer = firstLetterContainer.isAnonymous() ? *firstLetterContainer.firstNonAnonymousAncestor() : firstLetterContainer;
-    auto style = styleContainer.style().getCachedPseudoStyle(PseudoId::FirstLetter);
+    auto style = styleContainer.style().getCachedPseudoStyle({ PseudoId::FirstLetter });
     if (!style)
         return { };
 
@@ -50,11 +52,11 @@ static std::optional<RenderStyle> styleForFirstLetter(const RenderElement& first
 
     // If we have an initial letter drop that is >= 1, then we need to force floating to be on.
     if (firstLetterStyle.initialLetterDrop() >= 1 && !firstLetterStyle.isFloating())
-        firstLetterStyle.setFloating(firstLetterStyle.isLeftToRightDirection() ? Float::Left : Float::Right);
+        firstLetterStyle.setFloating(firstLetterStyle.writingMode().isBidiLTR() ? Float::Left : Float::Right);
 
     // We have to compute the correct font-size for the first-letter if it has an initial letter height set.
     auto* paragraph = firstLetterContainer.isRenderBlockFlow() ? &firstLetterContainer : firstLetterContainer.containingBlock();
-    if (firstLetterStyle.initialLetterHeight() >= 1 && firstLetterStyle.metricsOfPrimaryFont().hasCapHeight() && paragraph->style().metricsOfPrimaryFont().hasCapHeight()) {
+    if (firstLetterStyle.initialLetterHeight() >= 1 && firstLetterStyle.metricsOfPrimaryFont().capHeight() && paragraph->style().metricsOfPrimaryFont().capHeight()) {
         // FIXME: For ideographic baselines, we want to go from line edge to line edge. This is equivalent to (N-1)*line-height + the font height.
         // We don't yet support ideographic baselines.
         // For an N-line first-letter and for alphabetic baselines, the cap-height of the first letter needs to equal (N-1)*line-height of paragraph lines + cap-height of the paragraph
@@ -66,26 +68,24 @@ static std::optional<RenderStyle> styleForFirstLetter(const RenderElement& first
         // Set the font to be one line too big and then ratchet back to get to a precise fit. We can't just set the desired font size based off font height metrics
         // because many fonts bake ascent into the font metrics. Therefore we have to look at actual measured cap height values in order to know when we have a good fit.
         auto newFontDescription = firstLetterStyle.fontDescription();
-        float capRatio = firstLetterStyle.metricsOfPrimaryFont().floatCapHeight() / firstLetterStyle.computedFontSize();
-        float startingFontSize = ((firstLetterStyle.initialLetterHeight() - 1) * lineHeight + paragraph->style().metricsOfPrimaryFont().capHeight()) / capRatio;
+        float capRatio = firstLetterStyle.metricsOfPrimaryFont().capHeight().value() / firstLetterStyle.computedFontSize();
+        float startingFontSize = ((firstLetterStyle.initialLetterHeight() - 1) * lineHeight + paragraph->style().metricsOfPrimaryFont().intCapHeight()) / capRatio;
         newFontDescription.setSpecifiedSize(startingFontSize);
         newFontDescription.setComputedSize(startingFontSize);
         firstLetterStyle.setFontDescription(WTFMove(newFontDescription));
-        firstLetterStyle.fontCascade().update(firstLetterStyle.fontCascade().fontSelector());
 
-        int desiredCapHeight = (firstLetterStyle.initialLetterHeight() - 1) * lineHeight + paragraph->style().metricsOfPrimaryFont().capHeight();
-        int actualCapHeight = firstLetterStyle.metricsOfPrimaryFont().capHeight();
+        int desiredCapHeight = (firstLetterStyle.initialLetterHeight() - 1) * lineHeight + paragraph->style().metricsOfPrimaryFont().intCapHeight();
+        int actualCapHeight = firstLetterStyle.metricsOfPrimaryFont().intCapHeight();
         while (actualCapHeight > desiredCapHeight) {
             auto newFontDescription = firstLetterStyle.fontDescription();
             newFontDescription.setSpecifiedSize(newFontDescription.specifiedSize() - 1);
             newFontDescription.setComputedSize(newFontDescription.computedSize() -1);
             firstLetterStyle.setFontDescription(WTFMove(newFontDescription));
-            firstLetterStyle.fontCascade().update(firstLetterStyle.fontCascade().fontSelector());
-            actualCapHeight = firstLetterStyle.metricsOfPrimaryFont().capHeight();
+            actualCapHeight = firstLetterStyle.metricsOfPrimaryFont().intCapHeight();
         }
     }
 
-    firstLetterStyle.setStyleType(PseudoId::FirstLetter);
+    firstLetterStyle.setPseudoElementType(PseudoId::FirstLetter);
     // Force inline display (except for floating first-letters).
     firstLetterStyle.setDisplay(firstLetterStyle.isFloating() ? DisplayType::Block : DisplayType::Inline);
     // CSS2 says first-letter can't be positioned.
@@ -97,12 +97,12 @@ static std::optional<RenderStyle> styleForFirstLetter(const RenderElement& first
 // CSS 2.1 http://www.w3.org/TR/CSS21/selector.html#first-letter
 // "Punctuation (i.e, characters defined in Unicode [UNICODE] in the "open" (Ps), "close" (Pe),
 // "initial" (Pi). "final" (Pf) and "other" (Po) punctuation classes), that precedes or follows the first letter should be included"
-static inline bool isPunctuationForFirstLetter(UChar32 c)
+static inline bool isPunctuationForFirstLetter(char32_t c)
 {
     return U_GET_GC_MASK(c) & (U_GC_PS_MASK | U_GC_PE_MASK | U_GC_PI_MASK | U_GC_PF_MASK | U_GC_PO_MASK);
 }
 
-static inline bool shouldSkipForFirstLetter(UChar32 c)
+static inline bool shouldSkipForFirstLetter(char32_t c)
 {
     return deprecatedIsSpaceOrNewline(c) || c == noBreakSpace || isPunctuationForFirstLetter(c);
 }
@@ -114,8 +114,6 @@ static bool supportsFirstLetter(RenderBlock& block)
     if (!is<RenderBlockFlow>(block))
         return false;
     if (is<RenderSVGText>(block))
-        return false;
-    if (is<RenderRubyRun>(block))
         return false;
     return block.canHaveGeneratedChildren();
 }
@@ -146,7 +144,7 @@ void RenderTreeBuilder::FirstLetter::updateAfterDescendants(RenderBlock& block)
 
     // If the child already has style, then it has already been created, so we just want
     // to update it.
-    if (firstLetterRenderer->parent()->style().styleType() == PseudoId::FirstLetter) {
+    if (firstLetterRenderer->parent()->style().pseudoElementType() == PseudoId::FirstLetter) {
         updateStyle(block, *firstLetterRenderer);
         return;
     }
@@ -185,17 +183,15 @@ void RenderTreeBuilder::FirstLetter::updateStyle(RenderBlock& firstLetterBlock, 
         // The first-letter renderer needs to be replaced. Create a new renderer of the right type.
         RenderPtr<RenderBoxModelObject> newFirstLetter;
         if (pseudoStyle->display() == DisplayType::Inline)
-            newFirstLetter = createRenderer<RenderInline>(firstLetterBlock.document(), WTFMove(*pseudoStyle));
+            newFirstLetter = createRenderer<RenderInline>(RenderObject::Type::Inline, firstLetterBlock.document(), WTFMove(*pseudoStyle));
         else
-            newFirstLetter = createRenderer<RenderBlockFlow>(firstLetterBlock.document(), WTFMove(*pseudoStyle));
+            newFirstLetter = createRenderer<RenderBlockFlow>(RenderObject::Type::BlockFlow, firstLetterBlock.document(), WTFMove(*pseudoStyle));
         newFirstLetter->initializeStyle();
         newFirstLetter->setIsFirstLetter();
 
         // Move the first letter into the new renderer.
         while (RenderObject* child = firstLetter->firstChild()) {
-            if (is<RenderText>(*child))
-                downcast<RenderText>(*child).removeAndDestroyTextBoxes();
-            auto toMove = m_builder.detach(*firstLetter, *child);
+            auto toMove = m_builder.detach(*firstLetter, *child, WillBeDestroyed::No);
             m_builder.attach(*newFirstLetter, WTFMove(toMove));
         }
 
@@ -231,9 +227,9 @@ void RenderTreeBuilder::FirstLetter::createRenderers(RenderText& currentTextChil
 
     RenderPtr<RenderBoxModelObject> newFirstLetter;
     if (pseudoStyle->display() == DisplayType::Inline)
-        newFirstLetter = createRenderer<RenderInline>(currentTextChild.document(), WTFMove(*pseudoStyle));
+        newFirstLetter = createRenderer<RenderInline>(RenderObject::Type::Inline, currentTextChild.document(), WTFMove(*pseudoStyle));
     else
-        newFirstLetter = createRenderer<RenderBlockFlow>(currentTextChild.document(), WTFMove(*pseudoStyle));
+        newFirstLetter = createRenderer<RenderBlockFlow>(RenderObject::Type::BlockFlow, currentTextChild.document(), WTFMove(*pseudoStyle));
     newFirstLetter->initializeStyle();
     newFirstLetter->setIsFirstLetter();
 
@@ -257,7 +253,7 @@ void RenderTreeBuilder::FirstLetter::createRenderers(RenderText& currentTextChil
         // accumulating just whitespace into the :first-letter.
         unsigned numCodeUnits = 0;
         for (unsigned scanLength = length; scanLength < oldText.length(); scanLength += numCodeUnits) {
-            UChar32 c = oldText.characterStartingAt(scanLength);
+            char32_t c = oldText.characterStartingAt(scanLength);
 
             if (!shouldSkipForFirstLetter(c))
                 break;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2023-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,8 +26,6 @@
 #include "config.h"
 #include "BackgroundFetch.h"
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "BackgroundFetchInformation.h"
 #include "BackgroundFetchRecordInformation.h"
 #include "CacheQueryOptions.h"
@@ -38,9 +36,13 @@
 #include "RetrieveRecordsOptions.h"
 #include "SWServerRegistration.h"
 #include "WebCorePersistentCoders.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/persistence/PersistentCoders.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BackgroundFetch);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BackgroundFetch::Record);
 
 static const unsigned backgroundFetchCurrentVersion = 1;
 
@@ -54,9 +56,9 @@ BackgroundFetch::BackgroundFetch(SWServerRegistration& registration, const Strin
     , m_origin { m_registrationKey.topOrigin(), SecurityOriginData::fromURL(m_registrationKey.scope()) }
 {
     size_t index = 0;
-    m_records.reserveInitialCapacity(requests.size());
-    for (auto& request : requests)
-        m_records.uncheckedAppend(Record::create(*this, WTFMove(request), index++));
+    m_records = WTF::map(WTFMove(requests), [&](auto&& request) {
+        return Record::create(*this, WTFMove(request), index++);
+    });
 }
 
 BackgroundFetch::BackgroundFetch(SWServerRegistration& registration, String&& identifier, BackgroundFetchOptions&& options, Ref<BackgroundFetchStore>&& store, NotificationCallback&& notificationCallback, bool pausedFlag)
@@ -245,7 +247,6 @@ void BackgroundFetch::unsetRecordsAvailableFlag()
 
 BackgroundFetch::Record::Record(BackgroundFetch& fetch, BackgroundFetchRequest&& request, size_t index)
     : m_fetch(fetch)
-    , m_identifier(BackgroundFetchRecordIdentifier::generate())
     , m_fetchIdentifier(fetch.m_identifier)
     , m_registrationKey(fetch.m_registrationKey)
     , m_request(WTFMove(request))
@@ -257,7 +258,7 @@ BackgroundFetch::Record::~Record()
 {
     auto callbacks = std::exchange(m_responseCallbacks, { });
     for (auto& callback : callbacks)
-        callback(makeUnexpected(ExceptionData { TypeError, "Record is gone"_s }));
+        callback(makeUnexpected(ExceptionData { ExceptionCode::TypeError, "Record is gone"_s }));
 
     auto bodyCallbacks = std::exchange(m_responseBodyCallbacks, { });
     for (auto& callback : bodyCallbacks)
@@ -271,7 +272,7 @@ bool BackgroundFetch::Record::isMatching(const ResourceRequest& request, const C
 
 BackgroundFetchRecordInformation BackgroundFetch::Record::information() const
 {
-    return BackgroundFetchRecordInformation { m_identifier, m_request.internalRequest, m_request.options, m_request.guard, m_request.httpHeaders, m_request.referrer };
+    return BackgroundFetchRecordInformation { identifier(), m_request.internalRequest, m_request.options, m_request.guard, m_request.httpHeaders, m_request.referrer };
 }
 
 void BackgroundFetch::Record::complete(const CreateLoaderCallback& createLoaderCallback)
@@ -300,7 +301,7 @@ void BackgroundFetch::Record::abort()
 
     auto callbacks = std::exchange(m_responseCallbacks, { });
     for (auto& callback : callbacks)
-        callback(makeUnexpected(ExceptionData { AbortError, "Background fetch was aborted"_s }));
+        callback(makeUnexpected(ExceptionData { ExceptionCode::AbortError, "Background fetch was aborted"_s }));
 
     auto bodyCallbacks = std::exchange(m_responseBodyCallbacks, { });
     for (auto& callback : bodyCallbacks)
@@ -380,7 +381,7 @@ void BackgroundFetch::Record::didReceiveResponseBodyChunk(const SharedBuffer& da
         m_fetch->storeResponseBodyChunk(m_index, data);
 
     if (!m_responseBodyCallbacks.isEmpty()) {
-        RefPtr buffer = SharedBuffer::create(data.data(), data.size());
+        RefPtr buffer = SharedBuffer::create(data.span());
         for (auto& callback : m_responseBodyCallbacks)
             callback(buffer.copyRef());
     }
@@ -392,7 +393,7 @@ void BackgroundFetch::Record::didFinish(const ResourceError& error)
 
     auto callbacks = std::exchange(m_responseCallbacks, { });
     for (auto& callback : callbacks)
-        callback(makeUnexpected(ExceptionData { TypeError, "Fetch failed"_s }));
+        callback(makeUnexpected(ExceptionData { ExceptionCode::TypeError, "Fetch failed"_s }));
 
     auto bodyCallbacks = std::exchange(m_responseBodyCallbacks, { });
     for (auto& callback : bodyCallbacks) {
@@ -409,7 +410,7 @@ void BackgroundFetch::Record::didFinish(const ResourceError& error)
 void BackgroundFetch::Record::retrieveResponse(BackgroundFetchStore&, RetrieveRecordResponseCallback&& callback)
 {
     if (m_isAborted) {
-        callback(makeUnexpected(ExceptionData { AbortError, "Background fetch was aborted"_s }));
+        callback(makeUnexpected(ExceptionData { ExceptionCode::AbortError, "Background fetch was aborted"_s }));
         return;
     }
 
@@ -419,7 +420,7 @@ void BackgroundFetch::Record::retrieveResponse(BackgroundFetchStore&, RetrieveRe
     }
 
     if (m_isCompleted) {
-        callback(makeUnexpected(ExceptionData { TypeError, "Fetch failed"_s }));
+        callback(makeUnexpected(ExceptionData { ExceptionCode::TypeError, "Fetch failed"_s }));
         return;
     }
 
@@ -486,10 +487,10 @@ void BackgroundFetch::doStore(CompletionHandler<void(BackgroundFetchStore::Store
         encoder << record->isCompleted();
     }
 
-    m_store->storeFetch(m_registrationKey, m_identifier, m_options.downloadTotal, m_uploadTotal, responseBodyIndexToClear, { encoder.buffer(), encoder.bufferSize() }, WTFMove(callback));
+    m_store->storeFetch(m_registrationKey, m_identifier, m_options.downloadTotal, m_uploadTotal, responseBodyIndexToClear, { encoder.span() }, WTFMove(callback));
 }
 
-std::unique_ptr<BackgroundFetch> BackgroundFetch::createFromStore(std::span<const uint8_t> data, SWServer& server, Ref<BackgroundFetchStore>&& store, NotificationCallback&& notificationCallback)
+RefPtr<BackgroundFetch> BackgroundFetch::createFromStore(std::span<const uint8_t> data, SWServer& server, Ref<BackgroundFetchStore>&& store, NotificationCallback&& notificationCallback)
 {
     WTF::Persistence::Decoder decoder(data);
     std::optional<unsigned> version;
@@ -541,7 +542,7 @@ std::unique_ptr<BackgroundFetch> BackgroundFetch::createFromStore(std::span<cons
         return nullptr;
 
     BackgroundFetchOptions options { WTFMove(*icons), WTFMove(*title), *downloadTotal };
-    auto fetch = makeUnique<BackgroundFetch>(*registration, WTFMove(*identifier), WTFMove(options), WTFMove(store), WTFMove(notificationCallback), *pausedFlag);
+    auto fetch = BackgroundFetch::create(*registration, WTFMove(*identifier), WTFMove(options), WTFMove(store), WTFMove(notificationCallback), *pausedFlag);
 
     std::optional<uint64_t> recordSize;
     decoder >> recordSize;
@@ -581,8 +582,9 @@ std::unique_ptr<BackgroundFetch> BackgroundFetch::createFromStore(std::span<cons
         if (!responseHeaders)
             return nullptr;
 
-        WebCore::ResourceResponse response;
-        if (!WebCore::ResourceResponse::decode(decoder, response))
+        std::optional<ResourceResponse> unusedResponseData;
+        decoder >> unusedResponseData;
+        if (!unusedResponseData)
             return nullptr;
 
         std::optional<bool> isCompleted;
@@ -590,16 +592,14 @@ std::unique_ptr<BackgroundFetch> BackgroundFetch::createFromStore(std::span<cons
         if (!isCompleted)
             return nullptr;
 
-        auto record = Record::create(*fetch, { WTFMove(*internalRequest), WTFMove(options), *requestHeadersGuard, WTFMove(*httpHeaders), WTFMove(*referrer), WTFMove(*responseHeaders) }, index);
+        auto record = Record::create(fetch.get(), { WTFMove(*internalRequest), WTFMove(options), *requestHeadersGuard, WTFMove(*httpHeaders), WTFMove(*referrer), WTFMove(*responseHeaders) }, index);
         if (*isCompleted)
             record->setAsCompleted();
-        records.uncheckedAppend(WTFMove(record));
+        records.append(WTFMove(record));
     }
     fetch->setRecords(WTFMove(records));
 
-    return fetch;
+    return RefPtr { WTFMove(fetch) };
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

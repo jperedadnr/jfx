@@ -28,6 +28,8 @@
 #include "Opcode.h"
 #include "OpcodeSize.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 struct JSOpcodeTraits {
@@ -38,7 +40,7 @@ struct JSOpcodeTraits {
     static constexpr OpcodeID wide16 = op_wide16;
     static constexpr OpcodeID wide32 = op_wide32;
     static constexpr const unsigned* opcodeLengths = ::JSC::opcodeLengths;
-    static constexpr const char* const* opcodeNames = ::JSC::opcodeNames;
+    static constexpr const ASCIILiteral* opcodeNames = ::JSC::opcodeNames;
     static constexpr auto checkpointCountTable = bytecodeCheckpointCountTable;
     static constexpr OpcodeSize maxOpcodeIDWidth = maxJSOpcodeIDWidth;
 };
@@ -180,7 +182,7 @@ public:
     T* cast()
     {
         ASSERT((is<T>()));
-        return bitwise_cast<T*>(this);
+        return std::bit_cast<T*>(this);
     }
 
     template<class T>
@@ -215,3 +217,5 @@ using WasmInstruction  = BaseInstruction<WasmOpcodeTraits>;
 static_assert(sizeof(JSInstruction) == 1, "So pointer math is the same as byte math");
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

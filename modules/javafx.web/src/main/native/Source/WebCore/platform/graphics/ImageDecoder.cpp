@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #include "ScalableImageDecoder.h"
 #endif
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if USE(CG)
 #include "ImageDecoderCG.h"
@@ -46,12 +47,19 @@
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageDecoder);
+
 #if ENABLE(GPU_PROCESS) && HAVE(AVASSETREADER)
 using FactoryVector = Vector<ImageDecoder::ImageDecoderFactory>;
 
+static RefPtr<ImageDecoder> createInProcessImageDecoderAVFObjC(FragmentedSharedBuffer& buffer, const String& mimeType, AlphaOption alphaOption, GammaAndColorProfileOption gammaOption)
+{
+    return ImageDecoderAVFObjC::create(buffer, mimeType, alphaOption, gammaOption, ProcessIdentity { ProcessIdentity::CurrentProcess });
+}
+
 static void platformRegisterFactories(FactoryVector& factories)
 {
-    factories.append({ ImageDecoderAVFObjC::supportsMediaType, ImageDecoderAVFObjC::canDecodeType, ImageDecoderAVFObjC::create });
+    factories.append({ ImageDecoderAVFObjC::supportsMediaType, ImageDecoderAVFObjC::canDecodeType, createInProcessImageDecoderAVFObjC });
 }
 
 static FactoryVector& installedFactories()
@@ -121,6 +129,10 @@ RefPtr<ImageDecoder> ImageDecoder::create(FragmentedSharedBuffer& data, const St
 #endif
 }
 
+ImageDecoder::ImageDecoder() = default;
+
+ImageDecoder::~ImageDecoder() = default;
+
 bool ImageDecoder::supportsMediaType(MediaType type)
 {
 #if USE(CG)
@@ -157,4 +169,22 @@ bool ImageDecoder::supportsMediaType(MediaType type)
     return false;
 }
 
+bool ImageDecoder::fetchFrameMetaDataAtIndex(size_t index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options, ImageFrame& frame) const
+{
+    if (options.hasSizeForDrawing()) {
+        ASSERT(frame.hasNativeImage());
+        frame.m_size = frame.nativeImage()->size();
+    } else
+        frame.m_size = frameSizeAtIndex(index, subsamplingLevel);
+
+    frame.m_densityCorrectedSize = frameDensityCorrectedSizeAtIndex(index);
+    frame.m_subsamplingLevel = subsamplingLevel;
+    frame.m_decodingOptions = options;
+    frame.m_hasAlpha = frameHasAlphaAtIndex(index);
+    frame.m_orientation = frameOrientationAtIndex(index);
+    frame.m_headroom = frameHeadroomAtIndex(index);
+    frame.m_decodingStatus = frameIsCompleteAtIndex(index) ? DecodingStatus::Complete : DecodingStatus::Partial;
+    return true;
 }
+
+} // namespace WebCore

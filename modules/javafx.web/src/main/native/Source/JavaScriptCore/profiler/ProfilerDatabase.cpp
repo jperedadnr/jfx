@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,17 +32,17 @@
 #include "ObjectConstructor.h"
 #include "ProfilerDumper.h"
 #include <wtf/FilePrintStream.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace Profiler {
 
-static std::atomic<int> databaseCounter;
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Database);
 
 static Lock registrationLock;
-static std::atomic<int> didRegisterAtExit;
 static Database* firstDatabase;
 
 Database::Database(VM& vm)
-    : m_databaseID(++databaseCounter)
+    : m_databaseID(DatabaseID::generate())
     , m_vm(vm)
     , m_shouldSaveAtExit(false)
     , m_nextRegisteredDatabase(nullptr)
@@ -67,7 +67,7 @@ Bytecodes* Database::ensureBytecodesFor(const AbstractLocker&, CodeBlock* codeBl
 {
     codeBlock = codeBlock->baselineAlternative();
 
-    HashMap<CodeBlock*, Bytecodes*>::iterator iter = m_bytecodesMap.find(codeBlock);
+    UncheckedKeyHashMap<CodeBlock*, Bytecodes*>::iterator iter = m_bytecodesMap.find(codeBlock);
     if (iter != m_bytecodesMap.end())
         return iter->value;
 
@@ -149,12 +149,16 @@ void Database::logEvent(CodeBlock* codeBlock, const char* summary, const CString
 
 void Database::addDatabaseToAtExit()
 {
-    if (++didRegisterAtExit == 1)
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [] {
         atexit(atExitCallback);
+    });
 
+    {
     Locker locker { registrationLock };
     m_nextRegisteredDatabase = firstDatabase;
     firstDatabase = this;
+    }
 }
 
 void Database::removeDatabaseFromAtExit()

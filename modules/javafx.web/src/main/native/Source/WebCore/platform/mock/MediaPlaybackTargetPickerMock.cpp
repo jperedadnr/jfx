@@ -32,8 +32,11 @@
 #include "Logging.h"
 #include "MediaPlaybackTargetMock.h"
 #include "WebMediaSessionManager.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaPlaybackTargetPickerMock);
 
 static const Seconds timerInterval { 100_ms };
 
@@ -58,7 +61,7 @@ bool MediaPlaybackTargetPickerMock::externalOutputDeviceAvailable()
 Ref<MediaPlaybackTarget> MediaPlaybackTargetPickerMock::playbackTarget()
 {
     LOG(Media, "MediaPlaybackTargetPickerMock::playbackTarget");
-    return WebCore::MediaPlaybackTargetMock::create(m_deviceName, m_state);
+    return WebCore::MediaPlaybackTargetMock::create(MediaPlaybackTargetContextMock { m_deviceName, m_state });
 }
 
 void MediaPlaybackTargetPickerMock::showPlaybackTargetPicker(PlatformView*, const FloatRect&, bool checkActiveRoute, bool useDarkAppearance)

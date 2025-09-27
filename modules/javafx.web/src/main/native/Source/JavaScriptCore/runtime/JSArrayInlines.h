@@ -29,7 +29,14 @@
 #include "ScopedArguments.h"
 #include "Structure.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
+
+inline Structure* JSArray::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype, IndexingType indexingType)
+{
+    return Structure::create(vm, globalObject, prototype, TypeInfo(ArrayType, StructureFlags), info(), indexingType);
+}
 
 inline IndexingType JSArray::mergeIndexingTypeForCopying(IndexingType other, bool allowPromotion)
 {
@@ -117,6 +124,30 @@ inline bool JSArray::canDoFastIndexedAccess() const
 
     return true;
 }
+
+ALWAYS_INLINE bool JSArray::definitelyNegativeOneMiss() const
+{
+    JSGlobalObject* globalObject = this->globalObject();
+    if (!globalObject->arrayPrototypeChainIsSane())
+        return false;
+
+    if (!globalObject->arrayNegativeOneWatchpointSet().isStillValid())
+        return false;
+
+    Structure* structure = this->structure();
+    // This is the fast case. Many arrays will be an original array.
+    if (globalObject->isOriginalArrayStructure(structure))
+        return true;
+
+    if (getPrototypeDirect() != globalObject->arrayPrototype())
+        return false;
+
+    if (structure->seenProperties().bits())
+        return false;
+
+    return true;
+}
+
 
 ALWAYS_INLINE uint64_t toLength(JSGlobalObject* globalObject, JSObject* object)
 {
@@ -295,4 +326,35 @@ ALWAYS_INLINE void JSArray::pushInline(JSGlobalObject* globalObject, JSValue val
     }
 }
 
+ALWAYS_INLINE JSValue getProperty(JSGlobalObject* globalObject, JSObject* object, uint64_t index)
+{
+    if (JSValue result = object->tryGetIndexQuickly(index))
+        return result;
+
+    // Don't return undefined if the property is not found.
+    return object->getIfPropertyExists(globalObject, index);
+}
+
+ALWAYS_INLINE bool isHole(double value)
+{
+    return std::isnan(value);
+}
+
+ALWAYS_INLINE bool isHole(const WriteBarrier<Unknown>& value)
+{
+    return !value;
+}
+
+template<typename T>
+ALWAYS_INLINE bool containsHole(const T* data, unsigned length)
+{
+    for (unsigned i = 0; i < length; ++i) {
+        if (isHole(data[i]))
+            return true;
+    }
+    return false;
+}
+
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

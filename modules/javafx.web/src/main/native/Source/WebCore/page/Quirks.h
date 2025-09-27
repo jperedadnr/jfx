@@ -26,8 +26,10 @@
 #pragma once
 
 #include "Event.h"
+#include "QuirksData.h"
 #include <optional>
-#include <wtf/WeakPtr.h>
+#include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -35,59 +37,58 @@ class Document;
 class Element;
 class EventListener;
 class EventTarget;
+class EventTypeInfo;
 class HTMLElement;
 class HTMLVideoElement;
+class KeyframeEffect;
 class LayoutUnit;
+class LocalFrame;
+class Node;
 class PlatformMouseEvent;
-class WeakPtrImplWithEventTargetData;
-class SecurityOriginData;
-
-#if ENABLE(TRACKING_PREVENTION)
 class RegistrableDomain;
-enum class StorageAccessWasGranted : bool;
-#endif
+class ResourceRequest;
+class RenderStyle;
+class SecurityOriginData;
+class WeakPtrImplWithEventTargetData;
 
 enum class IsSyntheticClick : bool;
+enum class StorageAccessWasGranted : uint8_t;
 
 class Quirks {
-    WTF_MAKE_NONCOPYABLE(Quirks); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Quirks);
+    WTF_MAKE_NONCOPYABLE(Quirks);
 public:
     Quirks(Document&);
     ~Quirks();
 
     bool shouldSilenceResizeObservers() const;
-    bool shouldSilenceWindowResizeEvents() const;
+    bool shouldSilenceWindowResizeEventsDuringApplicationSnapshotting() const;
     bool shouldSilenceMediaQueryListChangeEvents() const;
     bool shouldIgnoreInvalidSignal() const;
-    bool needsAnchorElementsToBeMouseFocusable() const;
     bool needsFormControlToBeMouseFocusable() const;
     bool needsAutoplayPlayPauseEvents() const;
     bool needsSeekingSupportDisabled() const;
     bool needsPerDocumentAutoplayBehavior() const;
+    bool needsHotelsAnimationQuirk(Element&, const RenderStyle&) const;
     bool shouldAutoplayWebAudioForArbitraryUserGesture() const;
     bool hasBrokenEncryptedMediaAPISupportQuirk() const;
 #if ENABLE(TOUCH_EVENTS)
     bool shouldDispatchSimulatedMouseEvents(const EventTarget*) const;
     bool shouldDispatchedSimulatedMouseEventsAssumeDefaultPrevented(EventTarget*) const;
-    std::optional<Event::IsCancelable> simulatedMouseEventTypeForTarget(EventTarget*) const;
-    bool shouldMakeTouchEventNonCancelableForTarget(EventTarget*) const;
-    bool shouldPreventPointerMediaQueryFromEvaluatingToCoarse() const;
     bool shouldPreventDispatchOfTouchEvent(const AtomString&, EventTarget*) const;
-#endif
-#if ENABLE(IOS_TOUCH_EVENTS)
-    WEBCORE_EXPORT bool shouldSynthesizeTouchEvents() const;
 #endif
     bool shouldDisablePointerEventsQuirk() const;
     bool needsDeferKeyDownAndKeyPressTimersUntilNextEditingCommand() const;
-    bool shouldDisableContentChangeObserverTouchEventAdjustment() const;
-    bool shouldTooltipPreventFromProceedingWithClick(const Element&) const;
-    bool shouldHideSearchFieldResultsButton() const;
     bool shouldExposeShowModalDialog() const;
     bool shouldNavigatorPluginsBeEmpty() const;
+    bool returnNullPictureInPictureElementDuringFullscreenChange() const;
+
+    bool shouldPreventOrientationMediaQueryFromEvaluatingToLandscape() const;
+    bool shouldFlipScreenDimensions() const;
 
     WEBCORE_EXPORT bool shouldDispatchSyntheticMouseEventsWhenModifyingSelection() const;
     WEBCORE_EXPORT bool shouldSuppressAutocorrectionAndAutocapitalizationInHiddenEditableAreas() const;
-    WEBCORE_EXPORT bool isTouchBarUpdateSupressedForHiddenContentEditable() const;
+    WEBCORE_EXPORT bool isTouchBarUpdateSuppressedForHiddenContentEditable() const;
     WEBCORE_EXPORT bool isNeverRichlyEditableForTouchBar() const;
     WEBCORE_EXPORT bool shouldAvoidResizingWhenInputViewBoundsChange() const;
     WEBCORE_EXPORT bool shouldAvoidScrollingWhenFocusedContentIsVisible() const;
@@ -95,17 +96,37 @@ public:
     WEBCORE_EXPORT bool shouldIgnoreAriaForFastPathContentObservationCheck() const;
     WEBCORE_EXPORT bool shouldIgnoreViewportArgumentsToAvoidExcessiveZoom() const;
     WEBCORE_EXPORT bool shouldLayOutAtMinimumWindowWidthWhenIgnoringScalingConstraints() const;
-    WEBCORE_EXPORT bool shouldIgnoreContentObservationForSyntheticClick(bool isFirstSyntheticClickOnPage) const;
     WEBCORE_EXPORT static bool shouldAllowNavigationToCustomProtocolWithoutUserGesture(StringView protocol, const SecurityOriginData& requesterOrigin);
 
     WEBCORE_EXPORT bool needsYouTubeMouseOutQuirk() const;
 
-    WEBCORE_EXPORT bool shouldAvoidUsingIOS13ForGmail() const;
+    WEBCORE_EXPORT bool shouldDisableWritingSuggestionsByDefault() const;
+
+    WEBCORE_EXPORT static void updateStorageAccessUserAgentStringQuirks(HashMap<RegistrableDomain, String>&&);
+    WEBCORE_EXPORT String storageAccessUserAgentStringQuirkForDomain(const URL&);
+    WEBCORE_EXPORT static bool needsIPadMiniUserAgent(const URL&);
+    WEBCORE_EXPORT static bool needsIPhoneUserAgent(const URL&);
+    WEBCORE_EXPORT static bool needsDesktopUserAgent(const URL&);
+
+    WEBCORE_EXPORT static bool needsPartitionedCookies(const ResourceRequest&);
+
+    WEBCORE_EXPORT static std::optional<Vector<HashSet<String>>> defaultVisibilityAdjustmentSelectors(const URL&);
 
     bool needsGMailOverflowScrollQuirk() const;
+    bool needsIPadSkypeOverflowScrollQuirk() const;
     bool needsYouTubeOverflowScrollQuirk() const;
     bool needsFullscreenDisplayNoneQuirk() const;
+    bool needsFullscreenObjectFitQuirk() const;
     bool needsWeChatScrollingQuirk() const;
+    bool needsZomatoEmailLoginLabelQuirk() const;
+    bool needsGoogleMapsScrollingQuirk() const;
+
+    bool needsPrimeVideoUserSelectNoneQuirk() const;
+
+    bool needsFacebookRemoveNotSupportedQuirk() const;
+
+    bool needsScrollbarWidthThinDisabledQuirk() const;
+    bool needsBodyScrollbarWidthNoneDisabledQuirk() const;
 
     bool shouldOpenAsAboutBlank(const String&) const;
 
@@ -114,10 +135,12 @@ public:
     bool shouldBypassBackForwardCache() const;
     bool shouldBypassAsyncScriptDeferring() const;
 
-    static bool shouldMakeEventListenerPassive(const EventTarget&, const AtomString& eventType);
+    static bool shouldMakeEventListenerPassive(const EventTarget&, const EventTypeInfo&);
 
 #if ENABLE(MEDIA_STREAM)
     bool shouldEnableLegacyGetUserMediaQuirk() const;
+    bool shouldDisableImageCaptureQuirk() const;
+    bool shouldEnableSpeakerSelectionPermissionsPolicyQuirk() const;
 #endif
 
     bool needsCanPlayAfterSeekedQuirk() const;
@@ -126,7 +149,11 @@ public:
 
     enum StorageAccessResult : bool { ShouldNotCancelEvent, ShouldCancelEvent };
     enum ShouldDispatchClick : bool { No, Yes };
+
+    void triggerOptionalStorageAccessIframeQuirk(const URL& frameURL, CompletionHandler<void()>&&) const;
     StorageAccessResult triggerOptionalStorageAccessQuirk(Element&, const PlatformMouseEvent&, const AtomString& eventType, int, Element*, bool isParentProcessAFullWebBrowser, IsSyntheticClick) const;
+    void setSubFrameDomainsForStorageAccessQuirk(Vector<RegistrableDomain>&& domains) { m_subFrameDomainsForStorageAccessQuirk = WTFMove(domains); }
+    const Vector<RegistrableDomain>& subFrameDomainsForStorageAccessQuirk() const { return m_subFrameDomainsForStorageAccessQuirk; }
 
     bool needsVP9FullRangeFlagQuirk() const;
 
@@ -136,13 +163,17 @@ public:
     WEBCORE_EXPORT bool blocksReturnToFullscreenFromPictureInPictureQuirk() const;
     WEBCORE_EXPORT bool blocksEnteringStandardFullscreenFromPictureInPictureQuirk() const;
     bool shouldDisableEndFullscreenEventWhenEnteringPictureInPictureFromFullscreenQuirk() const;
-    bool shouldDelayFullscreenEventWhenExitingPictureInPictureQuirk() const;
 
-#if ENABLE(TRACKING_PREVENTION)
     static bool isMicrosoftTeamsRedirectURL(const URL&);
     static bool hasStorageAccessForAllLoginDomains(const HashSet<RegistrableDomain>&, const RegistrableDomain&);
     StorageAccessResult requestStorageAccessAndHandleClick(CompletionHandler<void(ShouldDispatchClick)>&&) const;
+
+#if ENABLE(TOUCH_EVENTS)
+    WEBCORE_EXPORT static bool shouldOmitTouchEventDOMAttributesForDesktopWebsite(const URL&);
+    bool shouldDispatchPointerOutAfterHandlingSyntheticClick() const;
 #endif
+
+    WEBCORE_EXPORT void setTopDocumentURLForTesting(URL&&);
 
     static bool shouldOmitHTMLDocumentSupportedPropertyNames();
 
@@ -153,12 +184,18 @@ public:
     bool shouldEnableFontLoadingAPIQuirk() const;
     bool needsVideoShouldMaintainAspectRatioQuirk() const;
 
+#if ENABLE(TEXT_AUTOSIZING)
+    bool shouldIgnoreTextAutoSizing() const;
+#endif
+
+#if PLATFORM(VISION)
+    WEBCORE_EXPORT bool shouldDisableFullscreenVideoAspectRatioAdaptiveSizing() const;
+#endif
+
     bool shouldDisableLazyIframeLoadingQuirk() const;
 
     bool shouldDisableFetchMetadata() const;
     bool shouldDisablePushStateFilePathRestrictions() const;
-
-    bool shouldDisablePopoverAttributeQuirk() const;
 
     void setNeedsConfigurableIndexedPropertiesQuirk() { m_needsConfigurableIndexedPropertiesQuirk = true; }
     bool needsConfigurableIndexedPropertiesQuirk() const;
@@ -172,72 +209,79 @@ public:
 
     bool needsResettingTransitionCancelsRunningTransitionQuirk() const;
 
-    bool shouldStarBeFeaturePolicyDefaultValue() const;
+    bool shouldDisableDataURLPaddingValidation() const;
 
     bool needsDisableDOMPasteAccessQuirk() const;
+
+    bool shouldDisableElementFullscreenQuirk() const;
+    bool shouldIgnorePlaysInlineRequirementQuirk() const;
+    WEBCORE_EXPORT bool shouldUseEphemeralPartitionedStorageForDOMCookies(const URL&) const;
+
+    bool needsLaxSameSiteCookieQuirk(const URL&) const;
+
+    String scriptToEvaluateBeforeRunningScriptFromURL(const URL&);
+
+    bool shouldHideCoarsePointerCharacteristics() const;
+
+    bool implicitMuteWhenVolumeSetToZero() const;
+
+    bool needsZeroMaxTouchPointsQuirk() const;
+    bool needsChromeMediaControlsPseudoElement() const;
+
+#if PLATFORM(IOS_FAMILY)
+    WEBCORE_EXPORT bool shouldIgnoreContentObservationForClick(const Node&) const;
+    WEBCORE_EXPORT bool shouldSynthesizeTouchEventsAfterNonSyntheticClick(const Element&) const;
+    WEBCORE_EXPORT bool needsPointerTouchCompatibility(const Element&) const;
+    bool shouldTreatAddingMouseOutEventListenerAsContentChange() const;
+#endif
+
+    bool needsMozillaFileTypeForDataTransfer() const;
+
+    bool needsBingGestureEventQuirk(EventTarget*) const;
+
+    bool shouldAvoidStartingSelectionOnMouseDown(const Node&) const;
+
+    bool shouldReuseLiveRangeForSelectionUpdate() const;
+
+    bool needsFacebookStoriesCreationFormQuirk(const Element&, const RenderStyle&) const;
+
+    bool needsLimitedMatroskaSupport() const;
+
+    WEBCORE_EXPORT bool needsNowPlayingFullscreenSwapQuirk() const;
+
+    bool needsWebKitMediaTextTrackDisplayQuirk() const;
+
+    bool shouldPreventKeyframeEffectAcceleration(const KeyframeEffect&) const;
 
 private:
     bool needsQuirks() const;
     bool isDomain(const String&) const;
+    bool domainStartsWith(const String&) const;
+    bool isEmbedDomain(const String&) const;
+    bool isYoutubeEmbedDomain() const;
 
-#if ENABLE(TOUCH_EVENTS)
-    bool isAmazon() const;
-    bool isGoogleMaps() const;
+    void determineRelevantQuirks();
+
+    static bool domainNeedsAvoidResizingWhenInputViewBoundsChangeQuirk(const URL&, QuirksData&);
+    static bool domainNeedsScrollbarWidthThinDisabledQuirk(const URL&, QuirksData&);
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    static bool domainShouldDisableEndFullscreenEventWhenEnteringPictureInPictureFromFullscreenQuirk(const URL&, QuirksData&);
 #endif
+
+    RefPtr<Document> protectedDocument() const;
+
+    URL topDocumentURL() const;
 
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
+    mutable WeakPtr<const Element, WeakPtrImplWithEventTargetData> m_facebookStoriesCreationFormContainer;
 
-    mutable std::optional<bool> m_hasBrokenEncryptedMediaAPISupportQuirk;
-    mutable std::optional<bool> m_needsFullWidthHeightFullscreenStyleQuirk;
-#if PLATFORM(IOS_FAMILY)
-    mutable std::optional<bool> m_needsGMailOverflowScrollQuirk;
-    mutable std::optional<bool> m_needsYouTubeOverflowScrollQuirk;
-    mutable std::optional<bool> m_needsPreloadAutoQuirk;
-    mutable std::optional<bool> m_needsFullscreenDisplayNoneQuirk;
-    mutable std::optional<bool> m_shouldAvoidPastingImagesAsWebContent;
-#endif
-#if ENABLE(TOUCH_EVENTS)
-    enum class ShouldDispatchSimulatedMouseEvents : uint8_t {
-        Unknown,
-        No,
-        DependingOnTargetFor_mybinder_org,
-        Yes,
-    };
-    mutable ShouldDispatchSimulatedMouseEvents m_shouldDispatchSimulatedMouseEventsQuirk { ShouldDispatchSimulatedMouseEvents::Unknown };
-#endif
-#if ENABLE(IOS_TOUCH_EVENTS)
-    mutable std::optional<bool> m_shouldSynthesizeTouchEventsQuirk;
-#endif
-    mutable std::optional<bool> m_needsCanPlayAfterSeekedQuirk;
-    mutable std::optional<bool> m_shouldBypassAsyncScriptDeferring;
-    mutable std::optional<bool> m_needsVP9FullRangeFlagQuirk;
-    mutable std::optional<bool> m_needsBlackFullscreenBackgroundQuirk;
-    mutable std::optional<bool> m_requiresUserGestureToPauseInPictureInPicture;
-    mutable std::optional<bool> m_requiresUserGestureToLoadInPictureInPicture;
-#if ENABLE(MEDIA_STREAM)
-    mutable std::optional<bool> m_shouldEnableLegacyGetUserMediaQuirk;
-#endif
-    mutable std::optional<bool> m_blocksReturnToFullscreenFromPictureInPictureQuirk;
-    mutable std::optional<bool> m_blocksEnteringStandardFullscreenFromPictureInPictureQuirk;
-    mutable std::optional<bool> m_shouldDisableEndFullscreenEventWhenEnteringPictureInPictureFromFullscreenQuirk;
-    mutable std::optional<bool> m_shouldDelayFullscreenEventWhenExitingPictureInPictureQuirk;
-#if PLATFORM(IOS) || PLATFORM(VISION)
-    mutable std::optional<bool> m_allowLayeredFullscreenVideos;
-#endif
-#if PLATFORM(IOS_FAMILY)
-    mutable std::optional<bool> m_shouldEnableApplicationCacheQuirk;
-#endif
-    mutable std::optional<bool> m_shouldEnableFontLoadingAPIQuirk;
-    mutable std::optional<bool> m_needsVideoShouldMaintainAspectRatioQuirk;
-    mutable std::optional<bool> m_shouldExposeShowModalDialog;
-#if PLATFORM(IOS_FAMILY)
-    mutable std::optional<bool> m_shouldNavigatorPluginsBeEmpty;
-#endif
-    mutable std::optional<bool> m_shouldDisableLazyIframeLoadingQuirk;
+    mutable QuirksData m_quirksData;
+
     bool m_needsConfigurableIndexedPropertiesQuirk { false };
     bool m_needsToCopyUserSelectNoneQuirk { false };
-    mutable std::optional<bool> m_shouldStarBeFeaturePolicyDefaultValueQuirk;
-    mutable std::optional<bool> m_needsDisableDOMPasteAccessQuirk;
+
+    Vector<RegistrableDomain> m_subFrameDomainsForStorageAccessQuirk;
+    URL m_topDocumentURLForTesting;
 };
 
 } // namespace WebCore

@@ -33,6 +33,7 @@
 #include "IDLTypes.h"
 #include <wtf/Deque.h>
 #include <wtf/FileSystem.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -40,8 +41,11 @@ namespace WebCore {
 class FileSystemFileHandle;
 template<typename> class DOMPromiseDeferred;
 
-class FileSystemSyncAccessHandle : public ActiveDOMObject, public RefCounted<FileSystemSyncAccessHandle>, public CanMakeWeakPtr<FileSystemSyncAccessHandle> {
+class FileSystemSyncAccessHandle : public RefCountedAndCanMakeWeakPtr<FileSystemSyncAccessHandle>, public ActiveDOMObject {
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     struct FilesystemReadWriteOptions {
         std::optional<unsigned long long> at;
     };
@@ -62,10 +66,10 @@ private:
     using CloseCallback = CompletionHandler<void(ExceptionOr<void>&&)>;
     enum class ShouldNotifyBackend : bool { No, Yes };
     void closeInternal(ShouldNotifyBackend);
+    bool requestSpaceForNewSize(uint64_t newSize);
     bool requestSpaceForWrite(uint64_t writeOffset, uint64_t writeLength);
 
-    // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
+    // ActiveDOMObject.
     void stop() final;
 
     Ref<FileSystemFileHandle> m_source;

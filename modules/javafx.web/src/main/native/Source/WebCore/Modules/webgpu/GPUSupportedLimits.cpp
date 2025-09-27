@@ -53,6 +53,11 @@ uint32_t GPUSupportedLimits::maxBindGroups() const
     return m_backing->maxBindGroups();
 }
 
+uint32_t GPUSupportedLimits::maxBindGroupsPlusVertexBuffers() const
+{
+    return m_backing->maxBindGroupsPlusVertexBuffers();
+}
+
 uint32_t GPUSupportedLimits::maxBindingsPerBindGroup() const
 {
     return m_backing->maxBindingsPerBindGroup();
@@ -181,6 +186,16 @@ uint32_t GPUSupportedLimits::maxComputeWorkgroupSizeZ() const
 uint32_t GPUSupportedLimits::maxComputeWorkgroupsPerDimension() const
 {
     return m_backing->maxComputeWorkgroupsPerDimension();
+}
+
+uint32_t GPUSupportedLimits::maxStorageBuffersInFragmentStage() const
+{
+    return m_backing->maxStorageBuffersInFragmentStage();
+}
+
+uint32_t GPUSupportedLimits::maxStorageTexturesInFragmentStage() const
+{
+    return m_backing->maxStorageTexturesInFragmentStage();
 }
 
 }

@@ -26,13 +26,14 @@
 #include "config.h"
 #include "ServiceWorkerRegistrationBackgroundFetchAPI.h"
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "BackgroundFetchManager.h"
 #include "ServiceWorkerRegistration.h"
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ServiceWorkerRegistrationBackgroundFetchAPI);
 
 ServiceWorkerRegistrationBackgroundFetchAPI::ServiceWorkerRegistrationBackgroundFetchAPI(ServiceWorkerRegistration& serviceWorkerRegistration)
     : m_serviceWorkerRegistration(serviceWorkerRegistration)
@@ -72,11 +73,9 @@ ServiceWorkerRegistrationBackgroundFetchAPI& ServiceWorkerRegistrationBackground
     return *supplement;
 }
 
-const char* ServiceWorkerRegistrationBackgroundFetchAPI::supplementName()
+ASCIILiteral ServiceWorkerRegistrationBackgroundFetchAPI::supplementName()
 {
-    return "ServiceWorkerRegistrationBackgroundFetchAPI";
+    return "ServiceWorkerRegistrationBackgroundFetchAPI"_s;
 }
 
 }
-
-#endif // ENABLE(SERVICE_WORKER)

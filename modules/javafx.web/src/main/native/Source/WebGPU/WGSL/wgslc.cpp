@@ -70,7 +70,10 @@ private:
 void CommandLine::parseArguments(int argc, char** argv)
 {
     for (int i = 1; i < argc; ++i) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
         const char* arg = argv[i];
+#pragma clang diagnostic pop
         if (!strcmp(arg, "-h") || !strcmp(arg, "--help"))
             printUsageStatement(true);
 
@@ -118,7 +121,11 @@ static int runWGSL(const CommandLine& options)
     FileSystem::closeFile(handle);
     auto source = emptyString();
     if (readResult.has_value())
-        source = String::fromUTF8WithLatin1Fallback(readResult->data(), readResult->size());
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
+        source = String::fromUTF8WithLatin1Fallback(std::span(readResult->data(), readResult->size()));
+#pragma clang diagnostic pop
+
     auto checkResult = WGSL::staticCheck(source, std::nullopt, configuration);
     if (auto* failedCheck = std::get_if<WGSL::FailedCheck>(&checkResult)) {
         for (const auto& error : failedCheck->errors)
@@ -131,12 +138,49 @@ static int runWGSL(const CommandLine& options)
         WGSL::AST::dumpAST(shaderModule);
 
     String entrypointName = String::fromLatin1(options.entrypoint());
-    auto prepareResult = WGSL::prepare(shaderModule, entrypointName, std::nullopt);
+    auto prepareResult = WGSL::prepare(shaderModule, entrypointName, nullptr);
+
+    if (auto* error = std::get_if<WGSL::Error>(&prepareResult)) {
+        dataLogLn(*error);
+        return EXIT_FAILURE;
+    }
+
+    auto& result = std::get<WGSL::PrepareResult>(prepareResult);
+    if (entrypointName != "_"_s && !result.entryPoints.contains(entrypointName)) {
+        dataLogLn("WGSL source does not contain entrypoint named '", entrypointName, "'");
+        return EXIT_FAILURE;
+    }
+
+    HashMap<String, WGSL::ConstantValue> constantValues;
+    const auto& entryPointInformation = result.entryPoints.get(entrypointName);
+    for (const auto& [originalName, constant] : entryPointInformation.specializationConstants) {
+        if (!constant.defaultValue) {
+            dataLogLn("Cannot use override without default value in wgslc: '", originalName, "'");
+            return EXIT_FAILURE;
+        }
+
+        auto defaultValue = WGSL::evaluate(*constant.defaultValue, constantValues);
+        if (!defaultValue) {
+            dataLogLn("Failed to evaluate override's default value: '", originalName, "'");
+            return EXIT_FAILURE;
+        }
+
+        constantValues.add(constant.mangledName, *defaultValue);
+    }
+    auto generationResult = WGSL::generate(shaderModule, result, constantValues);
+
+    if (auto* error = std::get_if<WGSL::Error>(&generationResult)) {
+        dataLogLn(*error);
+        return EXIT_FAILURE;
+    }
+
+    auto& msl = std::get<String>(generationResult);
+
     if (options.dumpASTAtEnd())
         WGSL::AST::dumpAST(shaderModule);
 
     if (options.dumpGeneratedCode())
-        printf("%s", prepareResult.msl.utf8().data());
+        printf("%s", msl.utf8().data());
 
     return EXIT_SUCCESS;
 }

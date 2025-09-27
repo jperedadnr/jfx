@@ -25,10 +25,16 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 #include "ArrayBufferView.h"
 #include "JSArrayBufferView.h"
 #include "JSDataView.h"
 #include "TypedArrayType.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 namespace JSC {
 
@@ -181,6 +187,7 @@ size_t integerIndexedObjectByteLength(JSArrayBufferView* typedArray, Getter& get
 
 inline JSArrayBufferView* validateTypedArray(JSGlobalObject* globalObject, JSArrayBufferView* typedArray)
 {
+    // https://tc39.es/ecma262/#sec-validatetypedarray
     VM& vm = getVM(globalObject);
     auto scope = DECLARE_THROW_SCOPE(vm);
 

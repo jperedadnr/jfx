@@ -46,31 +46,16 @@ using CBOR = cbor::CBORValue;
 
 static ProtocolVersion convertStringToProtocolVersion(const String& version)
 {
+    if (version == kCtap21Version)
+        return ProtocolVersion::kCtap21;
+    if (version == kCtap21PreVersion)
+        return ProtocolVersion::kCtap21Pre;
     if (version == kCtap2Version)
-        return ProtocolVersion::kCtap;
+        return ProtocolVersion::kCtap2;
     if (version == kU2fVersion)
         return ProtocolVersion::kU2f;
 
     return ProtocolVersion::kUnknown;
-}
-
-static std::optional<AuthenticatorTransport> convertStringToAuthenticatorTransport(const String& transport)
-{
-    if (transport == authenticatorTransportUsb)
-        return AuthenticatorTransport::Usb;
-    if (transport == authenticatorTransportNfc)
-        return AuthenticatorTransport::Nfc;
-    if (transport == authenticatorTransportBle)
-        return AuthenticatorTransport::Ble;
-    if (transport == authenticatorTransportInternal)
-        return AuthenticatorTransport::Internal;
-    if (transport == authenticatorTransportCable)
-        return AuthenticatorTransport::Cable;
-    if (transport == authenticatorTransportHybrid)
-        return AuthenticatorTransport::Hybrid;
-    if (transport == authenticatorTransportSmartCard)
-        return AuthenticatorTransport::SmartCard;
-    return std::nullopt;
 }
 
 std::optional<cbor::CBORValue> decodeResponseMap(const Vector<uint8_t>& inBuffer)
@@ -78,7 +63,7 @@ std::optional<cbor::CBORValue> decodeResponseMap(const Vector<uint8_t>& inBuffer
     if (inBuffer.size() <= kResponseCodeLength || getResponseCode(inBuffer) != CtapDeviceResponseCode::kSuccess)
         return std::nullopt;
 
-    Vector<uint8_t> buffer { inBuffer.data() + 1, inBuffer.size() - 1 };
+    auto buffer = inBuffer.subvector(1);
     std::optional<CBOR> decodedResponse = cbor::CBORReader::read(buffer);
     if (!decodedResponse || !decodedResponse->isMap())
         return std::nullopt;
@@ -104,11 +89,8 @@ static Vector<uint8_t> getCredentialId(const Vector<uint8_t>& authenticatorData)
 
     if (authenticatorData.size() < credentialIdLengthOffset + credentialIdLengthLength + credentialIdLength)
         return { };
-    Vector<uint8_t> credentialId;
-    credentialId.reserveInitialCapacity(credentialIdLength);
-    auto beginIt = authenticatorData.begin() + credentialIdLengthOffset + credentialIdLengthLength;
-    credentialId.appendRange(beginIt, beginIt + credentialIdLength);
-    return credentialId;
+
+    return Vector<uint8_t>(authenticatorData.subspan(credentialIdLengthOffset + credentialIdLengthLength, credentialIdLength));
 }
 
 
@@ -145,7 +127,7 @@ RefPtr<AuthenticatorAttestationResponse> readCTAPMakeCredentialResponse(const Ve
         // The reason why we can't directly pass authenticatorData/format/attStmt to buildAttestationObject
         // is that they are CBORValue instead of the raw type.
         // Also, format and attStmt are omitted as they are not useful in none attestation.
-        attestationObject = buildAttestationObject(Vector<uint8_t>(authenticatorData.getByteString()), String { emptyString() }, { }, attestation);
+        attestationObject = buildAttestationObject(Vector<uint8_t>(authenticatorData.getByteString()), String { emptyString() }, { }, attestation, ShouldZeroAAGUID::Yes);
     } else {
         CBOR::MapValue attestationObjectMap;
         attestationObjectMap[CBOR("authData")] = WTFMove(authenticatorData);
@@ -358,6 +340,21 @@ std::optional<AuthenticatorGetInfoResponse> readCTAPGetInfoResponse(const Vector
                 transports.append(*transport);
         }
         response.setTransports(WTFMove(transports));
+    }
+
+    it = responseMap.find(CBOR(0x0D));
+    if (it != responseMap.end()) {
+        if (!it->second.isUnsigned())
+            return std::nullopt;
+        response.setMinPINLength(it->second.getUnsigned());
+    }
+
+    it = responseMap.find(CBOR(20));
+    if (it != responseMap.end()) {
+        if (!it->second.isUnsigned())
+            return std::nullopt;
+
+        response.setRemainingDiscoverableCredentials(it->second.getUnsigned());
     }
 
     return WTFMove(response);

@@ -27,6 +27,7 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "WasmCallee.h"
 #include "WasmEntryPlan.h"
 #include "WasmIPIntGenerator.h"
 #include "WasmLLIntPlan.h"
@@ -37,9 +38,9 @@ namespace Wasm {
 
 class IPIntCallee;
 
-using JSEntrypointCalleeMap = HashMap<uint32_t, RefPtr<JSEntrypointCallee>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
+using JSEntrypointCalleeMap = UncheckedKeyHashMap<uint32_t, RefPtr<JSEntrypointCallee>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
 
-using TailCallGraph = HashMap<uint32_t, HashSet<uint32_t, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
+using TailCallGraph = UncheckedKeyHashMap<uint32_t, UncheckedKeyHashSet<uint32_t, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
 
 
 class IPIntPlan final : public EntryPlan {
@@ -49,12 +50,6 @@ public:
     JS_EXPORT_PRIVATE IPIntPlan(VM&, Vector<uint8_t>&&, CompilerMode, CompletionTask&&);
     IPIntPlan(VM&, Ref<ModuleInformation>, const Ref<IPIntCallee>*, CompletionTask&&);
     IPIntPlan(VM&, Ref<ModuleInformation>, CompilerMode, CompletionTask&&); // For StreamingCompiler.
-
-    MacroAssemblerCodeRef<JITCompilationPtrTag>&& takeEntryThunks()
-    {
-        RELEASE_ASSERT(!failed() && !hasWork());
-        return WTFMove(m_entryThunks);
-    }
 
     Vector<Ref<IPIntCallee>>&& takeCallees()
     {
@@ -75,11 +70,11 @@ public:
         return m_state < State::Compiled;
     }
 
-    void work(CompilationEffort) final;
+    void work() final;
 
-    bool didReceiveFunctionData(unsigned, const FunctionData&) final;
+    bool didReceiveFunctionData(FunctionCodeIndex, const FunctionData&) final;
 
-    void compileFunction(uint32_t functionIndex) final;
+    void compileFunction(FunctionCodeIndex functionIndex) final;
 
     void completeInStreaming();
     void didCompileFunctionInStreaming();
@@ -89,15 +84,17 @@ private:
     bool prepareImpl() final;
     void didCompleteCompilation() WTF_REQUIRES_LOCK(m_lock) final;
 
-    void addTailCallEdge(uint32_t, uint32_t);
+    void addTailCallEdge(uint32_t, uint32_t) WTF_REQUIRES_LOCK(m_lock);
     void computeTransitiveTailCalls() const;
+
+    bool ensureEntrypoint(IPIntCallee&, FunctionCodeIndex functionIndex);
 
     Vector<std::unique_ptr<FunctionIPIntMetadataGenerator>> m_wasmInternalFunctions;
     const Ref<IPIntCallee>* m_callees { nullptr };
     Vector<Ref<IPIntCallee>> m_calleesVector;
+    Vector<RefPtr<JSEntrypointCallee>> m_entrypoints;
     JSEntrypointCalleeMap m_jsEntrypointCallees;
     TailCallGraph m_tailCallGraph;
-    MacroAssemblerCodeRef<JITCompilationPtrTag> m_entryThunks;
 };
 
 } } // namespace JSC::Wasm

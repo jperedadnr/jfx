@@ -33,15 +33,17 @@
 
 #include <JavaScriptCore/Strong.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class DOMWrapperWorld;
-class JSLocalDOMWindow;
+class JSDOMWindow;
 class LocalFrame;
 
 class ScriptCachedFrameData {
-    WTF_MAKE_NONCOPYABLE(ScriptCachedFrameData); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ScriptCachedFrameData);
+    WTF_MAKE_NONCOPYABLE(ScriptCachedFrameData);
 public:
     explicit ScriptCachedFrameData(LocalFrame&);
     ~ScriptCachedFrameData();
@@ -50,8 +52,8 @@ public:
     void clear();
 
 private:
-    typedef HashMap<RefPtr<DOMWrapperWorld>, JSC::Strong<JSLocalDOMWindow>> JSLocalDOMWindowSet;
-    JSLocalDOMWindowSet m_windows;
+    typedef UncheckedKeyHashMap<RefPtr<DOMWrapperWorld>, JSC::Strong<JSDOMWindow>> JSDOMWindowSet;
+    JSDOMWindowSet m_windows;
 };
 
 } // namespace WebCore

@@ -37,15 +37,17 @@ class AccessibilityTableRow;
 
 class AccessibilityTableCell : public AccessibilityRenderObject {
 public:
-    static Ref<AccessibilityTableCell> create(RenderObject*);
-    static Ref<AccessibilityTableCell> create(Node&);
+    static Ref<AccessibilityTableCell> create(AXID, RenderObject&);
+    static Ref<AccessibilityTableCell> create(AXID, Node&);
     virtual ~AccessibilityTableCell();
     bool isTableCell() const final { return true; }
 
     bool isExposedTableCell() const final;
     bool isTableHeaderCell() const;
-    bool isColumnHeaderCell() const override;
-    bool isRowHeaderCell() const override;
+    bool isColumnHeader() const final;
+    bool isRowHeader() const final;
+
+    std::optional<AXID> rowGroupAncestorID() const final;
 
     virtual AccessibilityTable* parentTable() const;
 
@@ -54,17 +56,18 @@ public:
     // Returns the start location and column span of the cell.
     std::pair<unsigned, unsigned> columnIndexRange() const final;
 
-    AccessibilityChildrenVector columnHeaders() override;
-    AccessibilityChildrenVector rowHeaders() override;
+    AccessibilityChildrenVector rowHeaders() final;
 
-    int axColumnIndex() const override;
-    int axRowIndex() const override;
+    int axColumnIndex() const final;
+    int axRowIndex() const final;
     unsigned colSpan() const;
     unsigned rowSpan() const;
+    void incrementEffectiveRowSpan() { ++m_effectiveRowSpan; }
+    void resetEffectiveRowSpan() { m_effectiveRowSpan = 1; }
     void setAXColIndexFromRow(int index) { m_axColIndexFromRow = index; }
 
-    void setRowIndex(unsigned index) { m_rowIndex = index; }
-    void setColumnIndex(unsigned index) { m_columnIndex = index; }
+    void setRowIndex(unsigned);
+    void setColumnIndex(unsigned);
 
 #if USE(ATSPI)
     int axColumnSpan() const;
@@ -72,29 +75,29 @@ public:
 #endif
 
 protected:
-    explicit AccessibilityTableCell(RenderObject*);
-    explicit AccessibilityTableCell(Node&);
+    explicit AccessibilityTableCell(AXID, RenderObject&);
+    explicit AccessibilityTableCell(AXID, Node&);
 
     AccessibilityTableRow* parentRow() const;
     AccessibilityRole determineAccessibilityRole() final;
-    AccessibilityObject* parentObjectUnignored() const override;
+
+private:
+    // If a table cell is not exposed as a table cell, a TH element can serve as its title UI element.
+    AccessibilityObject* titleUIElement() const final;
+    bool computeIsIgnored() const final;
+    String expandedTextValue() const final;
+    bool supportsExpandedTextValue() const final;
+    void ensureIndexesUpToDate() const;
 
     unsigned m_rowIndex { 0 };
     unsigned m_columnIndex { 0 };
     int m_axColIndexFromRow { -1 };
 
-private:
-    // If a table cell is not exposed as a table cell, a TH element can serve as its title UI element.
-    AccessibilityObject* titleUIElement() const final;
-    bool exposesTitleUIElement() const final { return true; }
-    bool computeAccessibilityIsIgnored() const final;
-    String expandedTextValue() const final;
-    bool supportsExpandedTextValue() const final;
-    AccessibilityTableRow* ariaOwnedByParent() const;
-    void ensureIndexesUpToDate() const;
-
-    bool isTableCellInSameRowGroup(AXCoreObject*);
-    bool isTableCellInSameColGroup(AXCoreObject*);
+    // How many rows does this cell actually span?
+    // This differs from rowSpan(), which can be an author-specified number all the way up 65535 that doesn't actually
+    // reflect how many rows the cell spans in the rendered table.
+    // Default to 1, as the cell should span at least the row it starts in.
+    unsigned m_effectiveRowSpan { 1 };
 };
 
 } // namespace WebCore

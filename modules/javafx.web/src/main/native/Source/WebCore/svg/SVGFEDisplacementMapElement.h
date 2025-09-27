@@ -22,25 +22,26 @@
 
 #include "FEDisplacementMap.h"
 #include "SVGFilterPrimitiveStandardAttributes.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 template<>
 struct SVGPropertyTraits<ChannelSelectorType> {
-    static unsigned highestEnumValue() { return CHANNEL_A; }
+    static unsigned highestEnumValue() { return enumToUnderlyingType(ChannelSelectorType::CHANNEL_A); }
 
     static String toString(ChannelSelectorType type)
     {
         switch (type) {
-        case CHANNEL_UNKNOWN:
+        case ChannelSelectorType::CHANNEL_UNKNOWN:
             return emptyString();
-        case CHANNEL_R:
+        case ChannelSelectorType::CHANNEL_R:
             return "R"_s;
-        case CHANNEL_G:
+        case ChannelSelectorType::CHANNEL_G:
             return "G"_s;
-        case CHANNEL_B:
+        case ChannelSelectorType::CHANNEL_B:
             return "B"_s;
-        case CHANNEL_A:
+        case ChannelSelectorType::CHANNEL_A:
             return "A"_s;
         }
 
@@ -51,19 +52,20 @@ struct SVGPropertyTraits<ChannelSelectorType> {
     static ChannelSelectorType fromString(const String& value)
     {
         if (value == "R"_s)
-            return CHANNEL_R;
+            return ChannelSelectorType::CHANNEL_R;
         if (value == "G"_s)
-            return CHANNEL_G;
+            return ChannelSelectorType::CHANNEL_G;
         if (value == "B"_s)
-            return CHANNEL_B;
+            return ChannelSelectorType::CHANNEL_B;
         if (value == "A"_s)
-            return CHANNEL_A;
-        return CHANNEL_UNKNOWN;
+            return ChannelSelectorType::CHANNEL_A;
+        return ChannelSelectorType::CHANNEL_UNKNOWN;
     }
 };
 
 class SVGFEDisplacementMapElement final : public SVGFilterPrimitiveStandardAttributes {
-    WTF_MAKE_ISO_ALLOCATED(SVGFEDisplacementMapElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SVGFEDisplacementMapElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGFEDisplacementMapElement);
 public:
     static Ref<SVGFEDisplacementMapElement> create(const QualifiedName&, Document&);
 
@@ -81,10 +83,10 @@ public:
     SVGAnimatedEnumeration& yChannelSelectorAnimated() { return m_yChannelSelector; }
     SVGAnimatedNumber& scaleAnimated() { return m_scale; }
 
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFEDisplacementMapElement, SVGFilterPrimitiveStandardAttributes>;
+
 private:
     SVGFEDisplacementMapElement(const QualifiedName& tagName, Document&);
-
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFEDisplacementMapElement, SVGFilterPrimitiveStandardAttributes>;
 
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
@@ -95,8 +97,8 @@ private:
 
     Ref<SVGAnimatedString> m_in1 { SVGAnimatedString::create(this) };
     Ref<SVGAnimatedString> m_in2 { SVGAnimatedString::create(this) };
-    Ref<SVGAnimatedEnumeration> m_xChannelSelector { SVGAnimatedEnumeration::create(this, CHANNEL_A) };
-    Ref<SVGAnimatedEnumeration> m_yChannelSelector { SVGAnimatedEnumeration::create(this, CHANNEL_A) };
+    Ref<SVGAnimatedEnumeration> m_xChannelSelector { SVGAnimatedEnumeration::create(this, ChannelSelectorType::CHANNEL_A) };
+    Ref<SVGAnimatedEnumeration> m_yChannelSelector { SVGAnimatedEnumeration::create(this, ChannelSelectorType::CHANNEL_A) };
     Ref<SVGAnimatedNumber> m_scale { SVGAnimatedNumber::create(this) };
 };
 

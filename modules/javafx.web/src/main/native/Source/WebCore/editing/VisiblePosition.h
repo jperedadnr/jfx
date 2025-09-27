@@ -61,8 +61,8 @@ public:
     WEBCORE_EXPORT VisiblePosition left(bool stayInEditableContent = false, bool* reachedBoundary = nullptr) const;
     WEBCORE_EXPORT VisiblePosition right(bool stayInEditableContent = false, bool* reachedBoundary = nullptr) const;
 
-    WEBCORE_EXPORT UChar32 characterAfter() const;
-    UChar32 characterBefore() const { return previous().characterAfter(); }
+    WEBCORE_EXPORT char32_t characterAfter() const;
+    char32_t characterBefore() const { return previous().characterAfter(); }
 
     // FIXME: This does not handle [table, 0] correctly.
     Element* rootEditableElement() const { return m_deepPosition.isNotNull() ? m_deepPosition.deprecatedNode()->rootEditableElement() : 0; }
@@ -90,7 +90,7 @@ public:
     bool equals(const VisiblePosition&) const;
 
 #if ENABLE(TREE_DEBUGGING)
-    void debugPosition(const char* msg = "") const;
+    void debugPosition(ASCIILiteral msg = ""_s) const;
     String debugDescription() const;
     void showTreeForThis() const;
 #endif

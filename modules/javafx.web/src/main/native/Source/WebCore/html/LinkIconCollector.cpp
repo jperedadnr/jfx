@@ -90,7 +90,7 @@ auto LinkIconCollector::iconsOfTypes(OptionSet<LinkIconType> iconTypes) -> Vecto
             continue;
 
         auto url = linkElement.href();
-        if (!url.protocolIsInHTTPFamily())
+        if (!url.protocolIsInHTTPFamily() && !url.protocolIsData())
             continue;
 
         // This icon size parsing is a little wonky - it only parses the first
@@ -102,9 +102,10 @@ auto LinkIconCollector::iconsOfTypes(OptionSet<LinkIconType> iconTypes) -> Vecto
 
         Vector<std::pair<String, String>> attributes;
         if (linkElement.hasAttributes()) {
-            attributes.reserveInitialCapacity(linkElement.attributeCount());
-            for (auto& attribute : linkElement.attributesIterator())
-                attributes.uncheckedAppend({ attribute.localName(), attribute.value() });
+            auto linkAttributes = linkElement.attributes();
+            attributes = WTF::map(linkAttributes, [](auto& attribute) -> std::pair<String, String> {
+                return { attribute.localName(), attribute.value() };
+            });
         }
 
         icons.append({ url, iconType, linkElement.type(), iconSize, WTFMove(attributes) });

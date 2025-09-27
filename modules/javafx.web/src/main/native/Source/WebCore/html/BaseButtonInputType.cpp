@@ -35,8 +35,11 @@
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "RenderButton.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BaseButtonInputType);
 
 using namespace HTMLNames;
 
@@ -66,6 +69,11 @@ void BaseButtonInputType::setValue(const String& sanitizedValue, bool, TextField
 {
     ASSERT(element());
     element()->setAttributeWithoutSynchronization(valueAttr, AtomString { sanitizedValue });
+}
+
+bool BaseButtonInputType::dirAutoUsesValue() const
+{
+    return true;
 }
 
 } // namespace WebCore

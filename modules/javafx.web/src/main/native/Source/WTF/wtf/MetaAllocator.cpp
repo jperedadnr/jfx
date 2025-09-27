@@ -36,7 +36,7 @@ namespace WTF {
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(MetaAllocatorHandle);
 
-DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(MetaAllocatorFreeSpace);
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER_AND_EXPORT(MetaAllocatorFreeSpace, WTF_INTERNAL);
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(MetaAllocatorFreeSpace);
 
 MetaAllocator::~MetaAllocator()
@@ -62,7 +62,7 @@ void MetaAllocatorTracker::release(MetaAllocatorHandle& handle)
     m_allocations.remove(&handle);
 }
 
-void MetaAllocator::release(const LockHolder&, MetaAllocatorHandle& handle)
+void MetaAllocator::release(const Locker<Lock>&, MetaAllocatorHandle& handle)
 {
     if (handle.sizeInBytes()) {
         MemoryPtr start = handle.start();
@@ -154,7 +154,7 @@ MetaAllocator::MetaAllocator(Lock& lock, size_t allocationGranule, size_t pageSi
     ASSERT(static_cast<size_t>(1) << m_logAllocationGranule == m_allocationGranule);
 }
 
-RefPtr<MetaAllocatorHandle> MetaAllocator::allocate(const LockHolder&, size_t sizeInBytes)
+RefPtr<MetaAllocatorHandle> MetaAllocator::allocate(const Locker<Lock>&, size_t sizeInBytes)
 {
     if (!sizeInBytes)
         return nullptr;
@@ -198,7 +198,7 @@ RefPtr<MetaAllocatorHandle> MetaAllocator::allocate(const LockHolder&, size_t si
     return handle;
 }
 
-MetaAllocator::Statistics MetaAllocator::currentStatistics(const LockHolder&)
+MetaAllocator::Statistics MetaAllocator::currentStatistics(const Locker<Lock>&)
 {
     Statistics result;
     result.bytesAllocated = m_bytesAllocated;
@@ -310,8 +310,8 @@ void MetaAllocator::addFreeSpace(FreeSpacePtr start, size_t sizeInBytes)
 {
     FreeSpacePtr end = start + sizeInBytes;
 
-    HashMap<FreeSpacePtr, FreeSpaceNode*>::iterator leftNeighbor = m_freeSpaceEndAddressMap.find(start);
-    HashMap<FreeSpacePtr, FreeSpaceNode*>::iterator rightNeighbor = m_freeSpaceStartAddressMap.find(end);
+    UncheckedKeyHashMap<FreeSpacePtr, FreeSpaceNode*>::iterator leftNeighbor = m_freeSpaceEndAddressMap.find(start);
+    UncheckedKeyHashMap<FreeSpacePtr, FreeSpaceNode*>::iterator rightNeighbor = m_freeSpaceStartAddressMap.find(end);
 
     if (leftNeighbor != m_freeSpaceEndAddressMap.end()) {
         // We have something we can coalesce with on the left. Remove it from the tree, and
@@ -441,7 +441,7 @@ void MetaAllocator::decrementPageOccupancy(void* address, size_t sizeInBytes)
     };
 
     for (uintptr_t page = firstPage; page <= lastPage; ++page) {
-        HashMap<uintptr_t, size_t>::iterator iter = m_pageOccupancyMap.find(page);
+        UncheckedKeyHashMap<uintptr_t, size_t>::iterator iter = m_pageOccupancyMap.find(page);
         ASSERT(iter != m_pageOccupancyMap.end());
         if (!--(iter->value)) {
             m_pageOccupancyMap.remove(iter);

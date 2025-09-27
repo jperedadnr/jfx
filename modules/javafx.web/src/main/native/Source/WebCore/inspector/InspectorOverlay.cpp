@@ -35,6 +35,7 @@
 #include "CSSGridAutoRepeatValue.h"
 #include "CSSGridIntegerRepeatValue.h"
 #include "CSSGridLineNamesValue.h"
+#include "CSSSerializationContext.h"
 #include "CSSStyleDeclaration.h"
 #include "DOMCSSNamespace.h"
 #include "DOMTokenList.h"
@@ -73,14 +74,18 @@
 #include "Settings.h"
 #include "StyleGridData.h"
 #include "StyleResolver.h"
-#include "TextDirection.h"
+#include "WritingMode.h"
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 
 using namespace Inspector;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorOverlay);
 
 static constexpr float rulerSize = 15;
 static constexpr float rulerLabelSize = 13;
@@ -106,12 +111,12 @@ static void truncateWithEllipsis(String& string, size_t length)
         string = makeString(StringView(string).left(length), horizontalEllipsis);
 }
 
-static FloatPoint localPointToRootPoint(const LocalFrameView* view, const FloatPoint& point)
+static FloatPoint localPointToRootPoint(const FrameView* view, const FloatPoint& point)
 {
     return view->contentsToRootView(point);
 }
 
-static void contentsQuadToCoordinateSystem(const LocalFrameView* mainView, const LocalFrameView* view, FloatQuad& quad, InspectorOverlay::CoordinateSystem coordinateSystem)
+static void contentsQuadToCoordinateSystem(const FrameView* mainView, const LocalFrameView* view, FloatQuad& quad, InspectorOverlay::CoordinateSystem coordinateSystem)
 {
     quad.setP1(localPointToRootPoint(view, quad.p1()));
     quad.setP2(localPointToRootPoint(view, quad.p2()));
@@ -145,11 +150,10 @@ static void buildRendererHighlight(RenderObject* renderer, const InspectorOverla
 
     highlight.setDataFromConfig(highlightConfig);
     auto* containingView = containingFrame->view();
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(containingFrame->page()->mainFrame());
-    auto* mainView = localMainFrame ? localMainFrame->view() : nullptr;
+    auto* mainView = containingFrame->page()->mainFrame().virtualView();
 
     // (Legacy)RenderSVGRoot should be highlighted through the isBox() code path, all other SVG elements should just dump their absoluteQuads().
-    bool isSVGRenderer = renderer->node() && renderer->node()->isSVGElement() && !renderer->isSVGRootOrLegacySVGRoot();
+    bool isSVGRenderer = renderer->node() && renderer->node()->isSVGElement() && !renderer->isRenderOrLegacyRenderSVGRoot();
 
     if (isSVGRenderer) {
         highlight.type = InspectorOverlay::Highlight::Type::Rects;
@@ -207,8 +211,8 @@ static void buildRendererHighlight(RenderObject* renderer, const InspectorOverla
 
 static void buildNodeHighlight(Node& node, const InspectorOverlay::Highlight::Config& highlightConfig, InspectorOverlay::Highlight& highlight, InspectorOverlay::CoordinateSystem coordinateSystem)
 {
-    RenderObject* renderer = node.renderer();
-    if (!renderer)
+    auto* renderer = node.renderer();
+    if (!renderer || renderer->isSkippedContent())
         return;
 
     buildRendererHighlight(renderer, highlightConfig, highlight, coordinateSystem);
@@ -306,8 +310,8 @@ static void drawFragmentHighlight(GraphicsContext& context, Node& node, const In
 
 static void drawShapeHighlight(GraphicsContext& context, Node& node, InspectorOverlay::Highlight::Bounds& bounds)
 {
-    RenderObject* renderer = node.renderer();
-    if (!renderer || !is<RenderBox>(renderer))
+    auto* renderer = node.renderer();
+    if (!renderer || renderer->isSkippedContent() || !is<RenderBox>(renderer))
         return;
 
     const ShapeOutsideInfo* shapeOutsideInfo = downcast<RenderBox>(renderer)->shapeOutsideInfo();
@@ -319,12 +323,11 @@ static void drawShapeHighlight(GraphicsContext& context, Node& node, InspectorOv
         return;
 
     auto* containingView = containingFrame->view();
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(containingFrame->page()->mainFrame());
-    auto* mainView = localMainFrame ? localMainFrame->view() : nullptr;
+    auto* mainView = containingFrame->page()->mainFrame().virtualView();
 
     static constexpr auto shapeHighlightColor = SRGBA<uint8_t> { 96, 82, 127, 204 };
 
-    Shape::DisplayPaths paths;
+    LayoutShape::DisplayPaths paths;
     shapeOutsideInfo->computedShape().buildDisplayPaths(paths);
 
     if (paths.shape.isEmpty()) {
@@ -388,8 +391,8 @@ static void drawShapeHighlight(GraphicsContext& context, Node& node, InspectorOv
     context.fillPath(shapePath);
 }
 
-InspectorOverlay::InspectorOverlay(Page& page, InspectorClient* client)
-    : m_page(page)
+InspectorOverlay::InspectorOverlay(InspectorController& controller, InspectorClient* client)
+    : m_controller(controller)
     , m_client(client)
     , m_paintRectUpdateTimer(*this, &InspectorOverlay::updatePaintRectsTimerFired)
 {
@@ -397,16 +400,27 @@ InspectorOverlay::InspectorOverlay(Page& page, InspectorClient* client)
 
 InspectorOverlay::~InspectorOverlay() = default;
 
+void InspectorOverlay::ref() const
+{
+    m_controller->ref();
+}
+
+void InspectorOverlay::deref() const
+{
+    m_controller->deref();
+}
+
+Page& InspectorOverlay::page() const
+{
+    return m_controller->inspectedPage();
+}
+
 void InspectorOverlay::paint(GraphicsContext& context)
 {
     if (!shouldShowOverlay())
         return;
 
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
-    if (!localMainFrame)
-        return;
-
-    FloatSize viewportSize = localMainFrame->view()->sizeForVisibleContent();
+    auto viewportSize = page().mainFrame().virtualView()->sizeForVisibleContent();
 
     context.clearRect({ FloatPoint::zero(), viewportSize });
 
@@ -603,12 +617,8 @@ void InspectorOverlay::highlightNode(Node* node, const InspectorOverlay::Highlig
 
 void InspectorOverlay::highlightQuad(std::unique_ptr<FloatQuad> quad, const InspectorOverlay::Highlight::Config& highlightConfig)
 {
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
-    if (!localMainFrame)
-        return;
-
     if (highlightConfig.usePageCoordinates)
-        *quad -= toIntSize(localMainFrame->view()->scrollPosition());
+        *quad -= toIntSize(page().mainFrame().virtualView()->scrollPosition());
 
     m_quadHighlightConfig = highlightConfig;
     m_highlightQuad = WTFMove(quad);
@@ -654,12 +664,7 @@ void InspectorOverlay::update()
         return;
     }
 
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
-    if (!localMainFrame)
-        return;
-
-    auto* view = localMainFrame->view();
-    if (!view)
+    if (!page().mainFrame().virtualView())
         return;
 
     m_client->highlight();
@@ -683,11 +688,7 @@ void InspectorOverlay::showPaintRect(const FloatRect& rect)
     if (!m_showPaintRects)
         return;
 
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
-    if (!localMainFrame)
-        return;
-
-    IntRect rootRect = localMainFrame->view()->contentsToRootView(enclosingIntRect(rect));
+    auto rootRect = page().mainFrame().virtualView()->contentsToRootView(enclosingIntRect(rect));
 
     const auto removeDelay = 250_ms;
 
@@ -859,22 +860,19 @@ void InspectorOverlay::drawPaintRects(GraphicsContext& context, const Deque<Time
 
 void InspectorOverlay::drawBounds(GraphicsContext& context, const InspectorOverlay::Highlight::Bounds& bounds)
 {
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
-    if (!localMainFrame)
-        return;
-
-    auto* pageView = localMainFrame->view();
+    Ref mainFrame = page().mainFrame();
+    RefPtr pageView = mainFrame->virtualView();
     FloatSize viewportSize = pageView->sizeForVisibleContent();
-    FloatSize contentInset(0, pageView->topContentInset(ScrollView::TopContentInsetType::WebCoreOrPlatformContentInset));
+    auto obscuredContentInsets = pageView->obscuredContentInsets(ScrollView::InsetType::WebCoreOrPlatformInset);
 
     Path path;
 
-    if (bounds.y() > contentInset.height()) {
+    if (bounds.y() > obscuredContentInsets.top()) {
         path.moveTo({ bounds.x(), bounds.y() });
-        path.addLineTo({ bounds.x(), contentInset.height() });
+        path.addLineTo({ bounds.x(), obscuredContentInsets.top() });
 
         path.moveTo({ bounds.maxX(), bounds.y() });
-        path.addLineTo({ bounds.maxX(), contentInset.height() });
+        path.addLineTo({ bounds.maxX(), obscuredContentInsets.top() });
     }
 
     if (bounds.maxY() < viewportSize.height()) {
@@ -885,12 +883,12 @@ void InspectorOverlay::drawBounds(GraphicsContext& context, const InspectorOverl
         path.addLineTo({ bounds.maxX(), bounds.maxY() });
     }
 
-    if (bounds.x() > contentInset.width()) {
+    if (bounds.x() > obscuredContentInsets.left()) {
         path.moveTo({ bounds.x(), bounds.y() });
-        path.addLineTo({ contentInset.width(), bounds.y() });
+        path.addLineTo({ obscuredContentInsets.left(), bounds.y() });
 
         path.moveTo({ bounds.x(), bounds.maxY() });
-        path.addLineTo({ contentInset.width(), bounds.maxY() });
+        path.addLineTo({ obscuredContentInsets.left(), bounds.maxY() });
     }
 
     if (bounds.maxX() < viewportSize.width()) {
@@ -918,7 +916,7 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
     constexpr auto darkRulerColor = Color::black.colorWithAlphaByte(128);
 
     IntPoint scrollOffset;
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
+    RefPtr localMainFrame = page().localMainFrame();
     if (!localMainFrame)
         return;
 
@@ -927,8 +925,8 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
         scrollOffset = pageView->visibleContentRect().location();
 
     FloatSize viewportSize = pageView->sizeForVisibleContent();
-    FloatSize contentInset(0, pageView->topContentInset(ScrollView::TopContentInsetType::WebCoreOrPlatformContentInset));
-    float pageScaleFactor = m_page.pageScaleFactor();
+    auto obscuredContentInsets = pageView->obscuredContentInsets(ScrollView::InsetType::WebCoreOrPlatformInset);
+    float pageScaleFactor = page().pageScaleFactor();
     float pageZoomFactor = localMainFrame->pageZoomFactor();
 
     float pageFactor = pageZoomFactor * pageScaleFactor;
@@ -959,17 +957,17 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
 
     // Determine which side (top/bottom and left/right) to draw the rulers.
     {
-        FloatRect topEdge(contentInset.width(), contentInset.height(), zoom(width) - contentInset.width(), rulerSize);
-        FloatRect bottomEdge(contentInset.width(), zoom(height) - rulerSize, zoom(width) - contentInset.width(), rulerSize);
+        FloatRect topEdge(obscuredContentInsets.left(), obscuredContentInsets.top(), zoom(width) - obscuredContentInsets.left(), rulerSize);
+        FloatRect bottomEdge(obscuredContentInsets.left(), zoom(height) - rulerSize, zoom(width) - obscuredContentInsets.left(), rulerSize);
         drawTopEdge = !rulerExclusion.bounds.intersects(topEdge) || rulerExclusion.bounds.intersects(bottomEdge);
 
-        FloatRect rightEdge(zoom(width) - rulerSize, contentInset.height(), rulerSize, zoom(height) - contentInset.height());
-        FloatRect leftEdge(contentInset.width(), contentInset.height(), rulerSize, zoom(height) - contentInset.height());
+        FloatRect rightEdge(zoom(width) - rulerSize, obscuredContentInsets.top(), rulerSize, zoom(height) - obscuredContentInsets.top());
+        FloatRect leftEdge(obscuredContentInsets.left(), obscuredContentInsets.top(), rulerSize, zoom(height) - obscuredContentInsets.top());
         drawLeftEdge = !rulerExclusion.bounds.intersects(leftEdge) || rulerExclusion.bounds.intersects(rightEdge);
     }
 
-    float cornerX = drawLeftEdge ? contentInset.width() : zoom(width) - rulerSize;
-    float cornerY = drawTopEdge ? contentInset.height() : zoom(height) - rulerSize;
+    float cornerX = drawLeftEdge ? obscuredContentInsets.left() : zoom(width) - rulerSize;
+    float cornerY = drawTopEdge ? obscuredContentInsets.top() : zoom(height) - rulerSize;
 
     // Draw backgrounds.
     {
@@ -982,21 +980,21 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
         if (drawLeftEdge)
             context.fillRect({ cornerX + rulerSize, cornerY, zoom(width) - cornerX - rulerSize, rulerSize });
         else
-            context.fillRect({ contentInset.width(), cornerY, cornerX - contentInset.width(), rulerSize });
+            context.fillRect({ obscuredContentInsets.left(), cornerY, cornerX - obscuredContentInsets.left(), rulerSize });
 
         if (drawTopEdge)
             context.fillRect({ cornerX, cornerY + rulerSize, rulerSize, zoom(height) - cornerY - rulerSize });
         else
-            context.fillRect({ cornerX, contentInset.height(), rulerSize, cornerY - contentInset.height() });
+            context.fillRect({ cornerX, obscuredContentInsets.top(), rulerSize, cornerY - obscuredContentInsets.top() });
     }
 
     // Draw lines.
     {
         FontCascadeDescription fontDescription;
-        fontDescription.setOneFamily(AtomString { m_page.settings().sansSerifFontFamily() });
+        fontDescription.setOneFamily(AtomString { page().settings().sansSerifFontFamily() });
         fontDescription.setComputedSize(10);
 
-        FontCascade font(WTFMove(fontDescription), 0, 0);
+        FontCascade font(WTFMove(fontDescription));
         font.update(nullptr);
 
         GraphicsContextStateSaver lineStateSaver(context);
@@ -1008,7 +1006,7 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
         {
             GraphicsContextStateSaver horizontalRulerStateSaver(context);
 
-            context.translate(contentInset.width() - scrollX + 0.5f, cornerY - scrollY);
+            context.translate(obscuredContentInsets.left() - scrollX + 0.5f, cornerY - scrollY);
 
             for (float x = multipleBelow(minX, rulerSubStepIncrement); x < maxX; x += rulerSubStepIncrement) {
                 if (!x && !scrollX)
@@ -1037,7 +1035,7 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
 
                 GraphicsContextStateSaver verticalLabelStateSaver(context);
                 context.translate(zoom(x) + 0.5f, scrollY);
-                context.drawText(font, TextRun(String::number(x)), { 2, drawTopEdge ? rulerLabelSize : rulerLabelSize - rulerSize + font.metricsOfPrimaryFont().height() - 1.0f });
+                context.drawText(font, TextRun(String::number(x)), { 2, drawTopEdge ? rulerLabelSize : rulerLabelSize - rulerSize + font.metricsOfPrimaryFont().intHeight() - 1.0f });
             }
         }
 
@@ -1045,7 +1043,7 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
         {
             GraphicsContextStateSaver veritcalRulerStateSaver(context);
 
-            context.translate(cornerX - scrollX, contentInset.height() - scrollY + 0.5f);
+            context.translate(cornerX - scrollX, obscuredContentInsets.top() - scrollY + 0.5f);
 
             for (float y = multipleBelow(minY, rulerSubStepIncrement); y < maxY; y += rulerSubStepIncrement) {
                 if (!y && !scrollY)
@@ -1083,20 +1081,20 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
     // Draw viewport size.
     {
         FontCascadeDescription fontDescription;
-        fontDescription.setOneFamily(AtomString { m_page.settings().sansSerifFontFamily() });
+        fontDescription.setOneFamily(AtomString { page().settings().sansSerifFontFamily() });
         fontDescription.setComputedSize(12);
 
-        FontCascade font(WTFMove(fontDescription), 0, 0);
+        FontCascade font(WTFMove(fontDescription));
         font.update(nullptr);
 
         auto viewportRect = pageView->visualViewportRect();
-        TextRun viewportTextRun(makeString(viewportRect.width() / pageZoomFactor, "px", ' ', multiplicationSign, ' ', viewportRect.height() / pageZoomFactor, "px"));
+        TextRun viewportTextRun(makeString(viewportRect.width() / pageZoomFactor, "px"_s, ' ', multiplicationSign, ' ', viewportRect.height() / pageZoomFactor, "px"_s));
 
         const float margin = 4;
         const float padding = 2;
         const float radius = 4;
         float fontWidth = font.width(viewportTextRun);
-        float fontHeight = font.metricsOfPrimaryFont().floatHeight();
+        float fontHeight = font.metricsOfPrimaryFont().height();
         FloatRect viewportTextRect(margin, margin, (padding * 2.0f) + fontWidth, (padding * 2.0f) + fontHeight);
         const auto viewportTextRectCenter = viewportTextRect.center();
 
@@ -1113,14 +1111,14 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
         FloatPoint translate(translateX, translateY);
         if (rulerExclusion.titlePath.contains(viewportTextRectCenter + translate)) {
             // Try the opposite horizontal side.
-            float oppositeTranslateX = drawLeftEdge ? zoom(width) + rightTranslateX : contentInset.width() + leftTranslateX;
+            float oppositeTranslateX = drawLeftEdge ? zoom(width) + rightTranslateX : obscuredContentInsets.left() + leftTranslateX;
             translate.setX(oppositeTranslateX);
 
             if (rulerExclusion.titlePath.contains(viewportTextRectCenter + translate)) {
                 translate.setX(translateX);
 
                 // Try the opposite vertical side.
-                float oppositeTranslateY = drawTopEdge ? zoom(height) + bottomTranslateY : contentInset.height() + topTranslateY;
+                float oppositeTranslateY = drawTopEdge ? zoom(height) + bottomTranslateY : obscuredContentInsets.top() + topTranslateY;
                 translate.setY(oppositeTranslateY);
 
                 if (rulerExclusion.titlePath.contains(viewportTextRectCenter + translate)) {
@@ -1134,7 +1132,7 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
         context.fillRoundedRect(FloatRoundedRect(viewportTextRect, FloatRoundedRect::Radii(radius)), rulerBackgroundColor);
 
         context.setFillColor(Color::black);
-        context.drawText(font, viewportTextRun, { margin +  padding, margin + padding + fontHeight - font.metricsOfPrimaryFont().descent() });
+        context.drawText(font, viewportTextRun, { margin +  padding, margin + padding + fontHeight - font.metricsOfPrimaryFont().intDescent() });
     }
 }
 
@@ -1159,12 +1157,12 @@ Path InspectorOverlay::drawElementTitle(GraphicsContext& context, Node& node, co
     if (bounds.isEmpty())
         return { };
 
-    Element* element = effectiveElementForNode(node);
+    auto* element = effectiveElementForNode(node);
     if (!element)
         return { };
 
-    RenderObject* renderer = node.renderer();
-    if (!renderer)
+    auto* renderer = node.renderer();
+    if (!renderer || renderer->isSkippedContent())
         return { };
 
     String elementTagName = element->nodeName();
@@ -1225,7 +1223,7 @@ Path InspectorOverlay::drawElementTitle(GraphicsContext& context, Node& node, co
 
     String elementRole;
     if (AXObjectCache* axObjectCache = node.document().axObjectCache()) {
-        if (auto* axObject = axObjectCache->getOrCreate(&node); axObject && !axObject->accessibilityIsIgnored())
+        if (auto* axObject = axObjectCache->getOrCreate(node); axObject && !axObject->isIgnored())
             elementRole = axObject->computedRoleString();
     }
 
@@ -1261,16 +1259,14 @@ Path InspectorOverlay::drawElementTitle(GraphicsContext& context, Node& node, co
         }
     }
 
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
-    if (!localMainFrame)
-        return { };
-
-    auto* pageView = localMainFrame->view();
-
+    Ref mainFrame = page().mainFrame();
+    RefPtr pageView = mainFrame->virtualView();
     FloatSize viewportSize = pageView->sizeForVisibleContent();
-    FloatSize contentInset(0, pageView->topContentInset(ScrollView::TopContentInsetType::WebCoreOrPlatformContentInset));
-    if (m_showRulers || m_showRulersForNodeHighlight)
-        contentInset.expand(rulerSize, rulerSize);
+    auto obscuredContentInsets = pageView->obscuredContentInsets(ScrollView::InsetType::WebCoreOrPlatformInset);
+    if (m_showRulers || m_showRulersForNodeHighlight) {
+        obscuredContentInsets.setTop(obscuredContentInsets.top() + rulerSize);
+        obscuredContentInsets.setLeft(obscuredContentInsets.left() + rulerSize);
+    }
 
     auto expectedLabelSize = InspectorOverlayLabel::expectedSize(labelContents, InspectorOverlayLabel::Arrow::Direction::Up);
     auto boundsCenterX = bounds.center().x();
@@ -1278,11 +1274,11 @@ Path InspectorOverlay::drawElementTitle(GraphicsContext& context, Node& node, co
     float labelX;
     InspectorOverlayLabel::Arrow::Alignment arrowAlignment;
     if (boundsCenterX + (expectedLabelSize.width() / 2) < viewportSize.width()
-        && boundsCenterX - (expectedLabelSize.width() / 2) > contentInset.width()) {
+        && boundsCenterX - (expectedLabelSize.width() / 2) > obscuredContentInsets.left()) {
         labelX = bounds.x() + (bounds.width() / 2);
         arrowAlignment = InspectorOverlayLabel::Arrow::Alignment::Middle;
-    } else if (bounds.x() < contentInset.width()) {
-        labelX = fmax(contentInset.width(), boundsCenterX);
+    } else if (bounds.x() < obscuredContentInsets.left()) {
+        labelX = fmax(obscuredContentInsets.left(), boundsCenterX);
         arrowAlignment = InspectorOverlayLabel::Arrow::Alignment::Leading;
     } else if (bounds.maxX() > viewportSize.width()) {
         labelX = fmin(viewportSize.width(), boundsCenterX);
@@ -1300,17 +1296,17 @@ Path InspectorOverlay::drawElementTitle(GraphicsContext& context, Node& node, co
     if (anchorTop > viewportSize.height()) {
         labelY = viewportSize.height();
         arrowDirection = InspectorOverlayLabel::Arrow::Direction::Down;
-    } else if (anchorBottom < contentInset.height()) {
-        labelY = contentInset.height();
+    } else if (anchorBottom < obscuredContentInsets.top()) {
+        labelY = obscuredContentInsets.top();
         arrowDirection = InspectorOverlayLabel::Arrow::Direction::Up;
-    } else if (anchorTop - expectedLabelSize.height() > contentInset.height()) {
+    } else if (anchorTop - expectedLabelSize.height() > obscuredContentInsets.top()) {
         labelY = anchorTop;
         arrowDirection = InspectorOverlayLabel::Arrow::Direction::Down;
     } else if (anchorBottom + expectedLabelSize.height() < viewportSize.height()) {
         labelY = anchorBottom;
         arrowDirection = InspectorOverlayLabel::Arrow::Direction::Up;
     } else {
-        labelY = contentInset.height() + expectedLabelSize.height();
+        labelY = obscuredContentInsets.top() + expectedLabelSize.height();
         arrowDirection = InspectorOverlayLabel::Arrow::Direction::Down;
     }
 
@@ -1445,7 +1441,7 @@ static Vector<String> authoredGridTrackSizes(Node* node, GridTrackSizingDirectio
 
     auto handleValueIgnoringLineNames = [&](const CSSValue& currentValue) {
         if (!is<CSSGridLineNamesValue>(currentValue))
-            trackSizes.append(currentValue.cssText());
+            trackSizes.append(currentValue.cssText(CSS::defaultSerializationContext()));
     };
 
     for (auto& currentValue : *cssValueList) {
@@ -1462,7 +1458,7 @@ static Vector<String> authoredGridTrackSizes(Node* node, GridTrackSizingDirectio
         }
 
         if (auto* cssGridIntegerRepeatValue = dynamicDowncast<CSSGridIntegerRepeatValue>(currentValue)) {
-            size_t repetitions = cssGridIntegerRepeatValue->repetitions();
+            size_t repetitions = cssGridIntegerRepeatValue->repetitions().resolveAsIntegerDeprecated();
             for (size_t i = 0; i < repetitions; ++i) {
                 for (auto& integerRepeatValue : *cssGridIntegerRepeatValue)
                     handleValueIgnoringLineNames(integerRepeatValue);
@@ -1530,11 +1526,8 @@ std::optional<InspectorOverlay::Highlight::GridHighlightOverlay> InspectorOverla
     }
 
     constexpr auto translucentLabelBackgroundColor = Color::white.colorWithAlphaByte(230);
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
-    if (!localMainFrame)
-        return { };
 
-    auto* pageView = localMainFrame->view();
+    RefPtr pageView = page().mainFrame().virtualView();
     if (!pageView)
         return { };
     FloatRect viewportBounds = { { 0, 0 }, pageView->sizeForVisibleContent() };
@@ -1548,6 +1541,22 @@ std::optional<InspectorOverlay::Highlight::GridHighlightOverlay> InspectorOverla
     auto rowPositions = renderGrid.rowPositions();
     if (!columnPositions.size() || !rowPositions.size())
         return { };
+
+    LayoutUnit masonryContentSize = renderGrid.masonryContentSize();
+
+    // There are no actual rows or columns in the masonry axis of a masonry layout.
+    // But we can borrow the concept to draw the two lines at the start and end of the masonry axis.
+    if (renderGrid.areMasonryRows()) {
+        auto firstRowPosition = rowPositions[0];
+        auto lastRowPosition = rowPositions[0] + masonryContentSize;
+        rowPositions = Vector<LayoutUnit> { firstRowPosition, lastRowPosition };
+    }
+
+    if (renderGrid.areMasonryColumns()) {
+        auto firstColumnPosition = columnPositions[0];
+        auto lastColumnPosition = columnPositions[0] + masonryContentSize;
+        columnPositions = Vector<LayoutUnit> { firstColumnPosition, lastColumnPosition };
+    }
 
     float gridStartX = columnPositions[0];
     float gridEndX = columnPositions[columnPositions.size() - 1];
@@ -1563,9 +1572,9 @@ std::optional<InspectorOverlay::Highlight::GridHighlightOverlay> InspectorOverla
     if (!computedStyle)
         return { };
 
-    auto isHorizontalWritingMode = computedStyle->isHorizontalWritingMode();
-    auto isDirectionFlipped = !computedStyle->isLeftToRightDirection();
-    auto isWritingModeFlipped = computedStyle->isFlippedBlocksWritingMode();
+    auto isHorizontalWritingMode = computedStyle->writingMode().isHorizontal();
+    auto isDirectionFlipped = computedStyle->writingMode().isBidiRTL();
+    auto isWritingModeFlipped = computedStyle->writingMode().isBlockFlipped();
     auto contentBox = renderGrid.absoluteBoundingBoxRectIgnoringTransforms();
 
     auto columnLineAt = [&](float x) -> FloatLine {
@@ -1670,6 +1679,10 @@ std::optional<InspectorOverlay::Highlight::GridHighlightOverlay> InspectorOverla
             gridHighlightOverlay.gridLines.append(columnStartLine);
         }
 
+        // Draw only the bounding lines of the masonry axis.
+        if (renderGrid.areMasonryColumns())
+            continue;
+
         FloatLine gapLabelLine = columnStartLine;
         if (i) {
             gridHighlightOverlay.gaps.append({ previousColumnEndLine.start(), columnStartLine.start(), columnStartLine.end(), previousColumnEndLine.end() });
@@ -1726,7 +1739,7 @@ std::optional<InspectorOverlay::Highlight::GridHighlightOverlay> InspectorOverla
             auto gapLabelPosition = gapLabelLine.start();
 
             // The area under the window's toolbar is drawable, but not meaningfully visible, so we must account for that space.
-            auto topEdgeInset = pageView->topContentInset(ScrollView::TopContentInsetType::WebCoreOrPlatformContentInset);
+            auto topEdgeInset = pageView->obscuredContentInsets(ScrollView::InsetType::WebCoreOrPlatformInset).top();
             if (gapLabelLine.start().y() - expectedLabelSize.height() - topEdgeInset + scrollPosition.y() - viewportBounds.y() < 0) {
                 arrowDirection = correctedArrowDirection(InspectorOverlayLabel::Arrow::Direction::Up, GridTrackSizingDirection::ForColumns);
 
@@ -1754,6 +1767,10 @@ std::optional<InspectorOverlay::Highlight::GridHighlightOverlay> InspectorOverla
         } else {
             gridHighlightOverlay.gridLines.append(rowStartLine);
         }
+
+        // Draw only the bounding lines of the masonry axis.
+        if (renderGrid.areMasonryRows())
+            continue;
 
         FloatPoint gapLabelPosition = rowStartLine.start();
         if (i) {
@@ -1814,7 +1831,7 @@ std::optional<InspectorOverlay::Highlight::GridHighlightOverlay> InspectorOverla
         }
     }
 
-    if (gridOverlay.config.showAreaNames) {
+    if (gridOverlay.config.showAreaNames && !renderGrid.isMasonry()) {
         for (auto& gridArea : node->renderStyle()->namedGridArea().map) {
             auto& name = gridArea.key;
             auto& area = gridArea.value;
@@ -1903,7 +1920,7 @@ std::optional<InspectorOverlay::Highlight::FlexHighlightOverlay> InspectorOverla
 
     auto& renderFlex = *downcast<RenderFlexibleBox>(renderer);
 
-    auto itemsAtStartOfLine = m_page.inspectorController().ensureDOMAgent().flexibleBoxRendererCachedItemsAtStartOfLine(renderFlex);
+    auto itemsAtStartOfLine = m_controller->ensureDOMAgent().flexibleBoxRendererCachedItemsAtStartOfLine(renderFlex);
 
     auto* containingFrame = node->document().frame();
     if (!containingFrame)
@@ -1915,12 +1932,12 @@ std::optional<InspectorOverlay::Highlight::FlexHighlightOverlay> InspectorOverla
         return { };
 
     auto wasRowDirection = !computedStyle->isColumnFlexDirection();
-    auto isFlippedBlocksWritingMode = computedStyle->isFlippedBlocksWritingMode();
-    auto isRightToLeftDirection = computedStyle->direction() == TextDirection::RTL;
+    auto isBlockFlipped = computedStyle->writingMode().isBlockFlipped();
+    auto isRightToLeftDirection = computedStyle->writingMode().isBidiRTL();
 
-    auto isRowDirection = wasRowDirection ^ !computedStyle->isHorizontalWritingMode();
-    auto isMainAxisDirectionReversed = computedStyle->isReverseFlexDirection() ^ (wasRowDirection ? isRightToLeftDirection : isFlippedBlocksWritingMode);
-    auto isCrossAxisDirectionReversed = (computedStyle->flexWrap() == FlexWrap::Reverse) ^ (wasRowDirection ? isFlippedBlocksWritingMode : isRightToLeftDirection);
+    auto isRowDirection = wasRowDirection ^ !computedStyle->writingMode().isHorizontal();
+    auto isMainAxisDirectionReversed = computedStyle->isReverseFlexDirection() ^ (wasRowDirection ? isRightToLeftDirection : isBlockFlipped);
+    auto isCrossAxisDirectionReversed = (computedStyle->flexWrap() == FlexWrap::Reverse) ^ (wasRowDirection ? isBlockFlipped : isBlockFlipped);
 
     auto localQuadToRootQuad = [&](const FloatQuad& quad) {
         return FloatQuad(
@@ -2044,16 +2061,13 @@ std::optional<InspectorOverlay::Highlight::FlexHighlightOverlay> InspectorOverla
             if (flexOverlay.config.showOrderNumbers) {
                 StringBuilder orderNumbers;
 
-                if (auto index = renderChildrenInDOMOrder.find(renderChild); index != notFound) {
-                    orderNumbers.append("Item #");
-                    orderNumbers.append(index + 1);
-                }
+                if (auto index = renderChildrenInDOMOrder.find(renderChild); index != notFound)
+                    orderNumbers.append("Item #"_s, index + 1);
 
                 if (auto order = renderChild->style().order(); order || hasCustomOrder) {
                     if (!orderNumbers.isEmpty())
                         orderNumbers.append('\n');
-                    orderNumbers.append("order: ");
-                    orderNumbers.append(order);
+                    orderNumbers.append("order: "_s, order);
                 }
 
                 if (!orderNumbers.isEmpty())

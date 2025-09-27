@@ -27,6 +27,7 @@
 #include "CSSFontFaceSrcValue.h"
 
 #include "CSSMarkup.h"
+#include "CSSSerializationContext.h"
 #include "CachedFont.h"
 #include "CachedFontLoadRequest.h"
 #include "CachedResourceLoader.h"
@@ -35,12 +36,13 @@
 #include "FontCustomPlatformData.h"
 #include "SVGFontFaceElement.h"
 #include "ScriptExecutionContext.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
 CSSFontFaceSrcLocalValue::CSSFontFaceSrcLocalValue(AtomString&& fontFaceName)
-    : CSSValue(FontFaceSrcLocalClass)
+    : CSSValue(ClassType::FontFaceSrcLocal)
     , m_fontFaceName(WTFMove(fontFaceName))
 {
 }
@@ -62,9 +64,9 @@ void CSSFontFaceSrcLocalValue::setSVGFontFaceElement(SVGFontFaceElement& element
     m_element = &element;
 }
 
-String CSSFontFaceSrcLocalValue::customCSSText() const
+String CSSFontFaceSrcLocalValue::customCSSText(const CSS::SerializationContext&) const
 {
-    return makeString("local(", serializeString(m_fontFaceName), ')');
+    return makeString("local("_s, serializeString(m_fontFaceName), ')');
 }
 
 bool CSSFontFaceSrcLocalValue::equals(const CSSFontFaceSrcLocalValue& other) const
@@ -73,7 +75,7 @@ bool CSSFontFaceSrcLocalValue::equals(const CSSFontFaceSrcLocalValue& other) con
 }
 
 CSSFontFaceSrcResourceValue::CSSFontFaceSrcResourceValue(ResolvedURL&& location, String&& format, Vector<FontTechnology>&& technologies, LoadedFromOpaqueSource source)
-    : CSSValue(FontFaceSrcResourceClass)
+    : CSSValue(ClassType::FontFaceSrcResource)
     , m_location(WTFMove(location))
     , m_format(WTFMove(format))
     , m_technologies(WTFMove(technologies))
@@ -89,7 +91,7 @@ Ref<CSSFontFaceSrcResourceValue> CSSFontFaceSrcResourceValue::create(ResolvedURL
 std::unique_ptr<FontLoadRequest> CSSFontFaceSrcResourceValue::fontLoadRequest(ScriptExecutionContext& context, bool isInitiatingElementInUserAgentShadowTree)
 {
     if (m_cachedFont)
-        return makeUnique<CachedFontLoadRequest>(*m_cachedFont);
+        return makeUnique<CachedFontLoadRequest>(*m_cachedFont, context);
 
     bool isFormatSVG;
     if (m_format.isEmpty()) {
@@ -118,22 +120,33 @@ std::unique_ptr<FontLoadRequest> CSSFontFaceSrcResourceValue::fontLoadRequest(Sc
     return request;
 }
 
-bool CSSFontFaceSrcResourceValue::customTraverseSubresources(const Function<bool(const CachedResource&)>& handler) const
+bool CSSFontFaceSrcResourceValue::customTraverseSubresources(NOESCAPE const Function<bool(const CachedResource&)>& handler) const
 {
     return m_cachedFont && handler(*m_cachedFont);
 }
 
-String CSSFontFaceSrcResourceValue::customCSSText() const
+bool CSSFontFaceSrcResourceValue::customMayDependOnBaseURL() const
+{
+    return WebCore::mayDependOnBaseURL(m_location);
+}
+
+String CSSFontFaceSrcResourceValue::customCSSText(const CSS::SerializationContext& context) const
 {
     StringBuilder builder;
+    if (auto replacementURLString = context.replacementURLStrings.get(m_location.resolvedURL.string()); !replacementURLString.isEmpty())
+        builder.append(serializeURL(replacementURLString));
+    else if (context.shouldUseResolvedURLInCSSText)
+            builder.append(serializeURL(m_location.resolvedURL.string()));
+    else
     builder.append(serializeURL(m_location.specifiedURLString));
+
     if (!m_format.isEmpty())
-        builder.append(" format(", serializeString(m_format), ')');
+        builder.append(" format("_s, serializeString(m_format), ')');
     if (!m_technologies.isEmpty()) {
-        builder.append(" tech(");
+        builder.append(" tech("_s);
         for (size_t i = 0; i < m_technologies.size(); ++i) {
             if (i)
-                builder.append(", ");
+                builder.append(", "_s);
             builder.append(cssTextFromFontTech(m_technologies[i]));
         }
         builder.append(')');
@@ -143,7 +156,10 @@ String CSSFontFaceSrcResourceValue::customCSSText() const
 
 bool CSSFontFaceSrcResourceValue::equals(const CSSFontFaceSrcResourceValue& other) const
 {
-    return m_location.specifiedURLString == m_location.specifiedURLString && m_format == other.m_format && m_technologies == other.m_technologies;
+    return m_location == other.m_location
+        && m_format == other.m_format
+        && m_technologies == other.m_technologies
+        && m_loadedFromOpaqueSource == other.m_loadedFromOpaqueSource;
 }
 
 }

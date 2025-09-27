@@ -31,16 +31,18 @@
 #include <wtf/DataLog.h>
 #include <wtf/text/StringBuilder.h>
 
+#if PLATFORM(COCOA)
+#include <notify.h>
+#endif
 namespace WGSL {
 
 namespace Metal {
-
-static constexpr bool dumpMetalCode = true;
 
 static StringView metalCodePrologue()
 {
     return StringView {
         "#include <metal_stdlib>\n"
+        "#include <metal_types>\n"
         "\n"
         "using namespace metal;\n"
         "\n"_s
@@ -48,22 +50,35 @@ static StringView metalCodePrologue()
 
 }
 
+#if PLATFORM(COCOA)
 static void dumpMetalCodeIfNeeded(StringBuilder& stringBuilder)
 {
+    static bool dumpMetalCode = false;
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        int dumpMetalCodeToken;
+        notify_register_dispatch("com.apple.WebKit.WebGPU.TogglePrintMetalCode", &dumpMetalCodeToken, dispatch_get_main_queue(), ^(int) {
+            dumpMetalCode = !dumpMetalCode;
+        });
+    });
+
     if (dumpMetalCode) {
         dataLogLn("Generated Metal code:");
         dataLogLn(stringBuilder.toString());
     }
 }
+#endif
 
-String generateMetalCode(CallGraph& callGraph)
+String generateMetalCode(ShaderModule& shaderModule, PrepareResult& prepareResult, const HashMap<String, ConstantValue>& constantValues)
 {
     StringBuilder stringBuilder;
     stringBuilder.append(metalCodePrologue());
 
-    Metal::emitMetalFunctions(stringBuilder, callGraph);
+    Metal::emitMetalFunctions(stringBuilder, shaderModule, prepareResult, constantValues);
 
+#if PLATFORM(COCOA)
     dumpMetalCodeIfNeeded(stringBuilder);
+#endif
 
     return stringBuilder.toString();
 }

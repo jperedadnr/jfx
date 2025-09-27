@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -417,7 +417,7 @@ public class HBox extends Pane {
         if (width != -1 && getContentBias() != null) {
             double prefWidths[][] = getAreaWidths(managed, -1, false);
             adjustAreaWidths(managed, prefWidths, width, -1);
-            contentHeight = computeMaxMinAreaHeight(managed, marginAccessor, prefWidths[0], getAlignmentInternal().getVpos());
+            contentHeight = computeMaxMinAreaHeight(managed, marginAccessor, prefWidths[0], false, getAlignmentInternal().getVpos());
         } else {
             contentHeight = computeMaxMinAreaHeight(managed, marginAccessor, getAlignmentInternal().getVpos());
         }
@@ -440,7 +440,7 @@ public class HBox extends Pane {
         if (width != -1 && getContentBias() != null) {
             double prefWidths[][] = getAreaWidths(managed, -1, false);
             adjustAreaWidths(managed, prefWidths, width, -1);
-            contentHeight = computeMaxPrefAreaHeight(managed, marginAccessor, prefWidths[0], getAlignmentInternal().getVpos());
+            contentHeight = computeMaxPrefAreaHeight(managed, marginAccessor, prefWidths[0], false, getAlignmentInternal().getVpos());
         } else {
             contentHeight = computeMaxPrefAreaHeight(managed, marginAccessor, getAlignmentInternal().getVpos());
         }

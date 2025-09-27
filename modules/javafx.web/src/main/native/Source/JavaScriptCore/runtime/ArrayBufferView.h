@@ -33,6 +33,8 @@
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 class JSArrayBufferView;
@@ -73,10 +75,13 @@ public:
     {
         if (isDetached())
             return nullptr;
-        return m_baseAddress.getMayBeNull(m_byteLength);
+        return m_baseAddress.getMayBeNull();
     }
 
     void* data() const { return baseAddress(); }
+    std::span<const uint8_t> span() const { return { static_cast<const uint8_t*>(data()), byteLength() }; }
+    std::span<uint8_t> mutableSpan() const { return { static_cast<uint8_t*>(data()), byteLength() }; }
+    Vector<uint8_t> toVector() const { return span(); }
 
     size_t byteOffsetRaw() const { return m_byteOffset; }
 
@@ -95,7 +100,7 @@ public:
             byteOffsetEnd = bufferByteLength;
         else
             byteOffsetEnd = byteOffsetStart + byteLengthRaw();
-        if (UNLIKELY(!(byteOffsetStart > bufferByteLength || byteOffsetEnd > bufferByteLength)))
+        if (UNLIKELY(byteOffsetStart > bufferByteLength || byteOffsetEnd > bufferByteLength))
             return 0;
         return byteOffsetRaw();
     }
@@ -117,7 +122,7 @@ public:
             byteOffsetEnd = bufferByteLength;
         else
             byteOffsetEnd = byteOffsetStart + byteLengthRaw();
-        if (UNLIKELY(!(byteOffsetStart > bufferByteLength || byteOffsetEnd > bufferByteLength)))
+        if (UNLIKELY(byteOffsetStart > bufferByteLength || byteOffsetEnd > bufferByteLength))
             return 0;
         if (!isAutoLength())
             return byteLengthRaw();
@@ -199,7 +204,7 @@ protected:
     size_t m_byteOffset;
     size_t m_byteLength;
 
-    using BaseAddress = CagedPtr<Gigacage::Primitive, void, tagCagedPtr>;
+    using BaseAddress = CagedPtr<Gigacage::Primitive, void>;
     // This is the address of the ArrayBuffer's storage, plus the byte offset.
     BaseAddress m_baseAddress;
 
@@ -263,3 +268,5 @@ bool ArrayBufferView::zeroRangeImpl(size_t byteOffset, size_t rangeByteLength)
 } // namespace JSC
 
 using JSC::ArrayBufferView;
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

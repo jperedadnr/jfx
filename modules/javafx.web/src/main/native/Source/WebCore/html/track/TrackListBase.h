@@ -36,12 +36,26 @@
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
+class TrackListBase;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+// FIXME: TrackListBase inherits from RefCounted, what gives?
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::TrackListBase> : std::true_type { };
+}
+
+namespace WebCore {
 
 class TrackBase;
+using TrackID = uint64_t;
 
 class TrackListBase : public RefCounted<TrackListBase>, public EventTarget, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(TrackListBase);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(TrackListBase);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     virtual ~TrackListBase();
 
     enum Type { BaseTrackList, TextTrackList, AudioTrackList, VideoTrackList };
@@ -49,13 +63,16 @@ public:
 
     virtual unsigned length() const;
     virtual bool contains(TrackBase&) const;
+    virtual bool contains(TrackID) const;
     virtual void remove(TrackBase&, bool scheduleEvent = true);
+    virtual void remove(TrackID, bool scheduleEvent = true);
+    virtual RefPtr<TrackBase> find(TrackID) const;
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const override = 0;
-    using RefCounted<TrackListBase>::ref;
-    using RefCounted<TrackListBase>::deref;
+    enum EventTargetInterfaceType eventTargetInterface() const override = 0;
     ScriptExecutionContext* scriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
+
+    void didMoveToNewDocument(Document&);
 
     WebCoreOpaqueRoot opaqueRoot();
 

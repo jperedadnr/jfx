@@ -29,15 +29,17 @@
 
 namespace WebCore {
 
-enum class TurbulenceType {
+enum class TurbulenceType : uint8_t {
     Unknown,
     FractalNoise,
     Turbulence
 };
 
-class FETurbulence : public FilterEffect {
+class FETurbulence final : public FilterEffect {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FETurbulence);
 public:
-    WEBCORE_EXPORT static Ref<FETurbulence> create(TurbulenceType, float baseFrequencyX, float baseFrequencyY, int numOctaves, float seed, bool stitchTiles);
+    WEBCORE_EXPORT static Ref<FETurbulence> create(TurbulenceType, float baseFrequencyX, float baseFrequencyY, int numOctaves, float seed, bool stitchTiles, DestinationColorSpace = DestinationColorSpace::SRGB());
 
     bool operator==(const FETurbulence&) const;
 
@@ -60,7 +62,7 @@ public:
     bool setStitchTiles(bool);
 
 private:
-    FETurbulence(TurbulenceType, float baseFrequencyX, float baseFrequencyY, int numOctaves, float seed, bool stitchTiles);
+    FETurbulence(TurbulenceType, float baseFrequencyX, float baseFrequencyY, int numOctaves, float seed, bool stitchTiles, DestinationColorSpace);
 
     bool operator==(const FilterEffect& other) const override { return areEqual<FETurbulence>(*this, other); }
 
@@ -82,18 +84,4 @@ private:
 
 } // namespace WebCore
 
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::TurbulenceType> {
-    using values = EnumValues<
-        WebCore::TurbulenceType,
-
-        WebCore::TurbulenceType::Unknown,
-        WebCore::TurbulenceType::FractalNoise,
-        WebCore::TurbulenceType::Turbulence
-    >;
-};
-
-} // namespace WTF
-
-SPECIALIZE_TYPE_TRAITS_FILTER_EFFECT(FETurbulence)
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FETurbulence)

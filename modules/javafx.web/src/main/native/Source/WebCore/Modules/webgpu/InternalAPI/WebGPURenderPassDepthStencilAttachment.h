@@ -28,15 +28,17 @@
 #include "WebGPUIntegralTypes.h"
 #include "WebGPULoadOp.h"
 #include "WebGPUStoreOp.h"
+#include "WebGPUTextureView.h"
 #include <variant>
 #include <wtf/Ref.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore::WebGPU {
 
 class TextureView;
 
 struct RenderPassDepthStencilAttachment {
-    TextureView& view;
+    WeakRef<TextureView> view;
 
     float depthClearValue { 0 };
     std::optional<LoadOp> depthLoadOp;
@@ -47,6 +49,8 @@ struct RenderPassDepthStencilAttachment {
     std::optional<LoadOp> stencilLoadOp;
     std::optional<StoreOp> stencilStoreOp;
     bool stencilReadOnly { false };
+
+    Ref<TextureView> protectedView() const { return view.get(); }
 };
 
 } // namespace WebCore::WebGPU

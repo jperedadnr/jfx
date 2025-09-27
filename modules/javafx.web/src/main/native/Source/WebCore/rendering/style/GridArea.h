@@ -33,6 +33,7 @@
 
 #include "GridPosition.h"
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -63,10 +64,7 @@ public:
         return GridSpan(0, 1, TranslatedDefinite);
     }
 
-    bool operator==(const GridSpan& o) const
-    {
-        return m_type == o.m_type && m_startLine == o.m_startLine && m_endLine == o.m_endLine;
-    }
+    friend bool operator==(const GridSpan&, const GridSpan&) = default;
 
     unsigned integerSpan() const
     {
@@ -206,15 +204,13 @@ private:
     int m_startLine;
     int m_endLine;
     GridSpanType m_type;
-
-
 };
 
 // This represents a grid area that spans in both rows' and columns' direction.
 class GridArea {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(GridArea);
 public:
-    // HashMap requires a default constuctor.
+    // UncheckedKeyHashMap requires a default constuctor.
     GridArea()
         : columns(GridSpan::indefiniteGridSpan())
         , rows(GridSpan::indefiniteGridSpan())
@@ -237,8 +233,9 @@ public:
 };
 
 struct NamedGridAreaMap {
-    HashMap<String, GridArea> map;
+    UncheckedKeyHashMap<String, GridArea> map;
+
+    friend bool operator==(const NamedGridAreaMap&, const NamedGridAreaMap&) = default;
 };
-inline bool operator==(const NamedGridAreaMap& a, const NamedGridAreaMap& b) { return a.map == b.map; }
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2021 Igalia S.L. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,13 +32,14 @@
 #include "GPRInfo.h"
 #include "Reg.h"
 #include <wtf/PrintStream.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 namespace Wasm {
 
 class ValueLocation {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ValueLocation);
 public:
     enum Kind : uint8_t {
         GPRRegister,
@@ -122,7 +123,9 @@ private:
 
         U()
         {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
             memset(static_cast<void*>(this), 0, sizeof(*this));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         }
     } u;
     Kind m_kind;
@@ -131,6 +134,13 @@ private:
 } } // namespace JSC::Wasm
 
 namespace WTF {
+
+template<>
+struct VectorTraits<JSC::Wasm::ValueLocation> : VectorTraitsBase<false, JSC::Wasm::ValueLocation> {
+    static constexpr bool canInitializeWithMemset = true;
+    static constexpr bool canMoveWithMemcpy = true;
+    static constexpr bool canCopyWithMemcpy = true;
+};
 
 void printInternal(PrintStream&, JSC::Wasm::ValueLocation::Kind);
 

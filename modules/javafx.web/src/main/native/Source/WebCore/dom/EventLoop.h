@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +26,15 @@
 #pragma once
 
 #include "TaskSource.h"
+#include <optional>
+#include <wtf/ApproximateTime.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Function.h>
-#include <wtf/RefCounted.h>
+#include <wtf/Markable.h>
+#include <wtf/MonotonicTime.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 
@@ -40,10 +46,11 @@ class EventLoopTimer;
 class EventTarget;
 class MicrotaskQueue;
 class ScriptExecutionContext;
+class TimerAlignment;
 
 class EventLoopTask {
+    WTF_MAKE_TZONE_ALLOCATED(EventLoopTask);
     WTF_MAKE_NONCOPYABLE(EventLoopTask);
-    WTF_MAKE_FAST_ALLOCATED;
 
 public:
     virtual ~EventLoopTask() = default;
@@ -62,7 +69,7 @@ private:
 };
 
 class EventLoopTimerHandle {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(EventLoopTimerHandle);
 public:
     EventLoopTimerHandle();
     EventLoopTimerHandle(EventLoopTimer&);
@@ -79,24 +86,27 @@ public:
 
 private:
     friend class EventLoop;
+    friend class EventLoopTaskGroup;
 
     void unspecifiedBoolTypeInstance() const { }
 
     RefPtr<EventLoopTimer> m_timer;
 };
 
+enum class HasReachedMaxNestingLevel : bool { No, Yes };
+
 // https://html.spec.whatwg.org/multipage/webappapis.html#event-loop
-class EventLoop : public RefCounted<EventLoop>, public CanMakeWeakPtr<EventLoop> {
+class EventLoop : public RefCountedAndCanMakeWeakPtr<EventLoop> {
 public:
     virtual ~EventLoop();
 
     typedef Function<void ()> TaskFunction;
     void queueTask(std::unique_ptr<EventLoopTask>&&);
 
-    EventLoopTimerHandle scheduleTask(Seconds timeout, std::unique_ptr<EventLoopTask>&&);
+    EventLoopTimerHandle scheduleTask(Seconds timeout, TimerAlignment*, HasReachedMaxNestingLevel, std::unique_ptr<EventLoopTask>&&);
     void removeScheduledTimer(EventLoopTimer&);
 
-    EventLoopTimerHandle scheduleRepeatingTask(Seconds nextTimeout, Seconds interval, std::unique_ptr<EventLoopTask>&&);
+    EventLoopTimerHandle scheduleRepeatingTask(Seconds nextTimeout, Seconds interval, TimerAlignment*, HasReachedMaxNestingLevel, std::unique_ptr<EventLoopTask>&&);
     void removeRepeatingTimer(EventLoopTimer&);
 
     // https://html.spec.whatwg.org/multipage/webappapis.html#queue-a-microtask
@@ -113,20 +123,23 @@ public:
     void unregisterGroup(EventLoopTaskGroup&);
     void stopAssociatedGroupsIfNecessary();
 
-    void forEachAssociatedContext(const Function<void(ScriptExecutionContext&)>&);
+    void forEachAssociatedContext(NOESCAPE const Function<void(ScriptExecutionContext&)>&);
+    bool findMatchingAssociatedContext(NOESCAPE const Function<bool(ScriptExecutionContext&)>&);
     void addAssociatedContext(ScriptExecutionContext&);
     void removeAssociatedContext(ScriptExecutionContext&);
 
+    void invalidateNextTimerFireTimeCache() { m_nextTimerFireTimeCache = std::nullopt; }
+    Markable<MonotonicTime> nextTimerFireTime() const;
+
 protected:
     EventLoop();
-    void run();
+    void scheduleToRunIfNeeded();
+    void run(std::optional<ApproximateTime> deadline = std::nullopt);
     void clearAllTasks();
 
-    // FIXME: Account for fully-activeness of each document.
-    bool hasTasksForFullyActiveDocument() const { return !m_tasks.isEmpty(); }
+    bool hasTasksForFullyActiveDocument() const;
 
 private:
-    void scheduleToRunIfNeeded();
     virtual void scheduleToRun() = 0;
     virtual bool isContextThread() const = 0;
 
@@ -138,12 +151,13 @@ private:
     WeakHashSet<EventLoopTaskGroup> m_groupsWithSuspendedTasks;
     WeakHashSet<ScriptExecutionContext> m_associatedContexts;
     bool m_isScheduledToRun { false };
+    mutable Markable<MonotonicTime> m_nextTimerFireTimeCache;
 };
 
-class EventLoopTaskGroup : public CanMakeWeakPtr<EventLoopTaskGroup> {
+class EventLoopTaskGroup final : public CanMakeWeakPtr<EventLoopTaskGroup>, public CanMakeCheckedPtr<EventLoopTaskGroup> {
+    WTF_MAKE_TZONE_ALLOCATED(EventLoopTaskGroup);
     WTF_MAKE_NONCOPYABLE(EventLoopTaskGroup);
-    WTF_MAKE_FAST_ALLOCATED;
-
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(EventLoopTaskGroup);
 public:
     EventLoopTaskGroup(EventLoop& eventLoop)
         : m_eventLoop(eventLoop)
@@ -153,7 +167,7 @@ public:
 
     ~EventLoopTaskGroup()
     {
-        if (auto* eventLoop = m_eventLoop.get())
+        if (RefPtr eventLoop = m_eventLoop.get())
             eventLoop->unregisterGroup(*this);
     }
 
@@ -178,7 +192,7 @@ public:
     {
         ASSERT(isReadyToStop());
         m_state = State::Stopped;
-        if (auto* eventLoop = m_eventLoop.get())
+        if (RefPtr eventLoop = m_eventLoop.get())
             eventLoop->stopGroup(*this);
     }
 
@@ -194,7 +208,7 @@ public:
 
     // https://html.spec.whatwg.org/multipage/webappapis.html#queue-a-microtask
     WEBCORE_EXPORT void queueMicrotask(EventLoop::TaskFunction&&);
-    MicrotaskQueue& microtaskQueue() { return m_eventLoop->microtaskQueue(); }
+    MicrotaskQueue& microtaskQueue() { return protectedEventLoop()->microtaskQueue(); }
 
     // https://html.spec.whatwg.org/multipage/webappapis.html#perform-a-microtask-checkpoint
     void performMicrotaskCheckpoint();
@@ -202,17 +216,26 @@ public:
     void runAtEndOfMicrotaskCheckpoint(EventLoop::TaskFunction&&);
 
     EventLoopTimerHandle scheduleTask(Seconds timeout, TaskSource, EventLoop::TaskFunction&&);
+    EventLoopTimerHandle scheduleTask(Seconds timeout, TimerAlignment&, HasReachedMaxNestingLevel, TaskSource, EventLoop::TaskFunction&&);
     void didExecuteScheduledTask(EventLoopTimer&);
     void removeScheduledTimer(EventLoopTimer&);
 
     EventLoopTimerHandle scheduleRepeatingTask(Seconds nextTimeout, Seconds interval, TaskSource, EventLoop::TaskFunction&&);
+    EventLoopTimerHandle scheduleRepeatingTask(Seconds nextTimeout, Seconds interval, TimerAlignment&, HasReachedMaxNestingLevel, TaskSource, EventLoop::TaskFunction&&);
     void removeRepeatingTimer(EventLoopTimer&);
+
+    void didChangeTimerAlignmentInterval(EventLoopTimerHandle);
+    void setTimerHasReachedMaxNestingLevel(EventLoopTimerHandle, bool);
+    void adjustTimerNextFireTime(EventLoopTimerHandle, Seconds delta);
+    void adjustTimerRepeatInterval(EventLoopTimerHandle, Seconds delta);
 
     void didAddTimer(EventLoopTimer&);
     void didRemoveTimer(EventLoopTimer&);
 
 private:
     enum class State : uint8_t { Running, Suspended, ReadyToStop, Stopped };
+
+    RefPtr<EventLoop> protectedEventLoop() const;
 
     WeakPtr<EventLoop> m_eventLoop;
     WeakHashSet<EventLoopTimer> m_timers;

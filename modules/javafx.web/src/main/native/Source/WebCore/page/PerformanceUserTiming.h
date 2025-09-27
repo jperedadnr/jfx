@@ -29,6 +29,7 @@
 #include "PerformanceMark.h"
 #include "PerformanceMeasure.h"
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringHash.h>
 
 namespace JSC {
@@ -39,10 +40,10 @@ namespace WebCore {
 
 class Performance;
 
-using PerformanceEntryMap = HashMap<String, Vector<RefPtr<PerformanceEntry>>>;
+using PerformanceEntryMap = UncheckedKeyHashMap<String, Vector<Ref<PerformanceEntry>>>;
 
 class PerformanceUserTiming {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PerformanceUserTiming);
 public:
     explicit PerformanceUserTiming(Performance&);
 
@@ -53,11 +54,11 @@ public:
     ExceptionOr<Ref<PerformanceMeasure>> measure(JSC::JSGlobalObject&, const String& measureName, std::optional<StartOrMeasureOptions>&&, const String& endMark);
     void clearMeasures(const String& measureName);
 
-    Vector<RefPtr<PerformanceEntry>> getMarks() const;
-    Vector<RefPtr<PerformanceEntry>> getMeasures() const;
+    Vector<Ref<PerformanceEntry>> getMarks() const;
+    Vector<Ref<PerformanceEntry>> getMeasures() const;
 
-    Vector<RefPtr<PerformanceEntry>> getMarks(const String& name) const;
-    Vector<RefPtr<PerformanceEntry>> getMeasures(const String& name) const;
+    Vector<Ref<PerformanceEntry>> getMarks(const String& name) const;
+    Vector<Ref<PerformanceEntry>> getMeasures(const String& name) const;
 
     static bool isRestrictedMarkName(const String& markName);
 
@@ -69,7 +70,7 @@ private:
     ExceptionOr<Ref<PerformanceMeasure>> measure(const String& measureName, const String& startMark, const String& endMark);
     ExceptionOr<Ref<PerformanceMeasure>> measure(JSC::JSGlobalObject&, const String& measureName, const PerformanceMeasureOptions&);
 
-    Performance& m_performance;
+    WeakRef<Performance, WeakPtrImplWithEventTargetData> m_performance;
     PerformanceEntryMap m_marksMap;
     PerformanceEntryMap m_measuresMap;
 };

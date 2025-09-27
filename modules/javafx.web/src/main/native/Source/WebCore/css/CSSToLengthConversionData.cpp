@@ -38,13 +38,14 @@
 
 namespace WebCore {
 
-CSSToLengthConversionData::CSSToLengthConversionData(const RenderStyle& style, const Style::BuilderContext& builderContext)
+CSSToLengthConversionData::CSSToLengthConversionData(const RenderStyle& style, Style::BuilderState& builderState)
     : m_style(&style)
-    , m_rootStyle(builderContext.rootElementStyle)
-    , m_parentStyle(&builderContext.parentStyle)
-    , m_renderView(builderContext.document->renderView())
-    , m_elementForContainerUnitResolution(builderContext.element)
+    , m_rootStyle(builderState.rootElementStyle())
+    , m_parentStyle(&builderState.parentStyle())
+    , m_renderView(builderState.document().renderView())
+    , m_elementForContainerUnitResolution(builderState.element())
     , m_viewportDependencyDetectionStyle(const_cast<RenderStyle*>(m_style))
+    , m_styleBuilderState(&builderState)
 {
 }
 
@@ -81,7 +82,7 @@ int CSSToLengthConversionData::computedLineHeightForFontUnits() const
 
 float CSSToLengthConversionData::zoom() const
 {
-    return m_zoom.value_or(m_style ? m_style->effectiveZoom() : 1.f);
+    return m_zoom.value_or(m_style ? m_style->usedZoom() : 1.f);
 }
 
 FloatSize CSSToLengthConversionData::defaultViewportFactor() const

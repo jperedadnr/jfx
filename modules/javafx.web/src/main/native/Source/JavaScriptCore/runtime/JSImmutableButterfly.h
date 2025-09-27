@@ -29,8 +29,11 @@
 #include "IndexingHeader.h"
 #include "JSCJSValueInlines.h"
 #include "JSCell.h"
+#include "ResourceExhaustion.h"
 #include "Structure.h"
 #include "VirtualRegister.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -44,12 +47,9 @@ class JSImmutableButterfly : public JSCell {
 public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
-    DECLARE_INFO;
+    DECLARE_EXPORT_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype, IndexingType indexingType)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(JSImmutableButterflyType, StructureFlags), info(), indexingType);
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue, IndexingType);
 
     ALWAYS_INLINE static JSImmutableButterfly* tryCreate(VM& vm, Structure* structure, unsigned length)
     {
@@ -65,10 +65,15 @@ public:
         return result;
     }
 
+    static JSImmutableButterfly* tryCreate(VM& vm, IndexingType indexingType, unsigned length)
+    {
+        return tryCreate(vm, vm.immutableButterflyStructure(indexingType), length);
+    }
+
     static JSImmutableButterfly* create(VM& vm, IndexingType indexingType, unsigned length)
     {
-        auto* array = tryCreate(vm, vm.immutableButterflyStructures[arrayIndexFromIndexingType(indexingType) - NumberOfIndexingShapes].get(), length);
-        RELEASE_ASSERT(array);
+        auto* array = tryCreate(vm, indexingType, length);
+        RELEASE_ASSERT_RESOURCE_AVAILABLE(array, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
         return array;
     }
 
@@ -85,7 +90,7 @@ public:
                 return JSImmutableButterfly::fromButterfly(array->butterfly());
         }
 
-        JSImmutableButterfly* result = JSImmutableButterfly::tryCreate(vm, vm.immutableButterflyStructures[arrayIndexFromIndexingType(CopyOnWriteArrayWithContiguous) - NumberOfIndexingShapes].get(), length);
+        JSImmutableButterfly* result = JSImmutableButterfly::tryCreate(vm, vm.immutableButterflyStructure(CopyOnWriteArrayWithContiguous), length);
         if (UNLIKELY(!result)) {
             throwOutOfMemoryError(globalObject, throwScope);
             return nullptr;
@@ -143,8 +148,8 @@ public:
     unsigned vectorLength() const { return m_header.vectorLength(); }
     unsigned length() const { return m_header.publicLength(); }
 
-    Butterfly* toButterfly() const { return bitwise_cast<Butterfly*>(bitwise_cast<char*>(this) + offsetOfData()); }
-    static JSImmutableButterfly* fromButterfly(Butterfly* butterfly) { return bitwise_cast<JSImmutableButterfly*>(bitwise_cast<char*>(butterfly) - offsetOfData()); }
+    Butterfly* toButterfly() const { return std::bit_cast<Butterfly*>(std::bit_cast<char*>(this) + offsetOfData()); }
+    static JSImmutableButterfly* fromButterfly(Butterfly* butterfly) { return std::bit_cast<JSImmutableButterfly*>(std::bit_cast<char*>(butterfly) - offsetOfData()); }
 
     JSValue get(unsigned index) const
     {
@@ -164,7 +169,7 @@ public:
     static CompleteSubspace* subspaceFor(VM& vm)
     {
         // We allocate out of the JSValue gigacage as other code expects all butterflies to live there.
-        return &vm.immutableButterflyJSValueGigacageAuxiliarySpace();
+        return &vm.immutableButterflyAuxiliarySpace();
     }
 
     // Only call this if you just allocated this butterfly.
@@ -181,12 +186,12 @@ public:
         return WTF::roundUpToMultipleOf<sizeof(WriteBarrier<Unknown>)>(sizeof(JSImmutableButterfly));
     }
 
-    static ptrdiff_t offsetOfPublicLength()
+    static constexpr ptrdiff_t offsetOfPublicLength()
     {
         return OBJECT_OFFSETOF(JSImmutableButterfly, m_header) + IndexingHeader::offsetOfPublicLength();
     }
 
-    static ptrdiff_t offsetOfVectorLength()
+    static constexpr ptrdiff_t offsetOfVectorLength()
     {
         return OBJECT_OFFSETOF(JSImmutableButterfly, m_header) + IndexingHeader::offsetOfVectorLength();
     }
@@ -212,3 +217,5 @@ private:
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

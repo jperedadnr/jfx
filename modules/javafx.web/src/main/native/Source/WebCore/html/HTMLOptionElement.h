@@ -33,7 +33,8 @@ class HTMLSelectElement;
 enum class AllowStyleInvalidation : bool { No, Yes };
 
 class HTMLOptionElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLOptionElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLOptionElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLOptionElement);
 public:
     static Ref<HTMLOptionElement> create(Document&);
     static Ref<HTMLOptionElement> create(const QualifiedName&, Document&);
@@ -43,6 +44,7 @@ public:
     void setText(String&&);
 
     WEBCORE_EXPORT HTMLFormElement* form() const;
+    WEBCORE_EXPORT HTMLFormElement* formForBindings() const;
 
     WEBCORE_EXPORT int index() const;
 
@@ -68,7 +70,6 @@ public:
     bool selectedWithoutUpdate() const { return m_isSelected; }
 
 private:
-    constexpr static auto CreateHTMLOptionElement = CreateHTMLElement | NodeFlag::HasCustomStyleResolveCallbacks;
     HTMLOptionElement(const QualifiedName&, Document&);
 
     bool isFocusable() const final;

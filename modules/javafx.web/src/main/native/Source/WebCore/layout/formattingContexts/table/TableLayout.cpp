@@ -28,6 +28,7 @@
 
 #include "LayoutBox.h"
 #include "LayoutBoxGeometry.h"
+#include "RenderStyleInlines.h"
 #include "TableFormattingGeometry.h"
 
 namespace WebCore {
@@ -44,9 +45,9 @@ struct ColumnSpan {
     static size_t hasSpan(const TableGrid::Slot& slot) { return slot.hasColumnSpan(); }
     static size_t isSpanned(const TableGrid::Slot& slot) { return slot.isColumnSpanned(); }
 
-    static size_t spanCount(const TableGrid::Cell& cell) { return cell.columnSpan(); }
-    static size_t startSpan(const TableGrid::Cell& cell) { return cell.startColumn(); }
-    static size_t endSpan(const TableGrid::Cell& cell) { return cell.endColumn(); }
+    static size_t spanCount(const TableGridCell& cell) { return cell.columnSpan(); }
+    static size_t startSpan(const TableGridCell& cell) { return cell.startColumn(); }
+    static size_t endSpan(const TableGridCell& cell) { return cell.endColumn(); }
 
     static size_t index(size_t columnIndex, size_t /*rowIndex*/) { return columnIndex; }
     static size_t size(const TableGrid& grid) { return grid.columns().size(); }
@@ -58,9 +59,9 @@ struct RowSpan {
     static size_t hasSpan(const TableGrid::Slot& slot) { return slot.hasRowSpan(); }
     static size_t isSpanned(const TableGrid::Slot& slot) { return slot.isRowSpanned(); }
 
-    static size_t spanCount(const TableGrid::Cell& cell) { return cell.rowSpan(); }
-    static size_t startSpan(const TableGrid::Cell& cell) { return cell.startRow(); }
-    static size_t endSpan(const TableGrid::Cell& cell) { return cell.endRow(); }
+    static size_t spanCount(const TableGridCell& cell) { return cell.rowSpan(); }
+    static size_t startSpan(const TableGridCell& cell) { return cell.startRow(); }
+    static size_t endSpan(const TableGridCell& cell) { return cell.endRow(); }
 
     static size_t index(size_t /*columnIndex*/, size_t rowIndex) { return rowIndex; }
     static size_t size(const TableGrid& grid) { return grid.rows().size(); }
@@ -113,7 +114,7 @@ inline static GridSpace& operator/(GridSpace& a, unsigned value)
 }
 
 template <typename SpanType>
-static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, LayoutUnit availableSpace, const Function<GridSpace(const TableGrid::Slot&, size_t)>& slotSpace)
+static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, LayoutUnit availableSpace, NOESCAPE const Function<GridSpace(const TableGrid::Slot&, size_t)>& slotSpace)
 {
     auto& columns = grid.columns();
     auto& rows = grid.rows();

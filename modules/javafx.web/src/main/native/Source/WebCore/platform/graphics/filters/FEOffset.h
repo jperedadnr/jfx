@@ -26,9 +26,11 @@
 
 namespace WebCore {
 
-class FEOffset : public FilterEffect {
+class FEOffset final : public FilterEffect {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEOffset);
 public:
-    WEBCORE_EXPORT static Ref<FEOffset> create(float dx, float dy);
+    WEBCORE_EXPORT static Ref<FEOffset> create(float dx, float dy, DestinationColorSpace = DestinationColorSpace::SRGB());
 
     bool operator==(const FEOffset&) const;
 
@@ -41,7 +43,7 @@ public:
     static IntOutsets calculateOutsets(const FloatSize& offset);
 
 private:
-    FEOffset(float dx, float dy);
+    FEOffset(float dx, float dy, DestinationColorSpace);
 
     bool operator==(const FilterEffect& other) const override { return areEqual<FEOffset>(*this, other); }
 
@@ -59,4 +61,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_FILTER_EFFECT(FEOffset)
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEOffset)

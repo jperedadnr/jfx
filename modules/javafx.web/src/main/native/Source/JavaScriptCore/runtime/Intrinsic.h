@@ -56,10 +56,12 @@ namespace JSC {
     macro(ArrayPopIntrinsic) \
     macro(ArraySliceIntrinsic) \
     macro(ArraySpliceIntrinsic) \
+    macro(ArrayIncludesIntrinsic) \
     macro(ArrayIndexOfIntrinsic) \
     macro(ArrayValuesIntrinsic) \
     macro(ArrayKeysIntrinsic) \
     macro(ArrayEntriesIntrinsic) \
+    macro(AsyncIteratorIntrinsic) \
     macro(BooleanConstructorIntrinsic) \
     macro(CharCodeAtIntrinsic) \
     macro(CharAtIntrinsic) \
@@ -110,6 +112,7 @@ namespace JSC {
     macro(ReflectGetPrototypeOfIntrinsic) \
     macro(ReflectOwnKeysIntrinsic) \
     macro(StringConstructorIntrinsic) \
+    macro(StringPrototypeAtIntrinsic) \
     macro(StringPrototypeCodePointAtIntrinsic) \
     macro(StringPrototypeIndexOfIntrinsic) \
     macro(StringPrototypeLocaleCompareIntrinsic) \
@@ -127,6 +130,9 @@ namespace JSC {
     macro(IMulIntrinsic) \
     macro(RandomIntrinsic) \
     macro(FRoundIntrinsic) \
+    macro(F16RoundIntrinsic) \
+    macro(ToIntegerOrInfinityIntrinsic) \
+    macro(ToLengthIntrinsic) \
     macro(TruncIntrinsic) \
     macro(TypedArrayValuesIntrinsic) \
     macro(TypedArrayKeysIntrinsic) \
@@ -134,6 +140,7 @@ namespace JSC {
     macro(IsTypedArrayViewIntrinsic) \
     macro(BoundFunctionCallIntrinsic) \
     macro(RemoteFunctionCallIntrinsic) \
+    macro(IteratorIntrinsic) \
     macro(JSMapGetIntrinsic) \
     macro(JSMapHasIntrinsic) \
     macro(JSMapSetIntrinsic) \
@@ -141,18 +148,25 @@ namespace JSC {
     macro(JSMapValuesIntrinsic) \
     macro(JSMapKeysIntrinsic) \
     macro(JSMapEntriesIntrinsic) \
-    macro(JSMapBucketHeadIntrinsic) \
-    macro(JSMapBucketNextIntrinsic) \
-    macro(JSMapBucketKeyIntrinsic) \
-    macro(JSMapBucketValueIntrinsic) \
+    macro(JSMapStorageIntrinsic) \
+    macro(JSMapIterationNextIntrinsic) \
+    macro(JSMapIterationEntryIntrinsic) \
+    macro(JSMapIterationEntryKeyIntrinsic) \
+    macro(JSMapIterationEntryValueIntrinsic) \
+    macro(JSSetStorageIntrinsic) \
+    macro(JSSetIterationNextIntrinsic) \
+    macro(JSSetIterationEntryIntrinsic) \
+    macro(JSSetIterationEntryKeyIntrinsic) \
+    macro(JSMapIteratorNextIntrinsic) \
+    macro(JSMapIteratorKeyIntrinsic) \
+    macro(JSMapIteratorValueIntrinsic) \
+    macro(JSSetIteratorNextIntrinsic) \
+    macro(JSSetIteratorKeyIntrinsic) \
     macro(JSSetHasIntrinsic) \
     macro(JSSetAddIntrinsic) \
     macro(JSSetDeleteIntrinsic) \
     macro(JSSetValuesIntrinsic) \
     macro(JSSetEntriesIntrinsic) \
-    macro(JSSetBucketHeadIntrinsic) \
-    macro(JSSetBucketNextIntrinsic) \
-    macro(JSSetBucketKeyIntrinsic) \
     macro(JSWeakMapGetIntrinsic) \
     macro(JSWeakMapHasIntrinsic) \
     macro(JSWeakMapSetIntrinsic) \
@@ -167,6 +181,7 @@ namespace JSC {
     macro(AtomicsLoadIntrinsic) \
     macro(AtomicsNotifyIntrinsic) \
     macro(AtomicsOrIntrinsic) \
+    macro(AtomicsPauseIntrinsic) \
     macro(AtomicsStoreIntrinsic) \
     macro(AtomicsSubIntrinsic) \
     macro(AtomicsWaitIntrinsic) \
@@ -175,12 +190,14 @@ namespace JSC {
     macro(ParseIntIntrinsic) \
     macro(FunctionToStringIntrinsic) \
     macro(FunctionBindIntrinsic) \
+    macro(IteratorHelperCreateIntrinsic) \
     \
     /* Getter intrinsics. */ \
     macro(TypedArrayLengthIntrinsic) \
     macro(TypedArrayByteLengthIntrinsic) \
     macro(TypedArrayByteOffsetIntrinsic) \
     macro(UnderscoreProtoIntrinsic) \
+    macro(SpeciesGetterIntrinsic) \
     macro(WebAssemblyInstanceExportsIntrinsic) \
     \
     /* Debugging intrinsics. These are meant to be used as testing hacks within jsc.cpp and should never be exposed to users.*/ \
@@ -204,6 +221,7 @@ namespace JSC {
     macro(DataViewGetUint16) \
     macro(DataViewGetInt32) \
     macro(DataViewGetUint32) \
+    macro(DataViewGetFloat16) \
     macro(DataViewGetFloat32) \
     macro(DataViewGetFloat64) \
     macro(DataViewSetInt8) \
@@ -212,6 +230,7 @@ namespace JSC {
     macro(DataViewSetUint16) \
     macro(DataViewSetInt32) \
     macro(DataViewSetUint32) \
+    macro(DataViewSetFloat16) \
     macro(DataViewSetFloat32) \
     macro(DataViewSetFloat64) \
     \

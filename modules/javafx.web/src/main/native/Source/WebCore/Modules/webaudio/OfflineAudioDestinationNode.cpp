@@ -41,13 +41,14 @@
 #include <JavaScriptCore/GenericTypedArrayViewInlines.h>
 #include <JavaScriptCore/JSGenericTypedArrayViewInlines.h>
 #include <algorithm>
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/MainThread.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/threads/BinarySemaphore.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(OfflineAudioDestinationNode);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(OfflineAudioDestinationNode);
 
 OfflineAudioDestinationNode::OfflineAudioDestinationNode(OfflineAudioContext& context, unsigned numberOfChannels, float sampleRate, RefPtr<AudioBuffer>&& renderTarget)
     : AudioDestinationNode(context, sampleRate)
@@ -92,7 +93,7 @@ void OfflineAudioDestinationNode::uninitialize()
             m_renderThread->waitForCompletion();
             m_renderThread = nullptr;
         }
-        if (auto* workletProxy = context().audioWorklet().proxy()) {
+        if (RefPtr workletProxy = context().audioWorklet().proxy()) {
             BinarySemaphore semaphore;
             workletProxy->postTaskForModeToWorkletGlobalScope([&semaphore](ScriptExecutionContext&) mutable {
                 semaphore.signal();
@@ -111,10 +112,10 @@ void OfflineAudioDestinationNode::startRendering(CompletionHandler<void(std::opt
     ASSERT(isMainThread());
     ASSERT(m_renderTarget.get());
     if (!m_renderTarget.get())
-        return completionHandler(Exception { InvalidStateError, "OfflineAudioContextNode has no rendering buffer"_s });
+        return completionHandler(Exception { ExceptionCode::InvalidStateError, "OfflineAudioContextNode has no rendering buffer"_s });
 
     if (m_startedRendering)
-        return completionHandler(Exception { InvalidStateError, "Already started rendering"_s });
+        return completionHandler(Exception { ExceptionCode::InvalidStateError, "Already started rendering"_s });
 
     m_startedRendering = true;
     Ref protectedThis { *this };
@@ -139,7 +140,7 @@ void OfflineAudioDestinationNode::startRendering(CompletionHandler<void(std::opt
         });
     };
 
-    if (auto* workletProxy = context().audioWorklet().proxy()) {
+    if (RefPtr workletProxy = context().audioWorklet().proxy()) {
         workletProxy->postTaskForModeToWorkletGlobalScope([offThreadRendering = WTFMove(offThreadRendering)](ScriptExecutionContext&) mutable {
             offThreadRendering();
         }, WorkerRunLoop::defaultMode());
@@ -147,7 +148,7 @@ void OfflineAudioDestinationNode::startRendering(CompletionHandler<void(std::opt
     }
 
     // FIXME: We should probably limit the number of threads we create for offline audio.
-    m_renderThread = Thread::create("offline renderer", WTFMove(offThreadRendering), ThreadType::Audio, Thread::QOS::Default);
+    m_renderThread = Thread::create("offline renderer"_s, WTFMove(offThreadRendering), ThreadType::Audio, Thread::QOS::Default);
     completionHandler(std::nullopt);
 }
 
@@ -185,9 +186,9 @@ auto OfflineAudioDestinationNode::renderOnAudioThread() -> RenderResult
         size_t framesAvailableToCopy = std::min(m_framesToProcess, AudioUtilities::renderQuantumSize);
 
         for (unsigned channelIndex = 0; channelIndex < numberOfChannels; ++channelIndex) {
-            const float* source = m_renderBus->channel(channelIndex)->data();
-            float* destination = m_renderTarget->channelData(channelIndex)->data();
-            memcpy(destination + m_destinationOffset, source, sizeof(float) * framesAvailableToCopy);
+            auto source = m_renderBus->channel(channelIndex)->span().first(framesAvailableToCopy);
+            auto destination = m_renderTarget->channelData(channelIndex)->typedMutableSpan();
+            memcpySpan(destination.subspan(m_destinationOffset), source);
         }
 
         m_destinationOffset += framesAvailableToCopy;

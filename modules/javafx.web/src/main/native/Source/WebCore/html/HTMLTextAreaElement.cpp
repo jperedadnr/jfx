@@ -29,10 +29,12 @@
 #include "AXObjectCache.h"
 #include "BeforeTextInsertedEvent.h"
 #include "CSSValueKeywords.h"
+#include "Chrome.h"
+#include "ChromeClient.h"
 #include "DOMFormData.h"
 #include "Document.h"
 #include "Editor.h"
-#include "ElementChildIteratorInlines.h"
+#include "ElementInlines.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "FormController.h"
@@ -48,13 +50,13 @@
 #include "TextControlInnerElements.h"
 #include "TextIterator.h"
 #include "TextNodeTraversal.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/Ref.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLTextAreaElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLTextAreaElement);
 
 using namespace HTMLNames;
 
@@ -135,11 +137,11 @@ void HTMLTextAreaElement::collectPresentationalHintsForAttribute(const Qualified
     if (name == wrapAttr) {
         if (m_wrap != NoWrap) {
             addPropertyToPresentationalHintStyle(style, CSSPropertyWhiteSpaceCollapse, CSSValuePreserve);
-            addPropertyToPresentationalHintStyle(style, CSSPropertyTextWrap, CSSValueWrap);
+            addPropertyToPresentationalHintStyle(style, CSSPropertyTextWrapMode, CSSValueWrap);
             addPropertyToPresentationalHintStyle(style, CSSPropertyOverflowWrap, CSSValueBreakWord);
         } else {
             addPropertyToPresentationalHintStyle(style, CSSPropertyWhiteSpaceCollapse, CSSValuePreserve);
-            addPropertyToPresentationalHintStyle(style, CSSPropertyTextWrap, CSSValueNowrap);
+            addPropertyToPresentationalHintStyle(style, CSSPropertyTextWrapMode, CSSValueNowrap);
             addPropertyToPresentationalHintStyle(style, CSSPropertyOverflowWrap, CSSValueNormal);
         }
     } else
@@ -238,10 +240,12 @@ void HTMLTextAreaElement::updateFocusAppearance(SelectionRestorationMode restora
 
 void HTMLTextAreaElement::defaultEventHandler(Event& event)
 {
-    if (renderer() && (event.isMouseEvent() || event.type() == eventNames().blurEvent))
+    if (renderer()) {
+        if (event.isMouseEvent() || event.type() == eventNames().blurEvent)
         forwardEvent(event);
-    else if (renderer() && is<BeforeTextInsertedEvent>(event))
-        handleBeforeTextInsertedEvent(downcast<BeforeTextInsertedEvent>(event));
+        else if (auto* insertedEvent = dynamicDowncast<BeforeTextInsertedEvent>(event))
+            handleBeforeTextInsertedEvent(*insertedEvent);
+    }
 
     HTMLTextFormControlElement::defaultEventHandler(event);
 }
@@ -261,7 +265,7 @@ void HTMLTextAreaElement::subtreeHasChanged()
         frame->editor().textDidChangeInTextArea(*this);
     // When typing in a textarea, childrenChanged is not called, so we need to force the directionality check.
     if (selfOrPrecedingNodesAffectDirAuto())
-        updateEffectiveDirectionalityOfDirAuto();
+        updateEffectiveTextDirection();
 }
 
 void HTMLTextAreaElement::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent& event) const
@@ -313,9 +317,7 @@ String HTMLTextAreaElement::sanitizeUserInputValue(const String& proposedValue, 
 RefPtr<TextControlInnerTextElement> HTMLTextAreaElement::innerTextElement() const
 {
     RefPtr root = userAgentShadowRoot();
-    if (!root)
-        return nullptr;
-    return childrenOfType<TextControlInnerTextElement>(*root).first();
+    return root ? downcast<TextControlInnerTextElement>(root->firstChild()) : nullptr;
 }
 
 RefPtr<TextControlInnerTextElement> HTMLTextAreaElement::innerTextElementCreatingShadowSubtreeIfNeeded()
@@ -338,6 +340,8 @@ void HTMLTextAreaElement::updateValue() const
 
 String HTMLTextAreaElement::value() const
 {
+    if (protectedDocument()->requiresScriptExecutionTelemetry(ScriptTelemetryCategory::FormControls))
+        return emptyString();
     updateValue();
     return m_value;
 }
@@ -357,7 +361,7 @@ void HTMLTextAreaElement::setNonDirtyValue(const String& value, TextControlSetVa
     updateValidity();
 }
 
-void HTMLTextAreaElement::setValueCommon(const String& newValue, TextFieldEventBehavior, TextControlSetValueSelection selection)
+void HTMLTextAreaElement::setValueCommon(const String& newValue, TextFieldEventBehavior eventBehavior, TextControlSetValueSelection selection)
 {
     m_wasModifiedByUser = false;
     // Code elsewhere normalizes line endings added by the user via the keyboard or pasting.
@@ -369,6 +373,7 @@ void HTMLTextAreaElement::setValueCommon(const String& newValue, TextFieldEventB
     if (normalizedValue == value())
         return;
 
+    bool valueWasEmpty = m_value.isEmpty();
     bool shouldClamp = selection == TextControlSetValueSelection::Clamp;
     auto selectionStartValue = shouldClamp ? computeSelectionStart() : 0;
     auto selectionEndValue = shouldClamp ? computeSelectionEnd() : 0;
@@ -379,23 +384,30 @@ void HTMLTextAreaElement::setValueCommon(const String& newValue, TextFieldEventB
     updatePlaceholderVisibility();
     invalidateStyleForSubtree();
     if (selfOrPrecedingNodesAffectDirAuto())
-        updateEffectiveDirectionalityOfDirAuto();
+        updateEffectiveTextDirection();
     setFormControlValueMatchesRenderer(true);
 
     auto endOfString = m_value.length();
+    if (selection == TextControlSetValueSelection::SetSelectionToEnd) {
     if (document().focusedElement() == this)
         setSelectionRange(endOfString, endOfString);
-    else if (selection == TextControlSetValueSelection::SetSelectionToEnd) {
+        else {
         // We don't change text selection here but need to update caret to
         // the end of the text value except for initialize.
         cacheSelection(endOfString, endOfString, SelectionHasNoDirection);
+        }
     } else if (shouldClamp)
         cacheSelection(std::min(endOfString, selectionStartValue), std::min(endOfString, selectionEndValue), SelectionHasNoDirection);
 
     setTextAsOfLastFormControlChangeEvent(normalizedValue);
 
-    if (auto* cache = document().existingAXObjectCache())
-        cache->valueChanged(this);
+    if (CheckedPtr cache = document().existingAXObjectCache())
+        cache->valueChanged(*this);
+
+    if (eventBehavior == DispatchNoEvent && !valueWasEmpty && normalizedValue.isEmpty()) {
+        if (RefPtr page = document().page())
+            page->chrome().client().didProgrammaticallyClearTextFormControl(*this);
+    }
 }
 
 String HTMLTextAreaElement::defaultValue() const
@@ -426,6 +438,11 @@ String HTMLTextAreaElement::validationMessage() const
         return validationMessageTooLongText(value().length(), maxLength());
 
     return String();
+}
+
+void HTMLTextAreaElement::setSelectionRangeForBindings(unsigned start, unsigned end, const String& direction)
+{
+    setSelectionRange(start, end, direction, AXTextStateChangeIntent(), ForBindings::Yes);
 }
 
 bool HTMLTextAreaElement::valueMissing() const
@@ -511,17 +528,22 @@ void HTMLTextAreaElement::updatePlaceholderText()
 {
     auto& placeholderText = attributeWithoutSynchronization(placeholderAttr);
     if (placeholderText.isEmpty()) {
-        if (m_placeholder) {
-            userAgentShadowRoot()->removeChild(*m_placeholder);
+        if (RefPtr placeholder = m_placeholder) {
+            protectedUserAgentShadowRoot()->removeChild(*placeholder);
             m_placeholder = nullptr;
         }
         return;
     }
     if (!m_placeholder) {
         m_placeholder = TextControlPlaceholderElement::create(document());
-        userAgentShadowRoot()->insertBefore(*m_placeholder, innerTextElement()->nextSibling());
+        protectedUserAgentShadowRoot()->insertBefore(*protectedPlaceholderElement(), innerTextElement()->protectedNextSibling());
     }
-    m_placeholder->setInnerText(String { placeholderText });
+    protectedPlaceholderElement()->setInnerText(String { placeholderText });
+}
+
+RefPtr<HTMLElement> HTMLTextAreaElement::protectedPlaceholderElement() const
+{
+    return m_placeholder;
 }
 
 RenderStyle HTMLTextAreaElement::createInnerTextStyle(const RenderStyle& style)

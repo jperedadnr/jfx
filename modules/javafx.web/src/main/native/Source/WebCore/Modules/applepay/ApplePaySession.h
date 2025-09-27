@@ -59,8 +59,11 @@ struct ApplePayShippingContactUpdate;
 struct ApplePayShippingMethodUpdate;
 
 class ApplePaySession final : public PaymentSession, public ActiveDOMObject, public EventTarget {
-    WTF_MAKE_ISO_ALLOCATED(ApplePaySession);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ApplePaySession);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static ExceptionOr<Ref<ApplePaySession>> create(Document&, unsigned version, ApplePayPaymentRequest&&);
     virtual ~ApplePaySession();
 
@@ -97,20 +100,16 @@ public:
 
     const ApplePaySessionPaymentRequest& paymentRequest() const { return m_paymentRequest; }
 
-    using PaymentSession::ref;
-    using PaymentSession::deref;
-
 private:
     ApplePaySession(Document&, unsigned version, ApplePaySessionPaymentRequest&&);
 
     // ActiveDOMObject.
-    const char* activeDOMObjectName() const override;
     void stop() override;
     void suspend(ReasonForSuspension) override;
     bool virtualHasPendingActivity() const final;
 
     // EventTarget.
-    EventTargetInterface eventTargetInterface() const override { return ApplePaySessionEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const override { return EventTargetInterfaceType::ApplePaySession; }
     ScriptExecutionContext* scriptExecutionContext() const override { return ActiveDOMObject::scriptExecutionContext(); }
     void refEventTarget() override { ref(); }
     void derefEventTarget() override { deref(); }

@@ -39,16 +39,18 @@ enum class RootType { SquareRoot, RootWithIndex };
 
 // Render base^(1/index), or sqrt(base) using radical notation.
 class RenderMathMLRoot final : public RenderMathMLRow {
-    WTF_MAKE_ISO_ALLOCATED(RenderMathMLRoot);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderMathMLRoot);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMathMLRoot);
 public:
     RenderMathMLRoot(MathMLRootElement&, RenderStyle&&);
+    virtual ~RenderMathMLRoot();
+
     void updateStyle();
 
 private:
     bool isValid() const;
     RenderBox& getBase() const;
     RenderBox& getIndex() const;
-    bool isRenderMathMLRoot() const final { return true; }
     ASCIILiteral renderName() const final { return "RenderMathMLRoot"_s; }
     MathMLRootElement& element() const;
     RootType rootType() const;
@@ -56,14 +58,14 @@ private:
     void styleDidChange(StyleDifference, const RenderStyle* oldStyle) final;
 
     void computePreferredLogicalWidths() final;
-    void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
+    void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
     void paint(PaintInfo&, const LayoutPoint&) final;
 
     struct HorizontalParameters {
         LayoutUnit kernBeforeDegree;
         LayoutUnit kernAfterDegree;
     };
-    HorizontalParameters horizontalParameters();
+    HorizontalParameters horizontalParameters(LayoutUnit indexWidth);
     struct VerticalParameters {
         LayoutUnit verticalGap;
         LayoutUnit ruleThickness;

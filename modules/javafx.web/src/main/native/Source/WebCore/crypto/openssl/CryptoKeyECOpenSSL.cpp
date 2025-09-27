@@ -377,7 +377,7 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::platformImportPkcs8(CryptoAlgorithmIdentifier i
 
 Vector<uint8_t> CryptoKeyEC::platformExportRaw() const
 {
-    EC_KEY* key = EVP_PKEY_get0_EC_KEY(platformKey());
+    EC_KEY* key = EVP_PKEY_get0_EC_KEY(platformKey().get());
     if (!key)
         return { };
 
@@ -398,7 +398,7 @@ bool CryptoKeyEC::platformAddFieldElements(JsonWebKey& jwk) const
 {
     size_t keySizeInBytes = (keySizeInBits() + 7) / 8;
 
-    EC_KEY* key = EVP_PKEY_get0_EC_KEY(platformKey());
+    EC_KEY* key = EVP_PKEY_get0_EC_KEY(platformKey().get());
     if (!key)
         return false;
 
@@ -426,13 +426,13 @@ Vector<uint8_t> CryptoKeyEC::platformExportSpki() const
     if (type() != CryptoKeyType::Public)
         return { };
 
-    int len = i2d_PUBKEY(platformKey(), nullptr);
+    int len = i2d_PUBKEY(platformKey().get(), nullptr);
     if (len < 0)
         return { };
 
     Vector<uint8_t> keyData(len);
     auto ptr = keyData.data();
-    if (i2d_PUBKEY(platformKey(), &ptr) < 0)
+    if (i2d_PUBKEY(platformKey().get(), &ptr) < 0)
         return { };
 
     return keyData;
@@ -443,7 +443,7 @@ Vector<uint8_t> CryptoKeyEC::platformExportPkcs8() const
     if (type() != CryptoKeyType::Private)
         return { };
 
-    auto p8inf = PKCS8PrivKeyInfoPtr(EVP_PKEY2PKCS8(platformKey()));
+    auto p8inf = PKCS8PrivKeyInfoPtr(EVP_PKEY2PKCS8(platformKey().get()));
     if (!p8inf)
         return { };
 

@@ -28,6 +28,7 @@
 #include "StyleSheet.h"
 #include <memory>
 #include <variant>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/WeakHashSet.h>
@@ -57,14 +58,14 @@ namespace Style {
 class Scope;
 }
 
-class CSSStyleSheet final : public StyleSheet {
+class CSSStyleSheet final : public StyleSheet, public CanMakeSingleThreadWeakPtr<CSSStyleSheet> {
 public:
     struct Init {
         String baseURL;
         std::variant<RefPtr<MediaList>, String> media { emptyString() };
         bool disabled { false };
     };
-    static Ref<CSSStyleSheet> create(Ref<StyleSheetContents>&&, CSSImportRule* ownerRule = 0);
+    static Ref<CSSStyleSheet> create(Ref<StyleSheetContents>&&, CSSImportRule* ownerRule = nullptr, std::optional<bool>isOriginClean = std::nullopt);
     static Ref<CSSStyleSheet> create(Ref<StyleSheetContents>&&, Node& ownerNode, const std::optional<bool>& isOriginClean = std::nullopt);
     static Ref<CSSStyleSheet> createInline(Ref<StyleSheetContents>&&, Element& owner, const TextPosition& startPosition);
     static ExceptionOr<Ref<CSSStyleSheet>> create(Document&, Init&&);
@@ -92,6 +93,7 @@ public:
     void replace(String&&, Ref<DeferredPromise>&&);
     ExceptionOr<void> replaceSync(String&&);
 
+    bool wasMutated() const { return m_wasMutated; }
     bool wasConstructedByJS() const { return m_wasConstructedByJS; }
     Document* constructorDocument() const;
 
@@ -118,12 +120,10 @@ public:
     void setMediaQueries(MQ::MediaQueryList&&);
     void setTitle(const String& title) { m_title = title; }
 
-    bool hadRulesMutation() const { return m_mutatedRules; }
-    void clearHadRulesMutation() { m_mutatedRules = false; }
-    RefPtr<StyleRuleWithNesting> prepareChildStyleRuleForNesting(StyleRule&&);
+    RefPtr<StyleRuleWithNesting> prepareChildStyleRuleForNesting(StyleRule&);
 
     enum RuleMutationType { OtherMutation, RuleInsertion, KeyframesRuleMutation, RuleReplace };
-    enum WhetherContentsWereClonedForMutation { ContentsWereNotClonedForMutation = 0, ContentsWereClonedForMutation };
+    enum class ContentsClonedForMutation : bool { No, Yes };
 
     class RuleMutationScope {
         WTF_MAKE_NONCOPYABLE(RuleMutationScope);
@@ -135,13 +135,13 @@ public:
     private:
         CSSStyleSheet* m_styleSheet;
         RuleMutationType m_mutationType;
-        WhetherContentsWereClonedForMutation m_contentsWereClonedForMutation;
+        ContentsClonedForMutation m_contentsClonedForMutation;
         RefPtr<StyleRuleKeyframes> m_insertedKeyframesRule;
         String m_modifiedKeyframesRuleName;
     };
 
-    WhetherContentsWereClonedForMutation willMutateRules();
-    void didMutateRules(RuleMutationType, WhetherContentsWereClonedForMutation, StyleRuleKeyframes* insertedKeyframesRule, const String& modifiedKeyframesRuleName);
+    ContentsClonedForMutation willMutateRules();
+    void didMutateRules(RuleMutationType, ContentsClonedForMutation, StyleRuleKeyframes* insertedKeyframesRule, const String& modifiedKeyframesRuleName);
     void didMutateRuleFromCSSStyleDeclaration();
     void didMutate();
 
@@ -149,6 +149,7 @@ public:
     void reattachChildRuleCSSOMWrappers();
 
     StyleSheetContents& contents() { return m_contents; }
+    Ref<StyleSheetContents> protectedContents();
 
     bool isInline() const { return m_isInlineStylesheet; }
     TextPosition startPosition() const { return m_startPosition; }
@@ -158,22 +159,27 @@ public:
     bool canAccessRules() const;
 
     String debugDescription() const final;
+    String cssText(const CSS::SerializationContext&);
+    void getChildStyleSheets(UncheckedKeyHashSet<RefPtr<CSSStyleSheet>>&);
+
+    bool isDetached() const;
 
 private:
-    CSSStyleSheet(Ref<StyleSheetContents>&&, CSSImportRule* ownerRule);
+    CSSStyleSheet(Ref<StyleSheetContents>&&, CSSImportRule* ownerRule, std::optional<bool> isOriginClean);
     CSSStyleSheet(Ref<StyleSheetContents>&&, Node* ownerNode, const TextPosition& startPosition, bool isInlineStylesheet);
     CSSStyleSheet(Ref<StyleSheetContents>&&, Node& ownerNode, const TextPosition& startPosition, bool isInlineStylesheet, const std::optional<bool>&);
     CSSStyleSheet(Ref<StyleSheetContents>&&, Document&, Init&&);
 
-    void forEachStyleScope(const Function<void(Style::Scope&)>&);
+    void forEachStyleScope(NOESCAPE const Function<void(Style::Scope&)>&);
 
     bool isCSSStyleSheet() const final { return true; }
     String type() const final { return cssContentTypeAtom(); }
+    RefPtr<CSSRuleList> cssRulesSkippingAccessCheck();
 
     Ref<StyleSheetContents> m_contents;
     bool m_isInlineStylesheet { false };
     bool m_isDisabled { false };
-    bool m_mutatedRules { false };
+    bool m_wasMutated { false };
     bool m_wasConstructedByJS { false }; // constructed flag in the spec.
     std::optional<bool> m_isOriginClean;
     String m_title;

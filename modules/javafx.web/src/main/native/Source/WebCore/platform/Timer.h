@@ -27,11 +27,15 @@
 
 #include "ThreadTimers.h"
 #include <functional>
+#include <wtf/CheckedRef.h>
 #include <wtf/Function.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/RunLoop.h>
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Threading.h>
+#include <wtf/TypeTraits.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
@@ -40,10 +44,25 @@
 #endif
 
 namespace WebCore {
+class TimerAlignment;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::TimerAlignment> : std::true_type { };
+}
+
+namespace WebCore {
+
+class TimerAlignment : public CanMakeWeakPtr<TimerAlignment> {
+public:
+    virtual ~TimerAlignment() = default;
+    virtual std::optional<MonotonicTime> alignedFireTime(bool hasReachedMaxNestingLevel, MonotonicTime) const = 0;
+};
 
 class TimerBase {
+    WTF_MAKE_TZONE_ALLOCATED(TimerBase);
     WTF_MAKE_NONCOPYABLE(TimerBase);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     WEBCORE_EXPORT TimerBase();
     WEBCORE_EXPORT virtual ~TimerBase();
@@ -57,31 +76,47 @@ public:
     void startRepeating(Seconds repeatInterval) { start(repeatInterval, repeatInterval); }
     void startOneShot(Seconds delay) { start(delay, 0_s); }
 
-    WEBCORE_EXPORT void stop();
-    bool isActive() const;
+    inline void stop();
+    inline bool isActive() const;
 
+    MonotonicTime nextFireTime() const { return m_heapItemWithBitfields.pointer() ? m_heapItemWithBitfields.pointer()->time : MonotonicTime { }; }
     WEBCORE_EXPORT Seconds nextFireInterval() const;
     Seconds nextUnalignedFireInterval() const;
     Seconds repeatInterval() const { return m_repeatInterval; }
 
-    void augmentFireInterval(Seconds delta) { setNextFireTime(m_heapItem->time + delta); }
+    void setTimerAlignment(TimerAlignment& alignment) { m_alignment = alignment; }
+    TimerAlignment* timerAlignment() { return m_alignment.get(); }
+
+    bool hasReachedMaxNestingLevel() const { return bitfields().hasReachedMaxNestingLevel; }
+    void setHasReachedMaxNestingLevel(bool);
+
+    void augmentFireInterval(Seconds delta) { setNextFireTime(m_heapItemWithBitfields.pointer()->time + delta); }
     void augmentRepeatInterval(Seconds delta) { augmentFireInterval(delta); m_repeatInterval += delta; }
 
     void didChangeAlignmentInterval();
 
     WEBCORE_EXPORT static void fireTimersInNestedEventLoop();
 
+protected:
+    struct TimerBitfields {
+        uint8_t hasReachedMaxNestingLevel : 1 { false };
+        uint8_t shouldRestartWhenTimerFires : 1 { false }; // DeferrableOneShotTimer
+    };
+
+    TimerBitfields bitfields() const { return std::bit_cast<TimerBitfields>(m_heapItemWithBitfields.type()); }
+    void setBitfields(const TimerBitfields& bitfields) { return m_heapItemWithBitfields.setType(std::bit_cast<uint8_t>(bitfields)); }
+
 private:
     virtual void fired() = 0;
 
-    virtual std::optional<MonotonicTime> alignedFireTime(MonotonicTime) const { return std::nullopt; }
+    WEBCORE_EXPORT void stopSlowCase();
 
     void checkConsistency() const;
     void checkHeapIndex() const;
 
     void setNextFireTime(MonotonicTime);
 
-    bool inHeap() const { return m_heapItem && m_heapItem->isInHeap(); }
+    bool inHeap() const { return m_heapItemWithBitfields.pointer() && m_heapItemWithBitfields.pointer()->isInHeap(); }
 
     bool hasValidHeapPosition() const;
     void updateHeapIfNeeded(MonotonicTime oldTime);
@@ -95,12 +130,11 @@ private:
     void heapPopMin();
     static void heapDeleteNullMin(ThreadTimerHeap&);
 
-    MonotonicTime nextFireTime() const { return m_heapItem ? m_heapItem->time : MonotonicTime { }; }
-
+    WeakPtr<TimerAlignment> m_alignment;
     MonotonicTime m_unalignedNextFireTime; // m_nextFireTime not considering alignment interval
     Seconds m_repeatInterval; // 0 if not repeating
 
-    RefPtr<ThreadTimerHeapItem> m_heapItem;
+    CompactRefPtrTuple<ThreadTimerHeapItem, uint8_t> m_heapItemWithBitfields;
     Ref<Thread> m_thread { Thread::current() };
 
     friend class ThreadTimers;
@@ -108,9 +142,8 @@ private:
     friend class TimerHeapReference;
 };
 
-
 class Timer : public TimerBase {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(Timer, WEBCORE_EXPORT);
 public:
     static void schedule(Seconds delay, Function<void()>&& function)
     {
@@ -122,10 +155,36 @@ public:
         timer->startOneShot(delay);
     }
 
+    template<typename TimerFiredClass, typename TimerFiredBaseClass>
+    requires (WTF::HasRefPtrMemberFunctions<TimerFiredClass>::value)
+    Timer(TimerFiredClass& object, void (TimerFiredBaseClass::*function)())
+        : m_function([objectPtr = &object, function] {
+            Ref protectedObject { *objectPtr };
+            (objectPtr->*function)();
+        })
+    {
+    }
+
+
+    template<typename TimerFiredClass, typename TimerFiredBaseClass>
+    requires (WTF::HasCheckedPtrMemberFunctions<TimerFiredClass>::value && !WTF::HasRefPtrMemberFunctions<TimerFiredClass>::value)
+    Timer(TimerFiredClass& object, void (TimerFiredBaseClass::*function)())
+        : m_function([objectPtr = &object, function] {
+            CheckedRef checkedObject { *objectPtr };
+            (objectPtr->*function)();
+        })
+    {
+    }
+
+    // FIXME: This constructor isn't as safe as the other ones and should ideally be removed.
     template <typename TimerFiredClass, typename TimerFiredBaseClass>
+    requires (!WTF::HasRefPtrMemberFunctions<TimerFiredClass>::value && !WTF::HasCheckedPtrMemberFunctions<TimerFiredClass>::value)
     Timer(TimerFiredClass& object, void (TimerFiredBaseClass::*function)())
         : m_function(std::bind(function, &object))
     {
+        static_assert(WTF::IsDeprecatedTimerSmartPointerException<std::remove_cv_t<TimerFiredClass>>::value,
+            "Classes that use Timer should be ref-counted or CanMakeCheckedPtr. Please do not add new exceptions."
+        );
     }
 
     Timer(Function<void()>&& function)
@@ -142,6 +201,12 @@ private:
     Function<void()> m_function;
 };
 
+inline void TimerBase::stop()
+{
+    if (m_heapItemWithBitfields.pointer())
+        stopSlowCase();
+}
+
 inline bool TimerBase::isActive() const
 {
     // FIXME: Write this in terms of USE(WEB_THREAD) instead of PLATFORM(IOS_FAMILY).
@@ -153,8 +218,15 @@ inline bool TimerBase::isActive() const
     return static_cast<bool>(nextFireTime());
 }
 
+inline void TimerBase::setHasReachedMaxNestingLevel(bool value)
+{
+    auto values = bitfields();
+    values.hasReachedMaxNestingLevel = value;
+    setBitfields(values);
+}
+
 class DeferrableOneShotTimer : protected TimerBase {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(DeferrableOneShotTimer, WEBCORE_EXPORT);
 public:
     template<typename TimerFiredClass>
     DeferrableOneShotTimer(TimerFiredClass& object, void (TimerFiredClass::*function)(), Seconds delay)
@@ -165,7 +237,6 @@ public:
     DeferrableOneShotTimer(Function<void()>&& function, Seconds delay)
         : m_function(WTFMove(function))
         , m_delay(delay)
-        , m_shouldRestartWhenTimerFires(false)
     {
     }
 
@@ -176,7 +247,7 @@ public:
         // can be quite expensive.
 
         if (isActive()) {
-            m_shouldRestartWhenTimerFires = true;
+            setShouldRestartWhenTimerFires(true);
             return;
         }
         startOneShot(m_delay);
@@ -184,7 +255,7 @@ public:
 
     void stop()
     {
-        m_shouldRestartWhenTimerFires = false;
+        setShouldRestartWhenTimerFires(false);
         TimerBase::stop();
     }
 
@@ -193,8 +264,8 @@ public:
 private:
     void fired() override
     {
-        if (m_shouldRestartWhenTimerFires) {
-            m_shouldRestartWhenTimerFires = false;
+        if (bitfields().shouldRestartWhenTimerFires) {
+            setShouldRestartWhenTimerFires(false);
             startOneShot(m_delay);
             return;
         }
@@ -202,10 +273,16 @@ private:
         m_function();
     }
 
+    void setShouldRestartWhenTimerFires(bool value)
+    {
+        auto values = bitfields();
+        values.shouldRestartWhenTimerFires = value;
+        setBitfields(values);
+    }
+
     Function<void()> m_function;
 
     Seconds m_delay;
-    bool m_shouldRestartWhenTimerFires;
 };
 
 }

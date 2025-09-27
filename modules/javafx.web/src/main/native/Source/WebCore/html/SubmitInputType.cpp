@@ -34,13 +34,19 @@
 
 #include "DOMFormData.h"
 #include "Document.h"
+#include "ElementInlines.h"
 #include "Event.h"
 #include "HTMLFormElement.h"
 #include "HTMLInputElement.h"
 #include "InputTypeNames.h"
 #include "LocalizedStrings.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SubmitInputType);
+
+using namespace HTMLNames;
 
 const AtomString& SubmitInputType::formControlType() const
 {
@@ -53,6 +59,8 @@ bool SubmitInputType::appendFormData(DOMFormData& formData) const
     if (!element()->isActivatedSubmit())
         return false;
     formData.append(element()->name(), element()->valueWithDefault());
+    if (auto& dirname = element()->attributeWithoutSynchronization(HTMLNames::dirnameAttr); !dirname.isNull())
+        formData.append(dirname, element()->directionForFormData());
     return true;
 }
 
@@ -72,7 +80,7 @@ void SubmitInputType::handleDOMActivateEvent(Event& event)
 
     // Update layout before processing form actions in case the style changes
     // the Form or button relationships.
-    protectedElement->document().updateLayoutIgnorePendingStylesheets();
+    protectedElement->protectedDocument()->updateLayoutIgnorePendingStylesheets();
 
     if (RefPtr currentForm = protectedElement->form())
         currentForm->submitIfPossible(&event, element()); // Event handlers can run.

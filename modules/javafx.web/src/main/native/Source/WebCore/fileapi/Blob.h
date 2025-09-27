@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -40,7 +40,7 @@
 #include "URLKeepingBlobAlive.h"
 #include "URLRegistry.h"
 #include <variant>
-#include <wtf/IsoMalloc.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
 
 namespace JSC {
@@ -58,13 +58,19 @@ class ScriptExecutionContext;
 class FragmentedSharedBuffer;
 class WebCoreOpaqueRoot;
 
+struct IDLArrayBuffer;
+
+template<typename> class DOMPromiseDeferred;
 template<typename> class ExceptionOr;
 
 using BlobPartVariant = std::variant<RefPtr<JSC::ArrayBufferView>, RefPtr<JSC::ArrayBuffer>, RefPtr<Blob>, String>;
 
 class Blob : public ScriptWrappable, public URLRegistrable, public RefCounted<Blob>, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED_EXPORT(Blob, WEBCORE_EXPORT);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED_EXPORT(Blob, WEBCORE_EXPORT);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<Blob> create(ScriptExecutionContext* context)
     {
         auto blob = adoptRef(*new Blob(context));
@@ -112,12 +118,15 @@ public:
 #endif
 
     // URLRegistrable
-    URLRegistry& registry() const override;
+    URLRegistry& registry() const final;
+    RegistrableType registrableType() const final { return RegistrableType::Blob; }
 
     Ref<Blob> slice(long long start, long long end, const String& contentType) const;
 
     void text(Ref<DeferredPromise>&&);
-    void arrayBuffer(Ref<DeferredPromise>&&);
+    void arrayBuffer(DOMPromiseDeferred<IDLArrayBuffer>&&);
+    void getArrayBuffer(CompletionHandler<void(ExceptionOr<Ref<JSC::ArrayBuffer>>)>&&);
+    void bytes(Ref<DeferredPromise>&&);
     ExceptionOr<Ref<ReadableStream>> stream();
 
     size_t memoryCost() const { return m_memoryCost; }
@@ -143,10 +152,7 @@ protected:
     Blob(ScriptExecutionContext*, const URL& srcURL, long long start, long long end, unsigned long long memoryCost, const String& contentType);
 
 private:
-    void loadBlob(FileReaderLoader::ReadType, CompletionHandler<void(BlobLoader&)>&&);
-
-    // ActiveDOMObject.
-    const char* activeDOMObjectName() const override;
+    void loadBlob(FileReaderLoader::ReadType, Function<void(BlobLoader&)>&&);
 
     String m_type;
     mutable std::optional<unsigned long long> m_size;
@@ -157,9 +163,13 @@ private:
     // into an HTML or for FileRead'ing, public blob URLs must be used for those purposes.
     URL m_internalURL;
 
-    HashSet<std::unique_ptr<BlobLoader>> m_blobLoaders;
+    UncheckedKeyHashSet<std::unique_ptr<BlobLoader>> m_blobLoaders;
 };
 
 WebCoreOpaqueRoot root(Blob*);
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::Blob)
+    static bool isType(const WebCore::URLRegistrable& registrable) { return registrable.registrableType() == WebCore::URLRegistrable::RegistrableType::Blob; }
+SPECIALIZE_TYPE_TRAITS_END()

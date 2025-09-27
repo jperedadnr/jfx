@@ -30,6 +30,7 @@
 
 #include "CredentialsContainer.h"
 #include "Supplementable.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -38,7 +39,7 @@ class WeakPtrImplWithEventTargetData;
 class Navigator;
 
 class NavigatorCredentials final : public Supplement<Navigator> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NavigatorCredentials);
 public:
     NavigatorCredentials();
     virtual ~NavigatorCredentials();
@@ -49,7 +50,7 @@ private:
     CredentialsContainer* credentials(WeakPtr<Document, WeakPtrImplWithEventTargetData>&&);
 
     static NavigatorCredentials* from(Navigator*);
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
     RefPtr<CredentialsContainer> m_credentialsContainer;
 };

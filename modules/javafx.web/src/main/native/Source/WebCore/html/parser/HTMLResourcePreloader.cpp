@@ -29,14 +29,18 @@
 #include "CachedResourceLoader.h"
 #include "CrossOriginAccessControl.h"
 #include "DefaultResourceLoadPriority.h"
-#include "Document.h"
+#include "DocumentInlines.h"
 #include "MediaQueryEvaluator.h"
 #include "MediaQueryParser.h"
 #include "NodeRenderStyle.h"
 #include "RenderView.h"
 #include "ScriptElementCachedScriptFetcher.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PreloadRequest);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLResourcePreloader);
 
 URL PreloadRequest::completeURL(Document& document)
 {
@@ -49,9 +53,9 @@ CachedResourceRequest PreloadRequest::resourceRequest(Document& document)
 
     bool skipContentSecurityPolicyCheck = false;
     if (m_resourceType == CachedResource::Type::Script)
-        skipContentSecurityPolicyCheck = document.contentSecurityPolicy()->allowScriptWithNonce(m_nonceAttribute);
+        skipContentSecurityPolicyCheck = document.checkedContentSecurityPolicy()->allowScriptWithNonce(m_nonceAttribute);
     else if (m_resourceType == CachedResource::Type::CSSStyleSheet)
-        skipContentSecurityPolicyCheck = document.contentSecurityPolicy()->allowStyleWithNonce(m_nonceAttribute);
+        skipContentSecurityPolicyCheck = document.checkedContentSecurityPolicy()->allowStyleWithNonce(m_nonceAttribute);
 
     ResourceLoaderOptions options = CachedResourceLoader::defaultCachedResourceOptions();
     if (skipContentSecurityPolicyCheck)
@@ -64,7 +68,7 @@ CachedResourceRequest PreloadRequest::resourceRequest(Document& document)
     }
     if (m_resourceType == CachedResource::Type::Script || m_resourceType == CachedResource::Type::ImageResource)
         options.referrerPolicy = m_referrerPolicy;
-    options.fetchPriorityHint = m_fetchPriorityHint;
+    options.fetchPriority = m_fetchPriority;
     auto request = createPotentialAccessControlRequest(completeURL(document), WTFMove(options), document, crossOriginMode);
     request.setInitiatorType(m_initiatorType);
 
@@ -82,14 +86,15 @@ void HTMLResourcePreloader::preload(PreloadRequestStream requests)
 
 void HTMLResourcePreloader::preload(std::unique_ptr<PreloadRequest> preload)
 {
-    ASSERT(m_document.frame());
-    ASSERT(m_document.renderView());
+    Ref document = protectedDocument();
+    ASSERT(document->frame());
+    ASSERT(document->renderView());
 
-    auto queries = MQ::MediaQueryParser::parse(preload->media(), { m_document });
-    if (!MQ::MediaQueryEvaluator { screenAtom(), m_document, m_document.renderStyle() }.evaluate(queries))
+    auto queries = MQ::MediaQueryParser::parse(preload->media(), { document.get() });
+    if (!MQ::MediaQueryEvaluator { screenAtom(), document, document->renderStyle() }.evaluate(queries))
         return;
 
-    m_document.cachedResourceLoader().preload(preload->resourceType(), preload->resourceRequest(m_document));
+    document->protectedCachedResourceLoader()->preload(preload->resourceType(), preload->resourceRequest(document));
 }
 
 }

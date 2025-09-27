@@ -33,11 +33,15 @@
 #include "FloatSize.h"
 #include <array>
 #include <optional>
-#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 #if USE(CG)
 typedef struct CGAffineTransform CGAffineTransform;
+#endif
+
+#if USE(SKIA)
+class SkMatrix;
 #endif
 
 namespace WTF {
@@ -57,13 +61,17 @@ class Region;
 class TransformationMatrix;
 
 class AffineTransform {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AffineTransform);
 public:
     constexpr AffineTransform();
     constexpr AffineTransform(double a, double b, double c, double d, double e, double f);
 
 #if USE(CG)
     WEBCORE_EXPORT AffineTransform(const CGAffineTransform&);
+#endif
+
+#if USE(SKIA)
+    AffineTransform(const SkMatrix&);
 #endif
 
     void setMatrix(double a, double b, double c, double d, double e, double f);
@@ -165,15 +173,7 @@ public:
             && WTF::areEssentiallyEqual(narrowPrecisionToFloat(m_transform[5]), narrowPrecisionToFloat(m2.m_transform[5]));
     }
 
-    bool operator==(const AffineTransform& m2) const
-    {
-        return (m_transform[0] == m2.m_transform[0]
-            && m_transform[1] == m2.m_transform[1]
-            && m_transform[2] == m2.m_transform[2]
-            && m_transform[3] == m2.m_transform[3]
-            && m_transform[4] == m2.m_transform[4]
-            && m_transform[5] == m2.m_transform[5]);
-    }
+    friend bool operator==(const AffineTransform&, const AffineTransform&) = default;
 
     // *this = *this * t (i.e., a multRight)
     AffineTransform& operator*=(const AffineTransform& t)
@@ -193,6 +193,10 @@ public:
     WEBCORE_EXPORT operator CGAffineTransform() const;
 #endif
 
+#if USE(SKIA)
+    operator SkMatrix() const;
+#endif
+
     static AffineTransform makeTranslation(FloatSize delta)
     {
         return AffineTransform(1, 0, 0, 1, delta.width(), delta.height());
@@ -203,13 +207,8 @@ public:
         return AffineTransform(scale.width(), 0, 0, scale.height(), 0, 0);
     }
 
-    static AffineTransform makeRotation(double angleInDegrees, FloatPoint center = { })
-    {
-        auto matrix = makeTranslation(toFloatSize(center));
-        matrix.rotate(angleInDegrees);
-        matrix.translate(-toFloatSize(center));
-        return matrix;
-    }
+    WEBCORE_EXPORT static AffineTransform makeRotation(double angleInDegrees, FloatPoint center);
+    WEBCORE_EXPORT static AffineTransform makeRotation(double angleInDegrees);
 
     // decompose the matrix into its component parts
     typedef struct {

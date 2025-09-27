@@ -163,7 +163,7 @@ static const QtNodeType qt_node_types[] = {
   {FOURCC_ctts, "Composition time to sample", 0, qtdemux_dump_ctts},
   {FOURCC_cslg, "Composition Shift Least Greatest", 0, qtdemux_dump_cslg},
   {FOURCC_XiTh, "XiTh", 0},
-  {FOURCC_XdxT, "XdxT", 0},
+  {FOURCC_XdxT, "XdxT", QT_FLAG_CONTAINER},
   {FOURCC_loci, "loci", 0},
   {FOURCC_clsf, "clsf", 0},
   {FOURCC_mfra, "movie fragment random access",
@@ -211,6 +211,9 @@ static const QtNodeType qt_node_types[] = {
   {FOURCC_dvhe, "HEVC-based Dolby Vision codec derived from hev1 ", 0},
   {FOURCC_dvh1, "HEVC-based Dolby Vision codec derived from hvc1 ", 0},
   {FOURCC_dvcC, "HEVC-based Dolby Vision codec configuration container", 0},
+  {FOURCC_vvc1, "VVC codec configuration", 0},
+  {FOURCC_vvi1, "VVC codec configuration", 0},
+  {FOURCC_vvcC, "VVC codec configuration container", 0},
   {FOURCC_tfdt, "Track fragment decode time", 0, qtdemux_dump_tfdt},
   {FOURCC_chap, "Chapter Reference"},
   {FOURCC_btrt, "Bitrate information", 0},
@@ -233,6 +236,8 @@ static const QtNodeType qt_node_types[] = {
   {FOURCC_schi, "scheme information", QT_FLAG_CONTAINER},
   {FOURCC_pssh, "protection system specific header", 0},
   {FOURCC_tenc, "track encryption", 0},
+  {FOURCC_sgpd, "sample group description", 0},
+  {FOURCC_sbgp, "sample to group", 0},
   {FOURCC_stpp, "XML subtitle sample entry", 0},
   {FOURCC_wvtt, "WebVTT subtitle sample entry", 0},
   {FOURCC_clcp, "Closed Caption", 0},
@@ -247,6 +252,10 @@ static const QtNodeType qt_node_types[] = {
   {FOURCC_vttc, "VTTCueBox 14496-30", QT_FLAG_CONTAINER},
   {FOURCC_metx, "XML MetaData Sample Entry", 0},
   {FOURCC_cstb, "Correct Start Time Box", 0},
+  {FOURCC_ipcm, "RAW Integer PCM", 0},
+  {FOURCC_fpcm, "RAW Float PCM", 0},
+  {FOURCC_pcmC, "RAW PCM Configuration Box", 0},
+  {FOURCC_chnl, "Channel Layout Box", 0},
   {0, "unknown", 0,},
 };
 
@@ -263,7 +272,7 @@ qtdemux_type_get (guint32 fourcc)
       return qt_node_types + i;
   }
 
-  GST_WARNING ("unknown QuickTime node type %" GST_FOURCC_FORMAT,
+  GST_FIXME ("unknown QuickTime node type %" GST_FOURCC_FORMAT,
       GST_FOURCC_ARGS (fourcc));
 
   return qt_node_types + n_qt_node_types - 1;

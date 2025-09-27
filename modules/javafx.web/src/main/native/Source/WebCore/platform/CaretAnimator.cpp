@@ -28,8 +28,20 @@
 
 #include "GraphicsContext.h"
 #include "Page.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CaretAnimator);
+
+bool CaretAnimator::isBlinkingSuspended() const
+{
+#if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)
+    if (m_prefersNonBlinkingCursor)
+        return true;
+#endif
+    return m_isBlinkingSuspended;
+}
 
 Page* CaretAnimator::page() const
 {
@@ -57,7 +69,7 @@ void CaretAnimator::serviceCaretAnimation()
 
 void CaretAnimator::scheduleAnimation()
 {
-    if (auto* page = this->page())
+    if (RefPtr page = this->page())
         page->scheduleRenderingUpdate(RenderingUpdateStep::CaretAnimation);
 }
 

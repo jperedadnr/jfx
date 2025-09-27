@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
+ * Copyright (C) 2012-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -45,16 +46,17 @@
 #include "SharedBuffer.h"
 #include "ThreadableBlobRegistry.h"
 #include "WebCoreOpaqueRoot.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/Lock.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(Blob);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BlobLoader);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(Blob);
 
 class BlobURLRegistry final : public URLRegistry {
 public:
@@ -65,7 +67,7 @@ public:
     static URLRegistry& registry();
 
     Lock m_urlsPerContextLock;
-    HashMap<ScriptExecutionContextIdentifier, HashSet<URL>> m_urlsPerContext WTF_GUARDED_BY_LOCK(m_urlsPerContextLock);
+    HashMap<ScriptExecutionContextIdentifier, UncheckedKeyHashSet<URL>> m_urlsPerContext WTF_GUARDED_BY_LOCK(m_urlsPerContextLock);
 };
 
 void BlobURLRegistry::registerURL(const ScriptExecutionContext& context, const URL& publicURL, URLRegistrable& blob)
@@ -73,9 +75,9 @@ void BlobURLRegistry::registerURL(const ScriptExecutionContext& context, const U
     ASSERT(&blob.registry() == this);
     {
         Locker locker { m_urlsPerContextLock };
-        m_urlsPerContext.add(context.identifier(), HashSet<URL>()).iterator->value.add(publicURL.isolatedCopy());
+        m_urlsPerContext.add(context.identifier(), UncheckedKeyHashSet<URL>()).iterator->value.add(publicURL.isolatedCopy());
     }
-    ThreadableBlobRegistry::registerBlobURL(context.securityOrigin(), context.policyContainer(), publicURL, static_cast<Blob&>(blob).url(), context.topOrigin().data());
+    ThreadableBlobRegistry::registerBlobURL(context.securityOrigin(), context.policyContainer(), publicURL, downcast<Blob>(blob).url(), context.topOrigin().data());
 }
 
 void BlobURLRegistry::unregisterURL(const URL& url, const SecurityOriginData& topOrigin)
@@ -100,7 +102,7 @@ void BlobURLRegistry::unregisterURL(const URL& url, const SecurityOriginData& to
 
 void BlobURLRegistry::unregisterURLsForContext(const ScriptExecutionContext& context)
 {
-    HashSet<URL> urlsForContext;
+    UncheckedKeyHashSet<URL> urlsForContext;
     {
         Locker locker { m_urlsPerContextLock };
         urlsForContext = m_urlsPerContext.take(context.identifier());
@@ -264,7 +266,7 @@ String Blob::normalizedContentType(const String& contentType)
     return contentType.convertToASCIILowercase();
 }
 
-void Blob::loadBlob(FileReaderLoader::ReadType readType, CompletionHandler<void(BlobLoader&)>&& completionHandler)
+void Blob::loadBlob(FileReaderLoader::ReadType readType, Function<void(BlobLoader&)>&& completionHandler)
 {
     auto blobLoader = makeUnique<BlobLoader>([this, pendingActivity = makePendingActivity(*this), completionHandler = WTFMove(completionHandler)](BlobLoader& blobLoader) mutable {
         completionHandler(blobLoader);
@@ -288,25 +290,46 @@ void Blob::text(Ref<DeferredPromise>&& promise)
     });
 }
 
-void Blob::arrayBuffer(Ref<DeferredPromise>&& promise)
+static ExceptionOr<Ref<JSC::ArrayBuffer>> arrayBufferFromBlobLoader(BlobLoader& blobLoader)
+{
+    if (auto optionalErrorCode = blobLoader.errorCode())
+        return Exception { *optionalErrorCode };
+    RefPtr arrayBuffer = blobLoader.arrayBufferResult();
+    if (!arrayBuffer)
+        return Exception { ExceptionCode::InvalidStateError };
+    return arrayBuffer.releaseNonNull();
+}
+
+void Blob::arrayBuffer(DOMPromiseDeferred<IDLArrayBuffer>&& promise)
 {
     loadBlob(FileReaderLoader::ReadAsArrayBuffer, [promise = WTFMove(promise)](BlobLoader& blobLoader) mutable {
-        if (auto optionalErrorCode = blobLoader.errorCode()) {
-            promise->reject(Exception { *optionalErrorCode });
+        promise.settle(arrayBufferFromBlobLoader(blobLoader));
+    });
+}
+
+void Blob::getArrayBuffer(CompletionHandler<void(ExceptionOr<Ref<JSC::ArrayBuffer>>)>&& completionHandler)
+{
+    loadBlob(FileReaderLoader::ReadAsArrayBuffer, [completionHandler = WTFMove(completionHandler)](BlobLoader& blobLoader) mutable {
+        completionHandler(arrayBufferFromBlobLoader(blobLoader));
+    });
+}
+
+void Blob::bytes(Ref<DeferredPromise>&& promise)
+{
+    loadBlob(FileReaderLoader::ReadAsArrayBuffer, [promise = WTFMove(promise)](BlobLoader& blobLoader) mutable {
+        auto arrayBuffer = arrayBufferFromBlobLoader(blobLoader);
+        if (arrayBuffer.hasException()) {
+            promise->reject(arrayBuffer.releaseException());
             return;
         }
-        auto arrayBuffer = blobLoader.arrayBufferResult();
-        if (!arrayBuffer) {
-            promise->reject(Exception { InvalidStateError });
-            return;
-        }
-        promise->resolve<IDLArrayBuffer>(*arrayBuffer);
+        Ref view = Uint8Array::create(arrayBuffer.releaseReturnValue());
+        promise->resolve<IDLUint8Array>(WTFMove(view));
     });
 }
 
 ExceptionOr<Ref<ReadableStream>> Blob::stream()
 {
-    class BlobStreamSource : public FileReaderLoaderClient, public ReadableStreamSource {
+    class BlobStreamSource : public FileReaderLoaderClient, public RefCountedReadableStreamSource {
     public:
         BlobStreamSource(ScriptExecutionContext& scriptExecutionContext, Blob& blob)
             : m_loader(makeUniqueRef<FileReaderLoader>(FileReaderLoader::ReadType::ReadAsBinaryChunks, this))
@@ -320,15 +343,33 @@ ExceptionOr<Ref<ReadableStream>> Blob::stream()
         void setInactive() final { }
         void doStart() final
         {
-            m_isStarted = true;
-            if (m_exception)
-                controller().error(*m_exception);
+            ASSERT(m_streamState == StreamState::NotStarted);
+            m_streamState = StreamState::Waiting;
+
+            closeStreamIfNeeded();
         }
 
-        void doPull() final { }
+        void doPull() final
+        {
+            if (closeStreamIfNeeded())
+                return;
+
+            if (m_queue.isEmpty()) {
+                m_streamState = StreamState::Waiting;
+                return;
+            }
+
+            if (!tryEnqueuing(m_queue.takeFirst().get()))
+                return;
+
+            pullFinished();
+        }
+
         void doCancel() final
         {
+            m_loaderState = LoaderState::Cancelled;
             m_loader->cancel();
+            m_queue.clear();
         }
 
         // FileReaderLoaderClient
@@ -336,32 +377,69 @@ ExceptionOr<Ref<ReadableStream>> Blob::stream()
         void didReceiveData() final { }
         void didReceiveBinaryChunk(const SharedBuffer& buffer) final
         {
-            if (!controller().enqueue(buffer.tryCreateArrayBuffer()))
-                doCancel();
+            if (m_streamState != StreamState::Waiting) {
+                m_queue.append(buffer.asFragmentedSharedBuffer());
+                return;
         }
+
+            m_streamState = StreamState::Started;
+            if (!tryEnqueuing(buffer))
+                return;
+
+            pullFinished();
+        }
+
         void didFinishLoading() final
         {
-            controller().close();
+            m_loaderState = LoaderState::Completed;
+            closeStreamIfNeeded();
         }
+
         void didFail(ExceptionCode code) final
         {
-            Exception exception { code };
-            if (!m_isStarted) {
-                m_exception = WTFMove(exception);
-                return;
+            ASSERT(!m_exception);
+            m_exception = Exception { code };
+
+            m_loaderState = LoaderState::Completed;
+            closeStreamIfNeeded();
+        }
+
+        bool closeStreamIfNeeded()
+        {
+            if (m_loaderState != LoaderState::Completed || m_streamState == StreamState::NotStarted || !m_queue.isEmpty())
+                return false;
+
+            if (m_exception) {
+                controller().error(*m_exception);
+                return true;
             }
-            controller().error(exception);
+
+            controller().close();
+            return true;
+        }
+
+        bool tryEnqueuing(const FragmentedSharedBuffer& buffer)
+        {
+            bool didSucceed = controller().enqueue(buffer.tryCreateArrayBuffer());
+            if (!didSucceed)
+                didFail(ExceptionCode::OutOfMemoryError);
+
+            return didSucceed;
         }
 
         UniqueRef<FileReaderLoader> m_loader;
-        bool m_isStarted { false };
+        Deque<Ref<FragmentedSharedBuffer>> m_queue;
         std::optional<Exception> m_exception;
+        enum class StreamState : uint8_t { NotStarted, Started, Waiting };
+        StreamState m_streamState { StreamState::NotStarted };
+        enum class LoaderState : uint8_t { Started, Completed, Cancelled };
+        LoaderState m_loaderState { LoaderState::Started };
     };
 
     auto* context = scriptExecutionContext();
     auto* globalObject = context ? context->globalObject() : nullptr;
     if (!globalObject)
-        return Exception { InvalidStateError };
+        return Exception { ExceptionCode::InvalidStateError };
     return ReadableStream::create(*JSC::jsCast<JSDOMGlobalObject*>(globalObject), adoptRef(*new BlobStreamSource(*context, *this)));
 }
 
@@ -382,12 +460,10 @@ bool Blob::isNormalizedContentType(const String& contentType)
 bool Blob::isNormalizedContentType(const CString& contentType)
 {
     // FIXME: Do we really want to treat the empty string and null string as valid content types?
-    size_t length = contentType.length();
-    const char* characters = contentType.data();
-    for (size_t i = 0; i < length; ++i) {
-        if (characters[i] < 0x20 || characters[i] > 0x7e)
+    for (auto character : contentType.span()) {
+        if (character < 0x20 || character > 0x7e)
             return false;
-        if (isASCIIUpper(characters[i]))
+        if (isASCIIUpper(character))
             return false;
     }
     return true;
@@ -397,11 +473,6 @@ bool Blob::isNormalizedContentType(const CString& contentType)
 URLRegistry& Blob::registry() const
 {
     return BlobURLRegistry::registry();
-}
-
-const char* Blob::activeDOMObjectName() const
-{
-    return "Blob";
 }
 
 URLKeepingBlobAlive Blob::handle() const

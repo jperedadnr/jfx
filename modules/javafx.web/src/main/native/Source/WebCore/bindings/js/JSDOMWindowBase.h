@@ -31,6 +31,7 @@
 #include <JavaScriptCore/Lookup.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <JavaScriptCore/SlotVisitorInlines.h>
+#include <JavaScriptCore/Structure.h>
 #include <JavaScriptCore/StructureInlines.h>
 #include <JavaScriptCore/WriteBarrier.h>
 #include <cstddef>
@@ -43,7 +44,7 @@ namespace WebCore {
 class DOMWrapperWorld;
 class FetchResponse;
 class JSDOMWindowBasePrivate;
-class JSLocalDOMWindow;
+class JSDOMWindow;
 class JSWindowProxy;
 class LocalFrame;
 
@@ -59,7 +60,7 @@ public:
     ~JSDOMWindowBase();
     void updateDocument();
 
-    LocalDOMWindow& wrapped() const { return *m_wrapped; }
+    DOMWindow& wrapped() const;
     Document* scriptExecutionContext() const;
 
     // Called just before removing this window from the JSWindowProxy.
@@ -79,7 +80,7 @@ public:
     static void queueMicrotaskToEventLoop(JSC::JSGlobalObject&, Ref<JSC::Microtask>&&);
     static JSC::JSObject* currentScriptExecutionOwner(JSC::JSGlobalObject*);
     static JSC::ScriptExecutionStatus scriptExecutionStatus(JSC::JSGlobalObject*, JSC::JSObject*);
-    static void reportViolationForUnsafeEval(JSC::JSGlobalObject*, JSC::JSString*);
+    static void reportViolationForUnsafeEval(JSC::JSGlobalObject*, const String&);
 
     void printErrorMessage(const String&) const;
 
@@ -91,7 +92,7 @@ public:
     Event* currentEvent() const;
 
 protected:
-    JSDOMWindowBase(JSC::VM&, JSC::Structure*, RefPtr<LocalDOMWindow>&&, JSWindowProxy*);
+    JSDOMWindowBase(JSC::VM&, JSC::Structure*, RefPtr<DOMWindow>&&, JSWindowProxy*);
     void finishCreation(JSC::VM&, JSWindowProxy*);
     void initStaticGlobals(JSC::VM&);
 
@@ -100,20 +101,20 @@ protected:
 private:
     static const JSC::GlobalObjectMethodTable* globalObjectMethodTable();
 
-    RefPtr<LocalDOMWindow> m_wrapped;
+    RefPtr<DOMWindow> m_wrapped;
     RefPtr<Event> m_currentEvent;
 };
 
-WEBCORE_EXPORT JSC::JSValue toJS(JSC::JSGlobalObject*, LocalDOMWindow&);
+WEBCORE_EXPORT JSC::JSValue toJS(JSC::JSGlobalObject*, DOMWindow&);
 // The following return a JSWindowProxy or jsNull()
 // JSDOMGlobalObject* is ignored, accessing a window in any context will use that LocalDOMWindow's prototype chain.
-inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject*, LocalDOMWindow& window) { return toJS(lexicalGlobalObject, window); }
-inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, LocalDOMWindow* window) { return window ? toJS(lexicalGlobalObject, globalObject, *window) : JSC::jsNull(); }
-inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, LocalDOMWindow* window) { return window ? toJS(lexicalGlobalObject, *window) : JSC::jsNull(); }
+inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject*, DOMWindow& window) { return toJS(lexicalGlobalObject, window); }
+inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, DOMWindow* window) { return window ? toJS(lexicalGlobalObject, globalObject, *window) : JSC::jsNull(); }
+inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, DOMWindow* window) { return window ? toJS(lexicalGlobalObject, *window) : JSC::jsNull(); }
 
-// The following return a JSLocalDOMWindow or nullptr.
-JSLocalDOMWindow* toJSLocalDOMWindow(LocalFrame&, DOMWrapperWorld&);
-inline JSLocalDOMWindow* toJSLocalDOMWindow(LocalFrame* frame, DOMWrapperWorld& world) { return frame ? toJSLocalDOMWindow(*frame, world) : nullptr; }
+// The following return a JSDOMWindow or nullptr.
+JSDOMWindow* toJSDOMWindow(LocalFrame&, DOMWrapperWorld&);
+inline JSDOMWindow* toJSDOMWindow(LocalFrame* frame, DOMWrapperWorld& world) { return frame ? toJSDOMWindow(*frame, world) : nullptr; }
 
 // LocalDOMWindow associated with global object of the "most-recently-entered author function or script
 // on the stack, or the author function or script that originally scheduled the currently-running callback."

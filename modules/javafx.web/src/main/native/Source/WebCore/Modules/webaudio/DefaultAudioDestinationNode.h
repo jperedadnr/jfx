@@ -28,13 +28,17 @@
 #include "AudioDestinationNode.h"
 #include "AudioIOCallback.h"
 
+namespace WTF {
+class MediaTime;
+}
+
 namespace WebCore {
 
 class AudioContext;
 class AudioDestination;
 
 class DefaultAudioDestinationNode final : public AudioDestinationNode, public AudioIOCallback {
-    WTF_MAKE_ISO_ALLOCATED(DefaultAudioDestinationNode);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(DefaultAudioDestinationNode);
 public:
     explicit DefaultAudioDestinationNode(AudioContext&, std::optional<float> sampleRate = std::nullopt);
     ~DefaultAudioDestinationNode();
@@ -43,6 +47,7 @@ public:
     const AudioContext& context() const;
 
     unsigned framesPerBuffer() const;
+    WTF::MediaTime outputLatency() const;
 
     void startRendering(CompletionHandler<void(std::optional<Exception>&&)>&&) final;
     void resume(CompletionHandler<void(std::optional<Exception>&&)>&&);

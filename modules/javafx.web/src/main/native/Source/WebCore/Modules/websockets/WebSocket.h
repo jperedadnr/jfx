@@ -49,8 +49,11 @@ class Blob;
 class ThreadableWebSocketChannel;
 
 class WebSocket final : public RefCounted<WebSocket>, public EventTarget, public ActiveDOMObject, private WebSocketChannelClient {
-    WTF_MAKE_ISO_ALLOCATED(WebSocket);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(WebSocket);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static ASCIILiteral subprotocolSeparator();
 
     static ExceptionOr<Ref<WebSocket>> create(ScriptExecutionContext&, const String& url);
@@ -90,12 +93,9 @@ public:
 
     enum class BinaryType : bool { Blob, Arraybuffer };
     BinaryType binaryType() const { return m_binaryType; }
-    ExceptionOr<void> setBinaryType(BinaryType);
+    void setBinaryType(BinaryType);
 
     ScriptExecutionContext* scriptExecutionContext() const final;
-
-    using RefCounted::ref;
-    using RefCounted::deref;
 
 private:
     explicit WebSocket(ScriptExecutionContext&);
@@ -103,12 +103,13 @@ private:
     void dispatchErrorEventIfNeeded();
 
     void contextDestroyed() final;
+
+    // ActiveDOMObject.
     void suspend(ReasonForSuspension) final;
     void resume() final;
     void stop() final;
-    const char* activeDOMObjectName() const final;
 
-    EventTargetInterface eventTargetInterface() const final;
+    enum EventTargetInterfaceType eventTargetInterface() const final;
 
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }

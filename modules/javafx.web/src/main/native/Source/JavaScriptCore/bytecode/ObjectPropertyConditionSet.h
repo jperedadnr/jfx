@@ -31,6 +31,8 @@
 #include <wtf/RefCountedFixedVector.h>
 #include <wtf/Vector.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 // An object property condition set is used to represent the set of additional conditions
@@ -132,6 +134,7 @@ public:
     // invalid().
     ObjectPropertyConditionSet mergedWith(const ObjectPropertyConditionSet& other) const;
 
+    bool isStillValid() const;
     bool structuresEnsureValidity() const;
 
     bool needImpurePropertyWatchpoint() const;
@@ -194,3 +197,5 @@ std::optional<PrototypeChainCachingStatus> prepareChainForCaching(JSGlobalObject
 std::optional<PrototypeChainCachingStatus> prepareChainForCaching(JSGlobalObject*, Structure* base, UniquedStringImpl*, JSObject* target);
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

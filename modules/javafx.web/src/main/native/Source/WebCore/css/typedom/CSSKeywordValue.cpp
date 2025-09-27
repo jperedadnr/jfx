@@ -33,12 +33,13 @@
 #include "CSSMarkup.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSPropertyParser.h"
+#include "CSSValuePool.h"
 #include "ExceptionOr.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(CSSKeywordValue);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(CSSKeywordValue);
 
 Ref<CSSKeywordValue> CSSKeywordValue::rectifyKeywordish(CSSKeywordish&& keywordish)
 {
@@ -54,7 +55,7 @@ Ref<CSSKeywordValue> CSSKeywordValue::rectifyKeywordish(CSSKeywordish&& keywordi
 ExceptionOr<Ref<CSSKeywordValue>> CSSKeywordValue::create(const String& value)
 {
     if (value.isEmpty())
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     return adoptRef(*new CSSKeywordValue(value));
 }
@@ -62,7 +63,7 @@ ExceptionOr<Ref<CSSKeywordValue>> CSSKeywordValue::create(const String& value)
 ExceptionOr<void> CSSKeywordValue::setValue(const String& value)
 {
     if (value.isEmpty())
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     m_value = value;
     return { };

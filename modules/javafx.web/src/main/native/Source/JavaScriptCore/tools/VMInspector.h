@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,11 +31,12 @@
 #include <wtf/Expected.h>
 #include <wtf/IterationStatus.h>
 #include <wtf/Lock.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 class VMInspector {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(VMInspector);
     WTF_MAKE_NONCOPYABLE(VMInspector);
     VMInspector() = default;
 public:
@@ -44,7 +45,7 @@ public:
         TimedOut
     };
 
-    static VMInspector& instance();
+    static VMInspector& singleton();
 
     void add(VM*);
     void remove(VM*);
@@ -55,7 +56,7 @@ public:
 
     Lock& getLock() WTF_RETURNS_LOCK(m_lock) { return m_lock; }
 
-    template <typename Functor> void iterate(const Functor& functor) WTF_REQUIRES_LOCK(m_lock)
+    void iterate(const Invocable<IterationStatus(VM&)> auto& functor) WTF_REQUIRES_LOCK(m_lock)
     {
         for (VM* vm = m_vmList.head(); vm; vm = vm->next()) {
             IterationStatus status = functor(*vm);

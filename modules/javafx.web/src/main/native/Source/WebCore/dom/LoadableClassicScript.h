@@ -28,6 +28,7 @@
 #include "CachedResourceClient.h"
 #include "CachedResourceHandle.h"
 #include "CachedScript.h"
+#include "Document.h"
 #include "LoadableScript.h"
 #include "LoadableScriptError.h"
 #include "ReferrerPolicy.h"
@@ -51,16 +52,17 @@ public:
 
     Document* document() { return m_weakDocument.get(); }
     CachedScript& cachedScript() { return *m_cachedScript; }
+    CachedResourceHandle<CachedScript> protectedCachedScript() { return cachedScript(); }
 
     bool load(Document&, const URL&);
     bool isAsync() const { return m_isAsync; }
     const AtomString& integrity() const { return m_integrity; }
 
 protected:
-    LoadableNonModuleScriptBase(const AtomString& nonce, const AtomString& integrity, ReferrerPolicy, RequestPriority, const AtomString& crossOriginMode, const String& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree, bool isAsync);
+    LoadableNonModuleScriptBase(const AtomString& nonce, const AtomString& integrity, ReferrerPolicy, RequestPriority, const AtomString& crossOriginMode, const AtomString& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree, bool isAsync);
 
 private:
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
 
 protected:
     CachedResourceHandle<CachedScript> m_cachedScript { };
@@ -73,14 +75,14 @@ protected:
 
 class LoadableClassicScript final : public LoadableNonModuleScriptBase {
 public:
-    static Ref<LoadableClassicScript> create(const AtomString& nonce, const AtomString& integrity, ReferrerPolicy, RequestPriority, const AtomString& crossOriginMode, const String& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree, bool isAsync);
+    static Ref<LoadableClassicScript> create(const AtomString& nonce, const AtomString& integrity, ReferrerPolicy, RequestPriority, const AtomString& crossOriginMode, const AtomString& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree, bool isAsync);
 
     ScriptType scriptType() const final { return ScriptType::Classic; }
 
     void execute(ScriptElement&) final;
 
 private:
-    LoadableClassicScript(const AtomString& nonce, const AtomString& integrity, ReferrerPolicy, RequestPriority, const AtomString& crossOriginMode, const String& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree, bool isAsync);
+    LoadableClassicScript(const AtomString& nonce, const AtomString& integrity, ReferrerPolicy, RequestPriority, const AtomString& crossOriginMode, const AtomString& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree, bool isAsync);
 };
 
 }

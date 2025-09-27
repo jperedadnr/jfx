@@ -32,7 +32,7 @@
 
 #include "ActiveDOMObject.h"
 #include "MediaKeySystemConfiguration.h"
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -43,8 +43,11 @@ class DeferredPromise;
 class Document;
 class MediaKeys;
 
-class MediaKeySystemAccess : public RefCounted<MediaKeySystemAccess>, public CanMakeWeakPtr<MediaKeySystemAccess>, public ActiveDOMObject {
+class MediaKeySystemAccess : public RefCountedAndCanMakeWeakPtr<MediaKeySystemAccess>, public ActiveDOMObject {
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<MediaKeySystemAccess> create(Document&, const String& keySystem, MediaKeySystemConfiguration&&, Ref<CDM>&&);
     ~MediaKeySystemAccess();
 
@@ -54,9 +57,6 @@ public:
 
 private:
     MediaKeySystemAccess(Document&, const String& keySystem, MediaKeySystemConfiguration&&, Ref<CDM>&&);
-
-    // ActiveDOMObject
-    const char *activeDOMObjectName() const final { return "MediaKeySystemAccess"; }
 
     String m_keySystem;
     std::unique_ptr<MediaKeySystemConfiguration> m_configuration;

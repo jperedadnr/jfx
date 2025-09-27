@@ -24,19 +24,6 @@
  */
 
 @linkTimeConstant
-@constructor
-function RegExpStringIterator(regExp, string, global, fullUnicode)
-{
-    "use strict";
-
-    @putByIdDirectPrivate(this, "regExpStringIteratorRegExp", regExp);
-    @putByIdDirectPrivate(this, "regExpStringIteratorString", string);
-    @putByIdDirectPrivate(this, "regExpStringIteratorGlobal", global);
-    @putByIdDirectPrivate(this, "regExpStringIteratorUnicode", fullUnicode);
-    @putByIdDirectPrivate(this, "regExpStringIteratorDone", false);
-}
-
-@linkTimeConstant
 function advanceStringIndex(string, index, unicode)
 {
     // This function implements AdvanceStringIndex described in ES6 21.2.5.2.3.
@@ -88,13 +75,32 @@ function hasObservableSideEffectsForRegExpMatch(regexp)
     if (regexpExec !== @regExpBuiltinExec)
         return true;
 
+    var regexpFlags = @tryGetById(regexp, "flags");
+    if (regexpFlags !== @regExpProtoFlagsGetter)
+        return true;
+
+    // These are accessed by the builtin flags getter.
     var regexpGlobal = @tryGetById(regexp, "global");
     if (regexpGlobal !== @regExpProtoGlobalGetter)
+        return true;
+    var regexpHasIndices = @tryGetById(regexp, "hasIndices");
+    if (regexpHasIndices !== @regExpProtoHasIndicesGetter)
+        return true;
+    var regexpIgnoreCase = @tryGetById(regexp, "ignoreCase");
+    if (regexpIgnoreCase !== @regExpProtoIgnoreCaseGetter)
+        return true;
+    var regexpMultiline = @tryGetById(regexp, "multiline");
+    if (regexpMultiline !== @regExpProtoMultilineGetter)
+        return true;
+    var regexpSticky = @tryGetById(regexp, "sticky");
+    if (regexpSticky !== @regExpProtoStickyGetter)
+        return true;
+    var regexpDotAll = @tryGetById(regexp, "dotAll");
+    if (regexpDotAll !== @regExpProtoDotAllGetter)
         return true;
     var regexpUnicode = @tryGetById(regexp, "unicode");
     if (regexpUnicode !== @regExpProtoUnicodeGetter)
         return true;
-
     var regexpUnicodeSets = @tryGetById(regexp, "unicodeSets");
     if (regexpUnicodeSets !== @regExpProtoUnicodeSetsGetter)
         return true;
@@ -107,10 +113,13 @@ function matchSlow(regexp, str)
 {
     "use strict";
 
-    if (!regexp.global)
+    var flags = @toString(regexp.flags);
+    var global = @stringIncludesInternal.@call(flags, "g");
+
+    if (!global)
         return @regExpExec(regexp, str);
     
-    var unicode = regexp.unicode;
+    var unicode = @stringIncludesInternal.@call(flags, "u") || @stringIncludesInternal.@call(flags, "v");
     regexp.lastIndex = 0;
     var resultList = [];
 
@@ -173,9 +182,9 @@ function matchAll(strArg)
     matcher.lastIndex = @toLength(regExp.lastIndex);
 
     var global = @stringIncludesInternal.@call(flags, "g");
-    var fullUnicode = @stringIncludesInternal.@call(flags, "u");
+    var fullUnicode = @stringIncludesInternal.@call(flags, "u") || @stringIncludesInternal.@call(flags, "v");
 
-    return new @RegExpStringIterator(matcher, string, global, fullUnicode);
+    return @regExpStringIteratorCreate(matcher, string, global, fullUnicode);
 }
 
 @linkTimeConstant
@@ -295,11 +304,12 @@ function replace(strArg, replace)
     if (!functionalReplace)
         replace = @toString(replace);
 
-    var global = regexp.global;
+    var flags = @toString(regexp.flags);
+    var global = @stringIncludesInternal.@call(flags, "g");
     var unicode = false;
 
     if (global) {
-        unicode = regexp.unicode;
+        unicode = @stringIncludesInternal.@call(flags, "u") || @stringIncludesInternal.@call(flags, "v");
         regexp.lastIndex = 0;
     }
 
@@ -452,6 +462,9 @@ function hasObservableSideEffectsForRegExpSplit(regexp)
     var regexpGlobal = @tryGetById(regexp, "global");
     if (regexpGlobal !== @regExpProtoGlobalGetter)
         return true;
+    var regexpHasIndices = @tryGetById(regexp, "hasIndices");
+    if (regexpHasIndices !== @regExpProtoHasIndicesGetter)
+        return true;
     var regexpIgnoreCase = @tryGetById(regexp, "ignoreCase");
     if (regexpIgnoreCase !== @regExpProtoIgnoreCaseGetter)
         return true;
@@ -460,6 +473,9 @@ function hasObservableSideEffectsForRegExpSplit(regexp)
         return true;
     var regexpSticky = @tryGetById(regexp, "sticky");
     if (regexpSticky !== @regExpProtoStickyGetter)
+        return true;
+    var regexpDotAll = @tryGetById(regexp, "dotAll");
+    if (regexpDotAll !== @regExpProtoDotAllGetter)
         return true;
     var regexpUnicode = @tryGetById(regexp, "unicode");
     if (regexpUnicode !== @regExpProtoUnicodeGetter)

@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "ProcessIdentifier.h"
 #include "ProcessQualified.h"
 #include "ScriptBuffer.h"
@@ -64,15 +62,16 @@ enum class ServiceWorkerClientFrameType : uint8_t {
     None
 };
 
+enum class ServiceWorkerIsInspectable : bool { No, Yes };
 enum class ShouldNotifyWhenResolved : bool { No, Yes };
 
-enum ServiceWorkerRegistrationIdentifierType { };
+enum class ServiceWorkerRegistrationIdentifierType { };
 using ServiceWorkerRegistrationIdentifier = AtomicObjectIdentifier<ServiceWorkerRegistrationIdentifierType>;
 
-enum ServiceWorkerJobIdentifierType { };
+enum class ServiceWorkerJobIdentifierType { };
 using ServiceWorkerJobIdentifier = AtomicObjectIdentifier<ServiceWorkerJobIdentifierType>;
 
-enum SWServerToContextConnectionIdentifierType { };
+enum class SWServerToContextConnectionIdentifierType { };
 using SWServerToContextConnectionIdentifier = ObjectIdentifier<SWServerToContextConnectionIdentifierType>;
 
 using SWServerConnectionIdentifierType = ProcessIdentifierType;
@@ -81,7 +80,7 @@ using SWServerConnectionIdentifier = ObjectIdentifier<SWServerConnectionIdentifi
 using ServiceWorkerOrClientData = std::variant<ServiceWorkerData, ServiceWorkerClientData>;
 
 // FIXME: It should be possible to replace ServiceWorkerOrClientIdentifier with ScriptExecutionContextIdentifier entirely.
-using ServiceWorkerOrClientIdentifier = std::variant<ServiceWorkerIdentifier, ScriptExecutionContextIdentifier>;
+using ServiceWorkerOrClientIdentifier = std::variant<ScriptExecutionContextIdentifier, ServiceWorkerIdentifier>;
 
 struct ServiceWorkerScripts {
     ServiceWorkerScripts isolatedCopy() const
@@ -98,5 +97,3 @@ struct ServiceWorkerScripts {
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

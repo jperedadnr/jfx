@@ -51,7 +51,7 @@ void ReadableStreamToSharedBufferSink::enqueue(const Ref<JSC::Uint8Array>& buffe
         return;
 
     if (m_callback) {
-        std::span<const uint8_t> chunk { buffer->data(), buffer->byteLength() };
+        auto chunk = buffer->span();
         m_callback(&chunk);
     }
 }
@@ -71,7 +71,7 @@ void ReadableStreamToSharedBufferSink::error(String&& message)
         return;
 
     auto callback = std::exchange(m_callback, { });
-        callback(Exception { TypeError, WTFMove(message) });
+    callback(Exception { ExceptionCode::TypeError, WTFMove(message) });
 }
 
 } // namespace WebCore

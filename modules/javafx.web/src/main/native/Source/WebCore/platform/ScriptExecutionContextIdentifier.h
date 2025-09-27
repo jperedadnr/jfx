@@ -34,12 +34,7 @@ namespace WebCore {
 template <>
 class ProcessQualified<WTF::UUID> {
 public:
-    static ProcessQualified generate() { return { WTF::UUID::createVersion4(), Process::identifier() }; }
-
-    ProcessQualified()
-        : m_object(WTF::UUID::emptyValue)
-    {
-    }
+    static ProcessQualified generate() { return { WTF::UUID::createVersion4Weak(), Process::identifier() }; }
 
     ProcessQualified(WTF::UUID object, ProcessIdentifier processIdentifier)
         : m_object(WTFMove(object))
@@ -60,12 +55,17 @@ public:
 
     bool isHashTableDeletedValue() const { return m_processIdentifier.isHashTableDeletedValue(); }
 
-    bool operator==(const ProcessQualified& other) const { return m_object == other.m_object && m_processIdentifier == other.m_processIdentifier; }
+    friend bool operator==(const ProcessQualified&, const ProcessQualified&) = default;
 
     String toString() const { return m_object.toString(); }
 
     template<typename Encoder> void encode(Encoder& encoder) const { encoder << m_object << m_processIdentifier; }
     template<typename Decoder> static std::optional<ProcessQualified> decode(Decoder&);
+
+    struct MarkableTraits {
+        static bool isEmptyValue(const ProcessQualified<WTF::UUID>& identifier) { return WTF::UUID::MarkableTraits::isEmptyValue(identifier.object()); }
+        static ProcessQualified<WTF::UUID> emptyValue() { return { WTF::UUID::MarkableTraits::emptyValue(), ProcessIdentifier::MarkableTraits::emptyValue() }; }
+    };
 
 private:
     WTF::UUID m_object;

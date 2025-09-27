@@ -24,8 +24,8 @@
 #pragma once
 
 #include "ContainerNode.h"
-#include "RuntimeApplicationChecks.h"
 #include <wtf/MainThread.h>
+#include <wtf/RuntimeApplicationChecks.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include "WebCoreThread.h"
@@ -86,7 +86,7 @@ public:
         static bool isEventDispatchAllowedInSubtree(Node& node)
         {
 #if ASSERT_ENABLED || ENABLE(SECURITY_ASSERTIONS)
-            return !isInWebProcess() || isScriptAllowed() || EventAllowedScope::isAllowedNode(node);
+            return isScriptAllowed() || EventAllowedScope::isAllowedNode(node);
 #else
             UNUSED_PARAM(node);
             return true;
@@ -103,9 +103,9 @@ public:
         {
             ASSERT(isMainThread());
 #if PLATFORM(IOS_FAMILY)
-            return !s_count || webThreadDelegateMessageScopeCount;
+            return !s_count || !isInWebProcess() || webThreadDelegateMessageScopeCount;
 #else
-            return !s_count;
+            return !s_count || !isInWebProcess();
 #endif
         }
     };

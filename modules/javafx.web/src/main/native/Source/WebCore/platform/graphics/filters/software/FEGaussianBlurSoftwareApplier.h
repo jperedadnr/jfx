@@ -26,14 +26,15 @@
 #include "IntSize.h"
 #include "PixelBuffer.h"
 #include <JavaScriptCore/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class FEGaussianBlur;
-enum class EdgeModeType;
+enum class EdgeModeType : uint8_t;
 
 class FEGaussianBlurSoftwareApplier final : public FilterEffectConcreteApplier<FEGaussianBlur> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(FEGaussianBlurSoftwareApplier);
     using Base = FilterEffectConcreteApplier<FEGaussianBlur>;
 
 public:

@@ -54,8 +54,11 @@
 #include "RenderLayerScrollableArea.h"
 #include "RenderStyleInlines.h"
 #include "RenderView.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderMarquee);
 
 using namespace HTMLNames;
 
@@ -73,9 +76,8 @@ RenderMarquee::~RenderMarquee() = default;
 int RenderMarquee::marqueeSpeed() const
 {
     int result = m_layer->renderer().style().marqueeSpeed();
-    Element* element = m_layer->renderer().element();
-    if (is<HTMLMarqueeElement>(element))
-        result = std::max(result, downcast<HTMLMarqueeElement>(*element).minimumDelay());
+    if (auto* marquee = dynamicDowncast<HTMLMarqueeElement>(m_layer->renderer().element()))
+        result = std::max(result, marquee->minimumDelay());
     return result;
 }
 
@@ -105,13 +107,13 @@ MarqueeDirection RenderMarquee::direction() const
     // FIXME: Support the CSS3 "auto" value for determining the direction of the marquee.
     // For now just map MarqueeDirection::Auto to MarqueeDirection::Backward
     MarqueeDirection result = m_layer->renderer().style().marqueeDirection();
-    TextDirection dir = m_layer->renderer().style().direction();
+    WritingMode writingMode = m_layer->renderer().writingMode();
     if (result == MarqueeDirection::Auto)
         result = MarqueeDirection::Backward;
     if (result == MarqueeDirection::Forward)
-        result = (dir == TextDirection::LTR) ? MarqueeDirection::Right : MarqueeDirection::Left;
+        result = (writingMode.isBidiLTR()) ? MarqueeDirection::Right : MarqueeDirection::Left;
     if (result == MarqueeDirection::Backward)
-        result = (dir == TextDirection::LTR) ? MarqueeDirection::Left : MarqueeDirection::Right;
+        result = (writingMode.isBidiLTR()) ? MarqueeDirection::Left : MarqueeDirection::Right;
 
     // Now we have the real direction.  Next we check to see if the increment is negative.
     // If so, then we reverse the direction.

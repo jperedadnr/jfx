@@ -25,6 +25,7 @@
 #include "CallData.h"
 #include "CellState.h"
 #include "ConstructData.h"
+#include "DestructionMode.h"
 #include "EnumerationMode.h"
 #include "Heap.h"
 #include "HeapCell.h"
@@ -90,6 +91,7 @@ template<typename T> void* tryAllocateCell(VM&, GCDeferralContext*, size_t = siz
 #endif
 
 class JSCell : public HeapCell {
+    WTF_ALLOW_COMPACT_POINTERS;
     friend class JSValue;
     friend class MarkedBlock;
     template<typename T>
@@ -98,15 +100,15 @@ class JSCell : public HeapCell {
 public:
     static constexpr unsigned StructureFlags = 0;
 
-    static constexpr bool needsDestruction = false;
+    static constexpr DestructionMode needsDestruction = DoesNotNeedDestruction;
 
-    static constexpr uint8_t numberOfLowerTierCells = 8;
+    static constexpr uint8_t numberOfLowerTierPreciseCells = 8;
 
     static constexpr size_t atomSize = 16; // This needs to be larger or equal to 16.
 
     static constexpr bool isResizableOrGrowableSharedTypedArray = false;
 
-    static JSCell* seenMultipleCalleeObjects() { return bitwise_cast<JSCell*>(static_cast<uintptr_t>(1)); }
+    static JSCell* seenMultipleCalleeObjects() { return std::bit_cast<JSCell*>(static_cast<uintptr_t>(1)); }
 
     enum CreatingEarlyCellTag { CreatingEarlyCell };
     JSCell(CreatingEarlyCellTag);
@@ -226,17 +228,17 @@ public:
         return WTF::atomicCompareExchangeStrong(&m_cellState, oldState, newState);
     }
 
-    static ptrdiff_t structureIDOffset()
+    static constexpr ptrdiff_t structureIDOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_structureID);
     }
 
-    static ptrdiff_t typeInfoFlagsOffset()
+    static constexpr ptrdiff_t typeInfoFlagsOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_flags);
     }
 
-    static ptrdiff_t typeInfoTypeOffset()
+    static constexpr ptrdiff_t typeInfoTypeOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_type);
     }
@@ -244,12 +246,12 @@ public:
     // DO NOT store to this field. Always use a CAS loop, since some bits are flipped using CAS
     // from other threads due to the internal lock. One exception: you don't need the CAS if the
     // object has not escaped yet.
-    static ptrdiff_t indexingTypeAndMiscOffset()
+    static constexpr ptrdiff_t indexingTypeAndMiscOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_indexingTypeAndMisc);
     }
 
-    static ptrdiff_t cellStateOffset()
+    static constexpr ptrdiff_t cellStateOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_cellState);
     }

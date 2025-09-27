@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "WasmCallee.h"
 #include "WasmEntryPlan.h"
 #include "WasmFunctionCodeBlockGenerator.h"
 
@@ -40,9 +41,9 @@ class LLIntCallee;
 class JSEntrypointCallee;
 class StreamingCompiler;
 
-using JSEntrypointCalleeMap = HashMap<uint32_t, RefPtr<JSEntrypointCallee>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
+using JSEntrypointCalleeMap = UncheckedKeyHashMap<uint32_t, RefPtr<JSEntrypointCallee>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
 
-using TailCallGraph = HashMap<uint32_t, HashSet<uint32_t, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
+using TailCallGraph = UncheckedKeyHashMap<uint32_t, UncheckedKeyHashSet<uint32_t, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
 
 class LLIntPlan final : public EntryPlan {
     using Base = EntryPlan;
@@ -51,12 +52,6 @@ public:
     JS_EXPORT_PRIVATE LLIntPlan(VM&, Vector<uint8_t>&&, CompilerMode, CompletionTask&&);
     LLIntPlan(VM&, Ref<ModuleInformation>, const Ref<LLIntCallee>*, CompletionTask&&);
     LLIntPlan(VM&, Ref<ModuleInformation>, CompilerMode, CompletionTask&&); // For StreamingCompiler.
-
-    MacroAssemblerCodeRef<JITCompilationPtrTag>&& takeEntryThunks()
-    {
-        RELEASE_ASSERT(!failed() && !hasWork());
-        return WTFMove(m_entryThunks);
-    }
 
     Vector<Ref<LLIntCallee>>&& takeCallees()
     {
@@ -75,11 +70,11 @@ public:
         return m_state < State::Compiled;
     }
 
-    void work(CompilationEffort) final;
+    void work() final;
 
-    bool didReceiveFunctionData(unsigned, const FunctionData&) final;
+    bool didReceiveFunctionData(FunctionCodeIndex, const FunctionData&) final;
 
-    void compileFunction(uint32_t functionIndex) final;
+    void compileFunction(FunctionCodeIndex functionIndex) final;
 
     void completeInStreaming();
     void didCompileFunctionInStreaming();
@@ -89,15 +84,17 @@ private:
     bool prepareImpl() final;
     void didCompleteCompilation() WTF_REQUIRES_LOCK(m_lock) final;
 
-    void addTailCallEdge(uint32_t, uint32_t);
+    void addTailCallEdge(uint32_t, uint32_t) WTF_REQUIRES_LOCK(m_lock);
     void computeTransitiveTailCalls() const;
+
+    bool ensureEntrypoint(LLIntCallee&, FunctionCodeIndex functionIndex);
 
     Vector<std::unique_ptr<FunctionCodeBlockGenerator>> m_wasmInternalFunctions;
     const Ref<LLIntCallee>* m_callees { nullptr };
     Vector<Ref<LLIntCallee>> m_calleesVector;
+    Vector<RefPtr<JSEntrypointCallee>> m_entrypoints;
     JSEntrypointCalleeMap m_jsEntrypointCallees;
     TailCallGraph m_tailCallGraph;
-    MacroAssemblerCodeRef<JITCompilationPtrTag> m_entryThunks;
 };
 
 

@@ -44,7 +44,7 @@ WebSocketChannelInspector::~WebSocketChannelInspector() = default;
 
 void WebSocketChannelInspector::didCreateWebSocket(const URL& url) const
 {
-    if (!m_progressIdentifier || !m_document)
+    if (!m_document)
         return;
 
     InspectorInstrumentation::didCreateWebSocket(m_document.get(), m_progressIdentifier, url);
@@ -52,7 +52,7 @@ void WebSocketChannelInspector::didCreateWebSocket(const URL& url) const
 
 void WebSocketChannelInspector::willSendWebSocketHandshakeRequest(const ResourceRequest& request) const
 {
-    if (!m_progressIdentifier || !m_document)
+    if (!m_document)
         return;
 
     InspectorInstrumentation::willSendWebSocketHandshakeRequest(m_document.get(), m_progressIdentifier, request);
@@ -60,7 +60,7 @@ void WebSocketChannelInspector::willSendWebSocketHandshakeRequest(const Resource
 
 void WebSocketChannelInspector::didReceiveWebSocketHandshakeResponse(const ResourceResponse& response) const
 {
-    if (!m_progressIdentifier || !m_document)
+    if (!m_document)
         return;
 
     InspectorInstrumentation::didReceiveWebSocketHandshakeResponse(m_document.get(), m_progressIdentifier, response);
@@ -68,7 +68,7 @@ void WebSocketChannelInspector::didReceiveWebSocketHandshakeResponse(const Resou
 
 void WebSocketChannelInspector::didCloseWebSocket() const
 {
-    if (!m_progressIdentifier || !m_document)
+    if (!m_document)
         return;
 
     InspectorInstrumentation::didCloseWebSocket(m_document.get(), m_progressIdentifier);
@@ -76,7 +76,7 @@ void WebSocketChannelInspector::didCloseWebSocket() const
 
 void WebSocketChannelInspector::didReceiveWebSocketFrame(const WebSocketFrame& frame) const
 {
-    if (!m_progressIdentifier || !m_document)
+    if (!m_document)
         return;
 
     InspectorInstrumentation::didReceiveWebSocketFrame(m_document.get(), m_progressIdentifier, frame);
@@ -84,7 +84,7 @@ void WebSocketChannelInspector::didReceiveWebSocketFrame(const WebSocketFrame& f
 
 void WebSocketChannelInspector::didSendWebSocketFrame(const WebSocketFrame& frame) const
 {
-    if (!m_progressIdentifier || !m_document)
+    if (!m_document)
         return;
 
     InspectorInstrumentation::didSendWebSocketFrame(m_document.get(), m_progressIdentifier, frame);
@@ -92,25 +92,19 @@ void WebSocketChannelInspector::didSendWebSocketFrame(const WebSocketFrame& fram
 
 void WebSocketChannelInspector::didReceiveWebSocketFrameError(const String& errorMessage) const
 {
-    if (!m_progressIdentifier || !m_document)
+    if (!m_document)
         return;
 
     InspectorInstrumentation::didReceiveWebSocketFrameError(m_document.get(), m_progressIdentifier, errorMessage);
 }
 
-WebSocketChannelIdentifier WebSocketChannelInspector::progressIdentifier() const
-{
-    return m_progressIdentifier;
-}
-
-WebSocketFrame WebSocketChannelInspector::createFrame(const uint8_t* data, size_t length, WebSocketFrame::OpCode opCode)
+WebSocketFrame WebSocketChannelInspector::createFrame(std::span<const uint8_t> data, WebSocketFrame::OpCode opCode)
 {
     // This is an approximation since frames can be merged on a single message.
     WebSocketFrame frame;
     frame.opCode = opCode;
     frame.masked = false;
     frame.payload = data;
-    frame.payloadLength = length;
 
     // WebInspector does not use them.
     frame.final = false;

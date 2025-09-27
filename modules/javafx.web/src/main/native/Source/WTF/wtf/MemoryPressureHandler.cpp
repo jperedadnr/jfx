@@ -26,7 +26,9 @@
 #include "config.h"
 #include <wtf/MemoryPressureHandler.h>
 
+#include <algorithm>
 #include <atomic>
+#include <functional>
 #include <wtf/Logging.h>
 #include <wtf/MemoryFootprint.h>
 #include <wtf/NeverDestroyed.h>
@@ -65,7 +67,7 @@ static MemoryPressureHandler* memoryPressureHandlerIfExists()
 }
 
 MemoryPressureHandler::MemoryPressureHandler()
-#if OS(LINUX) || OS(FREEBSD)
+#if OS(LINUX) || OS(FREEBSD) || OS(HAIKU) || OS(QNX)
     : m_holdOffTimer(RunLoop::main(), this, &MemoryPressureHandler::holdOffTimerFired)
 #elif OS(WINDOWS)
     : m_windowsMeasurementTimer(RunLoop::main(), this, &MemoryPressureHandler::windowsMeasurementTimerFired)
@@ -76,14 +78,13 @@ MemoryPressureHandler::MemoryPressureHandler()
 #endif
 }
 
+void MemoryPressureHandler::setMemoryFootprintPollIntervalForTesting(Seconds pollInterval)
+{
+    m_configuration.pollInterval = pollInterval;
+}
+
 void MemoryPressureHandler::setShouldUsePeriodicMemoryMonitor(bool use)
 {
-    if (!isFastMallocEnabled()) {
-        // If we're running with FastMalloc disabled, some kind of testing or debugging is probably happening.
-        // Let's be nice and not enable the memory kill mechanism.
-        return;
-    }
-
     if (use) {
         m_measurementTimer = makeUnique<RunLoop::Timer>(RunLoop::main(), this, &MemoryPressureHandler::measurementTimerFired);
         m_measurementTimer->startRepeating(m_configuration.pollInterval);
@@ -92,15 +93,15 @@ void MemoryPressureHandler::setShouldUsePeriodicMemoryMonitor(bool use)
 }
 
 #if !RELEASE_LOG_DISABLED
-static const char* toString(MemoryUsagePolicy policy)
+static ASCIILiteral toString(MemoryUsagePolicy policy)
 {
     switch (policy) {
-    case MemoryUsagePolicy::Unrestricted: return "Unrestricted";
-    case MemoryUsagePolicy::Conservative: return "Conservative";
-    case MemoryUsagePolicy::Strict: return "Strict";
+    case MemoryUsagePolicy::Unrestricted: return "Unrestricted"_s;
+    case MemoryUsagePolicy::Conservative: return "Conservative"_s;
+    case MemoryUsagePolicy::Strict: return "Strict"_s;
     }
     ASSERT_NOT_REACHED();
-    return "";
+    return ""_s;
 }
 #endif
 
@@ -204,10 +205,21 @@ void MemoryPressureHandler::setMemoryUsagePolicyBasedOnFootprint(size_t footprin
     if (newPolicy == m_memoryUsagePolicy)
         return;
 
-    RELEASE_LOG(MemoryPressure, "Memory usage policy changed: %s -> %s", toString(m_memoryUsagePolicy), toString(newPolicy));
+    RELEASE_LOG(MemoryPressure, "Memory usage policy changed: %s -> %s", toString(m_memoryUsagePolicy).characters(), toString(newPolicy).characters());
     m_memoryUsagePolicy = newPolicy;
     memoryPressureStatusChanged();
 }
+
+void MemoryPressureHandler::setMemoryFootprintNotificationThresholds(Vector<size_t>&& thresholds, WTF::Function<void(size_t)>&& handler)
+{
+    if (thresholds.isEmpty() || !handler)
+        return;
+
+    std::sort(thresholds.begin(), thresholds.end(), std::greater<>());
+    m_memoryFootprintNotificationThresholds = WTFMove(thresholds);
+    m_memoryFootprintNotificationHandler = WTFMove(handler);
+}
+
 
 void MemoryPressureHandler::measurementTimerFired()
 {
@@ -215,6 +227,12 @@ void MemoryPressureHandler::measurementTimerFired()
 #if PLATFORM(COCOA)
     RELEASE_LOG(MemoryPressure, "Current memory footprint: %zu MB", footprint / MB);
 #endif
+
+    while (m_memoryFootprintNotificationThresholds.size() && footprint > m_memoryFootprintNotificationThresholds.last()) {
+        auto notificationThreshold = m_memoryFootprintNotificationThresholds.takeLast();
+        m_memoryFootprintNotificationHandler(notificationThreshold);
+    }
+
     auto killThreshold = thresholdForMemoryKill();
     if (killThreshold && footprint >= *killThreshold) {
         shrinkOrDie(*killThreshold);
@@ -299,19 +317,25 @@ void MemoryPressureHandler::releaseMemory(Critical critical, Synchronous synchro
     platformReleaseMemory(critical);
 }
 
-void MemoryPressureHandler::setMemoryPressureStatus(MemoryPressureStatus memoryPressureStatus)
+void MemoryPressureHandler::setMemoryPressureStatus(SystemMemoryPressureStatus status)
 {
-    if (m_memoryPressureStatus == memoryPressureStatus)
+    if (m_memoryPressureStatus == status)
         return;
 
-    m_memoryPressureStatus = memoryPressureStatus;
+    m_memoryPressureStatus = status;
     memoryPressureStatusChanged();
 }
 
 void MemoryPressureHandler::memoryPressureStatusChanged()
 {
     if (m_memoryPressureStatusChangedCallback)
-        m_memoryPressureStatusChangedCallback(m_memoryPressureStatus);
+        m_memoryPressureStatusChangedCallback();
+}
+
+void MemoryPressureHandler::didExceedProcessMemoryLimit(ProcessMemoryLimit limit)
+{
+    if (m_didExceedProcessMemoryLimitCallback)
+        m_didExceedProcessMemoryLimitCallback(limit);
 }
 
 void MemoryPressureHandler::ReliefLogger::logMemoryUsageChange()
@@ -341,7 +365,7 @@ void MemoryPressureHandler::ReliefLogger::logMemoryUsageChange()
 void MemoryPressureHandler::platformInitialize() { }
 #endif
 
-MemoryPressureHandler::Configuration::Configuration()
+MemoryPressureHandlerConfiguration::MemoryPressureHandlerConfiguration()
     : baseThreshold(std::min(3 * GB, ramSize()))
     , conservativeThresholdFraction(s_conservativeThresholdFraction)
     , strictThresholdFraction(s_strictThresholdFraction)
@@ -350,7 +374,7 @@ MemoryPressureHandler::Configuration::Configuration()
 {
 }
 
-MemoryPressureHandler::Configuration::Configuration(size_t base, double conservative, double strict, std::optional<double> kill, Seconds interval)
+MemoryPressureHandlerConfiguration::MemoryPressureHandlerConfiguration(size_t base, double conservative, double strict, std::optional<double> kill, Seconds interval)
     : baseThreshold(base)
     , conservativeThresholdFraction(conservative)
     , strictThresholdFraction(strict)

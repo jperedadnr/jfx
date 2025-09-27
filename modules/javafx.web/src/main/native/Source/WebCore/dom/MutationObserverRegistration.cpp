@@ -36,8 +36,11 @@
 #include "JSNodeCustom.h"
 #include "QualifiedName.h"
 #include "WebCoreOpaqueRootInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MutationObserverRegistration);
 
 MutationObserverRegistration::MutationObserverRegistration(MutationObserver& observer, Node& node, MutationObserverOptions options, const MemoryCompactLookupOnlyRobinHoodHashSet<AtomString>& attributeFilter)
     : m_observer(observer)
@@ -45,13 +48,13 @@ MutationObserverRegistration::MutationObserverRegistration(MutationObserver& obs
     , m_options(options)
     , m_attributeFilter(attributeFilter)
 {
-    m_observer->observationStarted(*this);
+    protectedObserver()->observationStarted(*this);
 }
 
 MutationObserverRegistration::~MutationObserverRegistration()
 {
     takeTransientRegistrations();
-    m_observer->observationEnded(*this);
+    protectedObserver()->observationEnded(*this);
 }
 
 void MutationObserverRegistration::resetObservation(MutationObserverOptions options, const MemoryCompactLookupOnlyRobinHoodHashSet<AtomString>& attributeFilter)
@@ -67,16 +70,16 @@ void MutationObserverRegistration::observedSubtreeNodeWillDetach(Node& node)
         return;
 
     node.registerTransientMutationObserver(*this);
-    m_observer->setHasTransientRegistration(node.document());
+    m_observer->setHasTransientRegistration(node.protectedDocument());
 
     if (m_transientRegistrationNodes.isEmpty()) {
         ASSERT(!m_nodeKeptAlive);
-        m_nodeKeptAlive = &m_node; // Balanced in takeTransientRegistrations.
+        m_nodeKeptAlive = m_node.ptr(); // Balanced in takeTransientRegistrations.
     }
     m_transientRegistrationNodes.add(node);
 }
 
-HashSet<GCReachableRef<Node>> MutationObserverRegistration::takeTransientRegistrations()
+UncheckedKeyHashSet<GCReachableRef<Node>> MutationObserverRegistration::takeTransientRegistrations()
 {
     if (m_transientRegistrationNodes.isEmpty()) {
         ASSERT(!m_nodeKeptAlive);
@@ -100,7 +103,7 @@ bool MutationObserverRegistration::shouldReceiveMutationFrom(Node& node, Mutatio
     if (!m_options.contains(type))
         return false;
 
-    if (&m_node != &node && !isSubtree())
+    if (m_node.ptr() != &node && !isSubtree())
         return false;
 
     if (type != MutationObserverOptionType::Attributes || !m_options.contains(MutationObserverOptionType::AttributeFilter))
@@ -114,7 +117,7 @@ bool MutationObserverRegistration::shouldReceiveMutationFrom(Node& node, Mutatio
 
 bool MutationObserverRegistration::isReachableFromOpaqueRoots(JSC::AbstractSlotVisitor& visitor) const
 {
-    if (containsWebCoreOpaqueRoot(visitor, m_node))
+    if (containsWebCoreOpaqueRoot(visitor, m_node.ptr()))
         return true;
 
     for (auto& node : m_transientRegistrationNodes) {

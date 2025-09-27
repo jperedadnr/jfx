@@ -27,6 +27,7 @@
 #include "config.h"
 #include "ScrollTypes.h"
 
+#include "ScrollBehavior.h"
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -72,6 +73,16 @@ TextStream& operator<<(TextStream& ts, ScrollBehaviorForFixedElements behavior)
     return ts;
 }
 
+TextStream& operator<<(TextStream& ts, ScrollBehavior behavior)
+{
+    switch (behavior) {
+    case ScrollBehavior::Auto: ts << "auto"; break;
+    case ScrollBehavior::Instant: ts << "instant"; break;
+    case ScrollBehavior::Smooth: ts << "smooth"; break;
+    }
+    return ts;
+}
+
 TextStream& operator<<(TextStream& ts, ScrollElasticity behavior)
 {
     switch (behavior) {
@@ -84,6 +95,16 @@ TextStream& operator<<(TextStream& ts, ScrollElasticity behavior)
     case ScrollElasticity::Allowed:
         ts << 2;
         break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, RubberBandingBehavior behavior)
+{
+    switch (behavior) {
+    case RubberBandingBehavior::Always: ts << "always"; break;
+    case RubberBandingBehavior::Never: ts << "never"; break;
+    case RubberBandingBehavior::BasedOnSize: ts << "based on size"; break;
     }
     return ts;
 }
@@ -173,11 +194,11 @@ TextStream& operator<<(TextStream& ts, ScrollbarWidth width)
 
 TextStream& operator<<(TextStream& ts, ScrollPositionChangeOptions options)
 {
-    ts.dumpProperty("scroll-position-change-options-type", options.type);
-    ts.dumpProperty("scroll-position-change-options-clamping", options.clamping);
-    ts.dumpProperty("scroll-position-change-options-animated", (options.animated == ScrollIsAnimated::Yes ? "animated" : "not animated"));
-    ts.dumpProperty("scroll-position-change-options-snap-point-selection-method", options.snapPointSelectionMethod);
-    ts.dumpProperty("scroll-position-change-options-original-scroll-delta", options.originalScrollDelta ? *options.originalScrollDelta : FloatSize());
+    ts.dumpProperty("type", options.type);
+    ts.dumpProperty("clamping", options.clamping);
+    ts.dumpProperty("animated", options.animated == ScrollIsAnimated::Yes);
+    ts.dumpProperty("snap point selection method", options.snapPointSelectionMethod);
+    ts.dumpProperty("original scroll delta", options.originalScrollDelta ? *options.originalScrollDelta : FloatSize());
 
     return ts;
 }

@@ -34,7 +34,9 @@
 
 namespace WebCore {
 
-class CSSPendingSubstitutionValue : public CSSValue {
+class CSSProperty;
+
+class CSSPendingSubstitutionValue final : public CSSValue {
 public:
     static Ref<CSSPendingSubstitutionValue> create(CSSPropertyID shorthandPropertyId, Ref<CSSVariableReferenceValue>&& shorthandValue)
     {
@@ -45,11 +47,20 @@ public:
     CSSPropertyID shorthandPropertyId() const { return m_shorthandPropertyId; }
 
     bool equals(const CSSPendingSubstitutionValue& other) const { return m_shorthandValue.ptr() == other.m_shorthandValue.ptr(); }
-    static String customCSSText() { return emptyString(); }
+    static String customCSSText(const CSS::SerializationContext&) { return emptyString(); }
+
+    RefPtr<CSSValue> resolveValue(Style::BuilderState&, CSSPropertyID) const;
+
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    {
+        if (func(m_shorthandValue.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        return IterationStatus::Continue;
+    }
 
 private:
     CSSPendingSubstitutionValue(CSSPropertyID shorthandPropertyId, Ref<CSSVariableReferenceValue>&& shorthandValue)
-        : CSSValue(PendingSubstitutionValueClass)
+        : CSSValue(ClassType::PendingSubstitutionValue)
         , m_shorthandPropertyId(shorthandPropertyId)
         , m_shorthandValue(WTFMove(shorthandValue))
     {
@@ -57,6 +68,8 @@ private:
 
     const CSSPropertyID m_shorthandPropertyId;
     Ref<CSSVariableReferenceValue> m_shorthandValue;
+
+    mutable Vector<CSSProperty> m_cachedPropertyValues;
 };
 
 } // namespace WebCore

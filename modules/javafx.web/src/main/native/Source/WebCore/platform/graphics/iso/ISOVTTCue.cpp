@@ -62,7 +62,7 @@ private:
             int8_t character = 0;
             if (!checkedRead<int8_t>(character, view, localOffset, BigEndian))
                 return false;
-            characters.uncheckedAppend(character);
+            characters.append(character);
         }
 
         m_contents = String::fromUTF8(characters);
@@ -72,11 +72,11 @@ private:
     String m_contents;
 };
 
-static FourCC vttIdBoxType() { return "iden"; }
-static FourCC vttSettingsBoxType() { return "sttg"; }
-static FourCC vttPayloadBoxType() { return "payl"; }
-static FourCC vttCurrentTimeBoxType() { return "ctim"; }
-static FourCC vttCueSourceIDBoxType() { return "vsid"; }
+static FourCC vttIdBoxType() { return std::span { "iden" }; }
+static FourCC vttSettingsBoxType() { return std::span { "sttg" }; }
+static FourCC vttPayloadBoxType() { return std::span { "payl" }; }
+static FourCC vttCurrentTimeBoxType() { return std::span { "ctim" }; }
+static FourCC vttCueSourceIDBoxType() { return std::span { "vsid" }; }
 
 ISOWebVTTCue::ISOWebVTTCue(const MediaTime& presentationTime, const MediaTime& duration)
     : m_presentationTime(presentationTime)

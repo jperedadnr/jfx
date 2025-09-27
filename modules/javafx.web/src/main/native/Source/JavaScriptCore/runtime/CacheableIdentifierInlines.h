@@ -53,6 +53,11 @@ inline CacheableIdentifier CacheableIdentifier::createFromImmortalIdentifier(Uni
     return CacheableIdentifier(uid);
 }
 
+inline CacheableIdentifier CacheableIdentifier::createFromSharedStub(UniquedStringImpl* uid)
+{
+    return CacheableIdentifier(uid);
+}
+
 inline CacheableIdentifier CacheableIdentifier::createFromCell(JSCell* i)
 {
     return CacheableIdentifier(i);
@@ -72,7 +77,7 @@ inline CacheableIdentifier::CacheableIdentifier(JSCell* identifier)
 inline JSCell* CacheableIdentifier::cell() const
 {
     ASSERT(isCell());
-    return bitwise_cast<JSCell*>(m_bits);
+    return std::bit_cast<JSCell*>(m_bits);
 }
 
 inline UniquedStringImpl* CacheableIdentifier::uid() const
@@ -80,12 +85,12 @@ inline UniquedStringImpl* CacheableIdentifier::uid() const
     if (!m_bits)
         return nullptr;
     if (isUid())
-        return bitwise_cast<UniquedStringImpl*>(m_bits & ~s_uidTag);
+        return std::bit_cast<UniquedStringImpl*>(m_bits & ~s_uidTag);
     if (isSymbolCell())
         return &jsCast<Symbol*>(cell())->uid();
     ASSERT(isStringCell());
     JSString* string = jsCast<JSString*>(cell());
-    return bitwise_cast<UniquedStringImpl*>(string->getValueImpl());
+    return std::bit_cast<UniquedStringImpl*>(string->getValueImpl());
 }
 
 inline bool CacheableIdentifier::isCacheableIdentifierCell(JSCell* cell)
@@ -131,12 +136,12 @@ inline void CacheableIdentifier::ensureIsCell(VM& vm)
 inline void CacheableIdentifier::setCellBits(JSCell* cell)
 {
     RELEASE_ASSERT(isCacheableIdentifierCell(cell));
-    m_bits = bitwise_cast<uintptr_t>(cell);
+    m_bits = std::bit_cast<uintptr_t>(cell);
 }
 
 inline void CacheableIdentifier::setUidBits(UniquedStringImpl* uid)
 {
-    m_bits = bitwise_cast<uintptr_t>(uid) | s_uidTag;
+    m_bits = std::bit_cast<uintptr_t>(uid) | s_uidTag;
 }
 
 template<typename Visitor>
@@ -145,7 +150,6 @@ inline void CacheableIdentifier::visitAggregate(Visitor& visitor) const
     if (m_bits && isCell())
         visitor.appendUnbarriered(cell());
 }
-
 
 inline bool CacheableIdentifier::operator==(const CacheableIdentifier& other) const
 {

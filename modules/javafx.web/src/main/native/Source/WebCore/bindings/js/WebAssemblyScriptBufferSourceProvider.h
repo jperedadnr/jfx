@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2022 Igalia S.L. All rights reserved.
+ * Copyright (C) 2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,7 +34,7 @@
 namespace WebCore {
 
 class WebAssemblyScriptBufferSourceProvider final : public JSC::BaseWebAssemblySourceProvider, public AbstractScriptBufferHolder {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebAssemblyScriptBufferSourceProvider);
 public:
     static Ref<WebAssemblyScriptBufferSourceProvider> create(const ScriptBuffer& scriptBuffer, URL&& sourceURL, Ref<JSC::ScriptFetcher>&& scriptFetcher)
     {
@@ -58,7 +59,7 @@ public:
             return nullptr;
 
         ASSERT(m_buffer->isContiguous());
-        return downcast<SharedBuffer>(*m_buffer).data();
+        return downcast<SharedBuffer>(*m_buffer).span().data();
     }
 
     void lockUnderlyingBuffer() final

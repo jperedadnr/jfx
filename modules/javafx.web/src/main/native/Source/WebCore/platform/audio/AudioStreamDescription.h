@@ -36,7 +36,7 @@ struct PlatformDescription {
         None,
         CAAudioStreamBasicType,
         GStreamerAudioStreamDescription,
-    } type;
+    } type { None };
     std::variant<std::nullptr_t, const AudioStreamBasicDescription*> description;
 };
 
@@ -48,7 +48,9 @@ public:
 
     enum PCMFormat {
         None,
+        Uint8,
         Int16,
+        Int24,
         Int32,
         Float32,
         Float64

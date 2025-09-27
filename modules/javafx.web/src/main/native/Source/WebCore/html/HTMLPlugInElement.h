@@ -38,9 +38,11 @@ namespace WebCore {
 class PluginReplacement;
 class PluginViewBase;
 class RenderWidget;
+class VoidCallback;
 
 class HTMLPlugInElement : public HTMLFrameOwnerElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLPlugInElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLPlugInElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLPlugInElement);
 public:
     virtual ~HTMLPlugInElement();
 
@@ -69,14 +71,11 @@ public:
 
     virtual bool isPlugInImageElement() const = 0;
 
-    // Return whether or not the replacement content for blocked plugins is accessible to the user.
-    WEBCORE_EXPORT bool setReplacement(RenderEmbeddedObject::PluginUnavailabilityReason, const String& unavailabilityDescription);
-
-    WEBCORE_EXPORT bool isReplacementObscured();
+    WEBCORE_EXPORT void pluginDestroyedWithPendingPDFTestCallback(RefPtr<VoidCallback>&&);
+    WEBCORE_EXPORT RefPtr<VoidCallback> takePendingPDFTestCallback();
 
 protected:
-    constexpr static auto CreateHTMLPlugInElement = CreateHTMLFrameOwnerElement | NodeFlag::HasCustomStyleResolveCallbacks;
-    HTMLPlugInElement(const QualifiedName& tagName, Document&);
+    HTMLPlugInElement(const QualifiedName& tagName, Document&, OptionSet<TypeFlag> = { });
 
     bool canContainRangeEndPoint() const override { return false; }
     void willDetachRenderers() override;
@@ -85,10 +84,14 @@ protected:
 
     virtual bool useFallbackContent() const { return false; }
 
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode& parentOfInsertedTree) override;
+    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) override;
+
     void defaultEventHandler(Event&) final;
 
     virtual bool requestObject(const String& url, const String& mimeType, const Vector<AtomString>& paramNames, const Vector<AtomString>& paramValues);
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    bool isReplaced(const RenderStyle&) const final;
     void didAddUserAgentShadowRoot(ShadowRoot&) final;
 
     // This will load the plugin if necessary.
@@ -109,6 +112,8 @@ private:
     RefPtr<PluginReplacement> m_pluginReplacement;
     bool m_isCapturingMouseEvents { false };
     DisplayState m_displayState { Playing };
+
+    RefPtr<VoidCallback> m_pendingPDFTestCallback;
 };
 
 } // namespace WebCore

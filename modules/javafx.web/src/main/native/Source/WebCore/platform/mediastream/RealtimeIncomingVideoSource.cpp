@@ -59,7 +59,10 @@ RealtimeIncomingVideoSource::RealtimeIncomingVideoSource(rtc::scoped_refptr<webr
     m_videoTrack->RegisterObserver(this);
 
     m_frameRateMonitor = makeUnique<FrameRateMonitor>([this](auto info) {
-#if !RELEASE_LOG_DISABLED
+#if RELEASE_LOG_DISABLED
+        UNUSED_PARAM(this);
+        UNUSED_PARAM(info);
+#else
         if (!m_enableFrameRatedMonitoringLogging)
             return;
 
@@ -108,17 +111,16 @@ const RealtimeMediaSourceCapabilities& RealtimeIncomingVideoSource::capabilities
 
 const RealtimeMediaSourceSettings& RealtimeIncomingVideoSource::settings()
 {
-    auto observedFrameRate = m_frameRateMonitor->observedFrameRate();
-    if (m_currentSettings && fabs(m_currentSettings->frameRate() - observedFrameRate) <= 0.1)
+    if (m_currentSettings)
         return m_currentSettings.value();
 
     RealtimeMediaSourceSettings settings;
     settings.setSupportedConstraints(supportedRealtimeIncomingVideoSourceSettingConstraints());
 
-    auto& size = this->size();
+    auto size = this->size();
     settings.setWidth(size.width());
     settings.setHeight(size.height());
-    settings.setFrameRate(observedFrameRate);
+    settings.setFrameRate(frameRate());
 
     m_currentSettings = WTFMove(settings);
     return m_currentSettings.value();
@@ -126,7 +128,7 @@ const RealtimeMediaSourceSettings& RealtimeIncomingVideoSource::settings()
 
 void RealtimeIncomingVideoSource::settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag> settings)
 {
-    if (settings.containsAny({ RealtimeMediaSourceSettings::Flag::Width, RealtimeMediaSourceSettings::Flag::Height }))
+    if (settings.containsAny({ RealtimeMediaSourceSettings::Flag::FrameRate, RealtimeMediaSourceSettings::Flag::Height, RealtimeMediaSourceSettings::Flag::Width }))
         m_currentSettings = std::nullopt;
 }
 
@@ -135,8 +137,8 @@ VideoFrameTimeMetadata RealtimeIncomingVideoSource::metadataFromVideoFrame(const
     VideoFrameTimeMetadata metadata;
     if (frame.ntp_time_ms() > 0)
         metadata.captureTime = Seconds::fromMilliseconds(frame.ntp_time_ms());
-    if (isInBounds<uint32_t>(frame.timestamp()))
-        metadata.rtpTimestamp = frame.timestamp();
+    if (isInBounds<uint32_t>(frame.rtp_timestamp()))
+        metadata.rtpTimestamp = frame.rtp_timestamp();
     auto lastPacketTimestamp = std::max_element(frame.packet_infos().cbegin(), frame.packet_infos().cend(), [](const auto& a, const auto& b) {
         return a.receive_time() < b.receive_time();
     });
@@ -149,8 +151,19 @@ VideoFrameTimeMetadata RealtimeIncomingVideoSource::metadataFromVideoFrame(const
 
 void RealtimeIncomingVideoSource::notifyNewFrame()
 {
-    if (m_frameRateMonitor)
+    if (!m_frameRateMonitor)
+        return;
+
         m_frameRateMonitor->update();
+
+    auto observedFrameRate = m_frameRateMonitor->observedFrameRate();
+    if (m_currentFrameRate > 0 && fabs(m_currentFrameRate - observedFrameRate) < 1)
+        return;
+
+    m_currentFrameRate = observedFrameRate;
+    callOnMainThread([protectedThis = Ref { *this }, observedFrameRate] {
+        protectedThis->setFrameRate(observedFrameRate);
+    });
 }
 
 } // namespace WebCore

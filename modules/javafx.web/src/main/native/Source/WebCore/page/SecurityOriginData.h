@@ -36,7 +36,7 @@ namespace WebCore {
 class LocalFrame;
 class SecurityOrigin;
 
-enum OpaqueOriginIdentifierType { };
+enum class OpaqueOriginIdentifierType { };
 using OpaqueOriginIdentifier = AtomicObjectIdentifier<OpaqueOriginIdentifierType>;
 
 class SecurityOriginData {
@@ -46,7 +46,7 @@ public:
         String host;
         std::optional<uint16_t> port;
 
-        bool operator==(const Tuple& other) const { return protocol == other.protocol && host == other.host && port == other.port; }
+        friend bool operator==(const Tuple&, const Tuple&) = default;
         Tuple isolatedCopy() const & { return { protocol.isolatedCopy(), host.isolatedCopy(), port }; }
         Tuple isolatedCopy() && { return { WTFMove(protocol).isolatedCopy(), WTFMove(host).isolatedCopy(), port }; }
     };
@@ -125,6 +125,7 @@ public:
     // Serialize the security origin to a string that could be used as part of
     // file names. This format should be used in storage APIs only.
     WEBCORE_EXPORT String databaseIdentifier() const;
+    WEBCORE_EXPORT String optionalDatabaseIdentifier() const;
     WEBCORE_EXPORT static std::optional<SecurityOriginData> fromDatabaseIdentifier(StringView);
 
     bool isNull() const

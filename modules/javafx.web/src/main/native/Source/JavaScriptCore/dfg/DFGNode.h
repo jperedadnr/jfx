@@ -51,6 +51,7 @@
 #include "DOMJITSignature.h"
 #include "DeleteByVariant.h"
 #include "GetByVariant.h"
+#include "InlineCacheCompiler.h"
 #include "JSCJSValue.h"
 #include "JSPropertyNameEnumerator.h"
 #include "Operands.h"
@@ -81,9 +82,9 @@ class Snippet;
 
 namespace DFG {
 
+class BasicBlock;
 class Graph;
 class PromotedLocationDescriptor;
-struct BasicBlock;
 
 struct StorageAccessData {
     PropertyOffset offset;
@@ -131,7 +132,7 @@ struct NewArrayWithSpeciesData {
     unsigned arrayMode { 0 };
     unsigned indexingMode { 0 };
 
-    uint64_t asQuadWord() const { return bitwise_cast<uint64_t>(*this); }
+    uint64_t asQuadWord() const { return std::bit_cast<uint64_t>(*this); }
 };
 static_assert(sizeof(IndexingType) <= sizeof(unsigned));
 static_assert(sizeof(ArrayMode) <= sizeof(unsigned));
@@ -165,9 +166,9 @@ struct BranchTarget {
 
     void setBytecodeIndex(unsigned bytecodeIndex)
     {
-        block = bitwise_cast<BasicBlock*>(static_cast<uintptr_t>(bytecodeIndex));
+        block = std::bit_cast<BasicBlock*>(static_cast<uintptr_t>(bytecodeIndex));
     }
-    unsigned bytecodeIndex() const { return bitwise_cast<uintptr_t>(block); }
+    unsigned bytecodeIndex() const { return std::bit_cast<uintptr_t>(block); }
 
     void dump(PrintStream&) const;
 
@@ -180,8 +181,8 @@ struct BranchData {
         unsigned takenBytecodeIndex, unsigned notTakenBytecodeIndex)
     {
         BranchData result;
-        result.taken.block = bitwise_cast<BasicBlock*>(static_cast<uintptr_t>(takenBytecodeIndex));
-        result.notTaken.block = bitwise_cast<BasicBlock*>(static_cast<uintptr_t>(notTakenBytecodeIndex));
+        result.taken.block = std::bit_cast<BasicBlock*>(static_cast<uintptr_t>(takenBytecodeIndex));
+        result.notTaken.block = std::bit_cast<BasicBlock*>(static_cast<uintptr_t>(notTakenBytecodeIndex));
         return result;
     }
 
@@ -296,6 +297,16 @@ struct CallDOMGetterData {
     const ClassInfo* requiredClassInfo { nullptr };
 };
 
+struct CallCustomAccessorData {
+    CodePtr<CustomAccessorPtrTag> m_customAccessor;
+    CacheableIdentifier m_identifier;
+};
+
+struct GetByIdData {
+    CacheableIdentifier m_identifier;
+    CacheType m_cacheType;
+};
+
 enum class BucketOwnerType : uint32_t {
     Map,
     Set
@@ -313,6 +324,8 @@ public:
     enum VarArgTag { VarArg };
 
     Node() { }
+
+    Node(const Node&) = default;
 
     Node(NodeType op, NodeOrigin nodeOrigin, const AdjacencyList& children)
         : origin(nodeOrigin)
@@ -519,6 +532,7 @@ public:
 
     void convertToGetByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
     void convertToPutByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
+    void convertToInByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
 
     bool mustGenerate() const
     {
@@ -683,6 +697,17 @@ public:
         m_op = MultiPutByOffset;
     }
 
+    void convertToPhantomNewArrayWithConstantSize()
+    {
+        ASSERT(m_op == NewArrayWithConstantSize);
+        m_op = PhantomNewArrayWithConstantSize;
+        m_flags &= ~NodeHasVarArgs;
+        m_flags |= NodeMustGenerate;
+        // No need to clear the infos, as the indexing type and array
+        // size are still required for materialization when an OSR exit occurs.
+        children = AdjacencyList();
+    }
+
     void convertToPhantomNewObject()
     {
         ASSERT(m_op == NewObject);
@@ -782,7 +807,7 @@ public:
 
     void convertToToString()
     {
-        ASSERT(m_op == ToPrimitive || m_op == StringValueOf || m_op == ToPropertyKey);
+        ASSERT(m_op == ToPrimitive || m_op == StringValueOf || m_op == ToPropertyKey || m_op == ToPropertyKeyOrNumber);
         m_op = ToString;
     }
 
@@ -834,7 +859,7 @@ public:
 
     void convertToNewObject(RegisteredStructure structure)
     {
-        ASSERT(m_op == CallObjectConstructor || m_op == CreateThis || m_op == ObjectCreate);
+        ASSERT(m_op == CallObjectConstructor || m_op == CreateThis || m_op == ObjectCreate || m_op == Construct);
         setOpAndDefaultFlags(NewObject);
         children.reset();
         m_opInfo = structure;
@@ -862,6 +887,7 @@ public:
     void convertToNewArrayBuffer(FrozenValue* immutableButterfly);
     void convertToNewArrayWithSize();
     void convertToNewArrayWithConstantSize(Graph&, uint32_t);
+    void convertToNewArrayWithSizeAndStructure(Graph&, RegisteredStructure);
 
     void convertToNewBoundFunction(FrozenValue*);
 
@@ -881,13 +907,11 @@ public:
         m_opInfo = false;
     }
 
-    void convertToInById(CacheableIdentifier identifier)
+    void convertToPurifyNaN(Node* input)
     {
-        ASSERT(m_op == InByVal);
-        setOpAndDefaultFlags(InById);
-        children.setChild2(Edge());
-        m_opInfo = identifier;
-        m_opInfo2 = OpInfoWrapper();
+        setOpAndDefaultFlags(PurifyNaN);
+        children.reset();
+        children.setChild1(Edge(input, DoubleRepUse));
     }
 
     JSValue asJSValue()
@@ -1148,12 +1172,15 @@ public:
         case GetPrivateNameById:
         case DeleteById:
         case InById:
+        case InByIdMegamorphic:
         case PutById:
         case PutByIdFlush:
         case PutByIdDirect:
         case PutByIdMegamorphic:
         case PutByIdWithThis:
         case PutPrivateNameById:
+        case CallCustomAccessorGetter:
+        case CallCustomAccessorSetter:
             return true;
         default:
             return false;
@@ -1163,7 +1190,34 @@ public:
     CacheableIdentifier cacheableIdentifier()
     {
         ASSERT(hasCacheableIdentifier());
+        switch (op()) {
+        case TryGetById:
+        case GetById:
+        case GetByIdFlush:
+        case GetByIdWithThis:
+        case GetByIdDirect:
+        case GetByIdDirectFlush:
+        case GetPrivateNameById:
+        case GetByIdMegamorphic:
+        case GetByIdWithThisMegamorphic:
+            return getByIdData().m_identifier;
+        case DeleteById:
+        case InById:
+        case InByIdMegamorphic:
+        case PutById:
+        case PutByIdFlush:
+        case PutByIdDirect:
+        case PutByIdMegamorphic:
+        case PutByIdWithThis:
+        case PutPrivateNameById:
         return CacheableIdentifier::createFromRawBits(m_opInfo.as<uintptr_t>());
+        case CallCustomAccessorGetter:
+        case CallCustomAccessorSetter:
+            return callCustomAccessorData()->m_identifier;
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+            return { };
+    }
     }
 
     bool hasIdentifier()
@@ -1181,6 +1235,41 @@ public:
         default:
             return false;
         }
+    }
+
+    bool hasGetByIdData() const
+    {
+        switch (op()) {
+        case TryGetById:
+        case GetById:
+        case GetByIdFlush:
+        case GetByIdWithThis:
+        case GetByIdDirect:
+        case GetByIdDirectFlush:
+        case GetPrivateNameById:
+        case GetByIdMegamorphic:
+        case GetByIdWithThisMegamorphic:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    GetByIdData& getByIdData()
+    {
+        ASSERT(hasGetByIdData());
+        return *m_opInfo.as<GetByIdData*>();
+    }
+
+    bool hasCacheType() const
+    {
+        return hasGetByIdData();
+    }
+
+    CacheType cacheType()
+    {
+        ASSERT(hasCacheType());
+        return getByIdData().m_cacheType;
     }
 
     unsigned identifierNumber()
@@ -1320,6 +1409,8 @@ public:
     {
         switch (op()) {
         case NewArrayWithConstantSize:
+        case PhantomNewArrayWithConstantSize:
+        case MaterializeNewArrayWithConstantSize:
             return true;
         default:
             return false;
@@ -1329,7 +1420,7 @@ public:
     unsigned newArraySize()
     {
         ASSERT(hasNewArraySize());
-        return m_opInfo2.as<unsigned>();
+        return op() == MaterializeNewArrayWithConstantSize ? objectMaterializationData().m_newArraySize : m_opInfo2.as<unsigned>();
     }
 
     bool hasIndexingType()
@@ -1338,6 +1429,8 @@ public:
         case NewArray:
         case NewArrayWithSize:
         case NewArrayWithConstantSize:
+        case PhantomNewArrayWithConstantSize:
+        case MaterializeNewArrayWithConstantSize:
         case NewArrayBuffer:
         case PhantomNewArrayBuffer:
         case NewArrayWithSpecies:
@@ -1746,7 +1839,7 @@ public:
     BasicBlock*& targetBlock()
     {
         ASSERT(isJump());
-        return *bitwise_cast<BasicBlock**>(&m_opInfo.u.pointer);
+        return *std::bit_cast<BasicBlock**>(&m_opInfo.u.pointer);
     }
 
     BranchData* branchData()
@@ -1935,6 +2028,7 @@ public:
         case CallForwardVarargs:
         case TailCallForwardVarargsInlinedCaller:
         case CallWasm:
+        case CallCustomAccessorGetter:
         case GetByOffset:
         case MultiGetByOffset:
         case GetClosureVar:
@@ -1943,7 +2037,7 @@ public:
         case GetArgument:
         case ArrayPop:
         case ArrayPush:
-        case ArraySpliceExtract:
+        case ArraySplice:
         case RegExpExec:
         case RegExpExecNonGlobalOrSticky:
         case RegExpTest:
@@ -1958,11 +2052,17 @@ public:
         case ToObject:
         case CallNumberConstructor:
         case CallObjectConstructor:
-        case LoadKeyFromMapBucket:
-        case LoadValueFromMapBucket:
+        case MapGet:
+        case LoadMapValue:
+        case MapIteratorKey:
+        case MapIteratorValue:
+        case MapIterationEntryKey:
+        case MapIterationEntryValue:
         case CallDOMGetter:
         case CallDOM:
         case ParseInt:
+        case ToIntegerOrInfinity:
+        case ToLength:
         case AtomicsAdd:
         case AtomicsAnd:
         case AtomicsCompareExchange:
@@ -2127,9 +2227,11 @@ public:
         case ArrayPush:
         case ArrayPop:
         case GetArrayLength:
+        case GetUndetachedTypeArrayLength:
         case GetTypedArrayLengthAsInt52:
         case HasIndexedProperty:
         case EnumeratorNextUpdateIndexAndMode:
+        case ArrayIncludes:
         case ArrayIndexOf:
             return true;
         default:
@@ -2167,6 +2269,7 @@ public:
 
         case ArrayPop:
         case GetArrayLength:
+        case GetUndetachedTypeArrayLength:
         case GetTypedArrayLengthAsInt52:
             return 2;
 
@@ -2251,6 +2354,9 @@ public:
         case NewAsyncGenerator:
         case NewInternalFieldObject:
         case NewStringObject:
+        case NewMap:
+        case NewSet:
+        case NewArrayWithSizeAndStructure:
             return true;
         default:
             return false;
@@ -2329,6 +2435,7 @@ public:
     {
         switch (op()) {
         case MaterializeNewObject:
+        case MaterializeNewArrayWithConstantSize:
         case MaterializeNewInternalFieldObject:
         case MaterializeCreateActivation:
             return true;
@@ -2416,6 +2523,7 @@ public:
     bool isPhantomAllocation()
     {
         switch (op()) {
+        case PhantomNewArrayWithConstantSize:
         case PhantomNewObject:
         case PhantomDirectArguments:
         case PhantomCreateRest:
@@ -2441,11 +2549,13 @@ public:
         switch (op()) {
         case GetIndexedPropertyStorage:
         case GetArrayLength:
+        case GetUndetachedTypeArrayLength:
         case GetTypedArrayLengthAsInt52:
         case GetTypedArrayByteOffset:
         case GetTypedArrayByteOffsetAsInt52:
         case GetVectorLength:
         case InByVal:
+        case InByValMegamorphic:
         case PutByValDirect:
         case PutByVal:
         case PutByValAlias:
@@ -2457,6 +2567,7 @@ public:
         case EnumeratorGetByVal:
         case EnumeratorInByVal:
         case EnumeratorHasOwnProperty:
+        case StringAt:
         case StringCharAt:
         case StringCharCodeAt:
         case StringCodePointAt:
@@ -2466,6 +2577,7 @@ public:
         case ArrayifyToStructure:
         case ArrayPush:
         case ArrayPop:
+        case ArrayIncludes:
         case ArrayIndexOf:
         case HasIndexedProperty:
         case AtomicsAdd:
@@ -2512,7 +2624,6 @@ public:
     bool hasECMAMode()
     {
         switch (op()) {
-        case CallDirectEval:
         case DeleteById:
         case DeleteByVal:
         case PutById:
@@ -2538,7 +2649,6 @@ public:
     {
         ASSERT(hasECMAMode());
         switch (op()) {
-        case CallDirectEval:
         case DeleteByVal:
         case PutByValWithThis:
         case ToThis:
@@ -2667,10 +2777,16 @@ public:
         return m_opInfo.as<unsigned>();
     }
 
+    LexicallyScopedFeatures lexicallyScopedFeatures()
+    {
+        ASSERT(op() == CallDirectEval);
+        return m_opInfo.as<uint8_t>();
+    }
+
     DataViewData dataViewData()
     {
         ASSERT(op() == DataViewGetInt || op() == DataViewGetFloat || op() == DataViewSet);
-        return bitwise_cast<DataViewData>(m_opInfo.as<uint64_t>());
+        return std::bit_cast<DataViewData>(m_opInfo.as<uint64_t>());
     }
 
     bool shouldGenerate()
@@ -2688,6 +2804,11 @@ public:
     unsigned refCount()
     {
         return m_refCount;
+    }
+
+    unsigned decRef()
+    {
+        return m_refCount--;
     }
 
     unsigned postfixRef()
@@ -2757,6 +2878,11 @@ public:
     bool isBinaryUseKind(UseKind useKind)
     {
         return isBinaryUseKind(useKind, useKind);
+    }
+
+    bool isSymmetricBinaryUseKind(UseKind left, UseKind right)
+    {
+        return isBinaryUseKind(left, right) || isBinaryUseKind(right, left);
     }
 
     Edge childFor(UseKind useKind)
@@ -2981,6 +3107,11 @@ public:
         return isProxyObjectSpeculation(prediction());
     }
 
+    bool shouldSpeculateGlobalProxy()
+    {
+        return isGlobalProxySpeculation(prediction());
+    }
+
     bool shouldSpeculateDerivedArray()
     {
         return isDerivedArraySpeculation(prediction());
@@ -3029,6 +3160,11 @@ public:
     bool shouldSpeculateUint32Array()
     {
         return isUint32ArraySpeculation(prediction());
+    }
+
+    bool shouldSpeculateFloat16Array()
+    {
+        return isFloat16ArraySpeculation(prediction());
     }
 
     bool shouldSpeculateFloat32Array()
@@ -3293,6 +3429,29 @@ public:
         return nullptr;
     }
 
+    bool hasCallCustomAccessorData() const
+    {
+        switch (op()) {
+        case CallCustomAccessorGetter:
+        case CallCustomAccessorSetter:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    CallCustomAccessorData* callCustomAccessorData()
+    {
+        ASSERT(hasCallCustomAccessorData());
+        return m_opInfo.as<CallCustomAccessorData*>();
+    }
+
+    CodePtr<CustomAccessorPtrTag> customAccessor()
+    {
+        ASSERT(hasCallCustomAccessorData());
+        return callCustomAccessorData()->m_customAccessor;
+    }
+
     Node* replacement() const
     {
         return m_misc.replacement;
@@ -3337,7 +3496,7 @@ public:
 
     bool hasBucketOwnerType()
     {
-        return op() == GetMapBucketNext || op() == LoadKeyFromMapBucket || op() == LoadValueFromMapBucket;
+        return op() == MapIterationNext || op() == MapIterationEntry || op() == MapIterationEntryKey || op() == MapIterationEntryValue || op() == MapStorage || op() == MapStorageOrSentinel;
     }
 
     unsigned numberOfBoundArguments()
@@ -3504,6 +3663,11 @@ public:
         m_opInfo2 = OpInfoWrapper();
     }
 
+    void setOpInfo(OpInfo info)
+    {
+        m_opInfo = info.m_value;
+    }
+
     void dumpChildren(PrintStream& out)
     {
         if (!child1())
@@ -3566,12 +3730,12 @@ private:
         OpInfoWrapper(RegisteredStructure structure)
         {
             u.int64 = 0;
-            u.pointer = bitwise_cast<void*>(structure);
+            u.pointer = std::bit_cast<void*>(structure);
         }
         OpInfoWrapper(CacheableIdentifier identifier)
         {
             u.int64 = 0;
-            u.pointer = bitwise_cast<void*>(identifier.rawBits());
+            u.pointer = std::bit_cast<void*>(identifier.rawBits());
         }
         OpInfoWrapper& operator=(uint32_t int32)
         {
@@ -3605,18 +3769,18 @@ private:
         OpInfoWrapper& operator=(RegisteredStructure structure)
         {
             u.int64 = 0;
-            u.pointer = bitwise_cast<void*>(structure);
+            u.pointer = std::bit_cast<void*>(structure);
             return *this;
         }
         OpInfoWrapper& operator=(CacheableIdentifier identifier)
         {
             u.int64 = 0;
-            u.pointer = bitwise_cast<void*>(identifier.rawBits());
+            u.pointer = std::bit_cast<void*>(identifier.rawBits());
             return *this;
         }
         OpInfoWrapper& operator=(NewArrayBufferData newArrayBufferData)
         {
-            u.int64 = bitwise_cast<uint64_t>(newArrayBufferData);
+            u.int64 = std::bit_cast<uint64_t>(newArrayBufferData);
             return *this;
         }
         template <typename T>
@@ -3641,16 +3805,16 @@ private:
         }
         ALWAYS_INLINE RegisteredStructure asRegisteredStructure() const
         {
-            return bitwise_cast<RegisteredStructure>(u.pointer);
+            return std::bit_cast<RegisteredStructure>(u.pointer);
         }
         ALWAYS_INLINE NewArrayBufferData asNewArrayBufferData() const
         {
-            return bitwise_cast<NewArrayBufferData>(u.int64);
+            return std::bit_cast<NewArrayBufferData>(u.int64);
         }
 
         ALWAYS_INLINE NewArrayWithSpeciesData asNewArrayWithSpeciesData() const
         {
-            return bitwise_cast<NewArrayWithSpeciesData>(u.int64);
+            return std::bit_cast<NewArrayWithSpeciesData>(u.int64);
         }
 
         union {
@@ -3684,7 +3848,7 @@ public:
 
 // Uncomment this to log NodeSet operations.
 // typedef LoggingHashSet<Node::HashSetTemplateInstantiationString, Node*> NodeSet;
-typedef HashSet<Node*> NodeSet;
+typedef UncheckedKeyHashSet<Node*> NodeSet;
 
 struct NodeComparator {
     template<typename NodePtrType>
@@ -3712,7 +3876,7 @@ CString nodeMapDump(const T& nodeMap, DumpContext* context = nullptr)
     StringPrintStream out;
     CommaPrinter comma;
     for(unsigned i = 0; i < keys.size(); ++i)
-        out.print(comma, keys[i], "=>", inContext(nodeMap.get(keys[i]), context));
+        out.print(comma, keys[i], "=>"_s, inContext(nodeMap.get(keys[i]), context));
     return out.toCString();
 }
 
@@ -3728,7 +3892,7 @@ CString nodeValuePairListDump(const T& nodeValuePairList, DumpContext* context =
     StringPrintStream out;
     CommaPrinter comma;
     for (const auto& pair : sortedList)
-        out.print(comma, pair.node, "=>", inContext(pair.value, context));
+        out.print(comma, pair.node, "=>"_s, inContext(pair.value, context));
     return out.toCString();
 }
 
@@ -3745,7 +3909,7 @@ template<>
 struct LoggingHashKeyTraits<JSC::DFG::Node*> {
     static void print(PrintStream& out, JSC::DFG::Node* key)
     {
-        out.print("bitwise_cast<::JSC::DFG::Node*>(", RawPointer(key), "lu)");
+        out.print("std::bit_cast<::JSC::DFG::Node*>(", RawPointer(key), "lu)");
     }
 };
 

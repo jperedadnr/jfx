@@ -65,6 +65,7 @@ using namespace JSC;
 static bool get(JSGlobalObject& lexicalGlobalObject, JSValue object, const String& keyPathElement, JSValue& result)
 {
     VM& vm = lexicalGlobalObject.vm();
+
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     if (object.isString() && keyPathElement == "length"_s) {
@@ -83,7 +84,7 @@ static bool get(JSGlobalObject& lexicalGlobalObject, JSValue object, const Strin
     }
     if (obj->inherits<JSBlob>() && (keyPathElement == "size"_s || keyPathElement == "type"_s)) {
         if (keyPathElement == "size"_s) {
-            result = jsNumber(jsCast<JSBlob*>(obj)->wrapped().size());
+            result = jsNumber(jsCast<JSBlob*>(obj)->protectedWrapped()->size());
             return true;
         }
         if (keyPathElement == "type"_s) {
@@ -97,11 +98,11 @@ static bool get(JSGlobalObject& lexicalGlobalObject, JSValue object, const Strin
             return true;
         }
         if (keyPathElement == "lastModified"_s) {
-            result = jsNumber(jsCast<JSFile*>(obj)->wrapped().lastModified());
+            result = jsNumber(jsCast<JSFile*>(obj)->protectedWrapped()->lastModified());
             return true;
         }
         if (keyPathElement == "lastModifiedDate"_s) {
-            result = jsDate(lexicalGlobalObject, WallTime::fromRawSeconds(Seconds::fromMilliseconds(jsCast<JSFile*>(obj)->wrapped().lastModified()).value()));
+            result = jsDate(lexicalGlobalObject, WallTime::fromRawSeconds(Seconds::fromMilliseconds(jsCast<JSFile*>(obj)->protectedWrapped()->lastModified()).value()));
             return true;
         }
     }
@@ -165,7 +166,7 @@ JSValue toJS(JSGlobalObject& lexicalGlobalObject, JSGlobalObject& globalObject, 
             return jsNull();
         }
 
-        auto arrayBuffer = ArrayBuffer::create(data->data(), data->size());
+        auto arrayBuffer = ArrayBuffer::create(*data);
         Structure* structure = globalObject.arrayBufferStructure(arrayBuffer->sharingMode());
         if (!structure)
             return jsNull();
@@ -210,7 +211,7 @@ static RefPtr<IDBKey> createIDBKeyFromValue(JSGlobalObject& lexicalGlobalObject,
     if (value.inherits<DateInstance>()) {
         auto dateValue = valueToDate(lexicalGlobalObject, value);
         RETURN_IF_EXCEPTION(scope, { });
-        if (!std::isnan(dateValue))
+        if (!dateValue.isNaN())
             return IDBKey::createDate(dateValue.secondsSinceEpoch().milliseconds());
     }
 
@@ -360,14 +361,15 @@ RefPtr<IDBKey> maybeCreateIDBKeyFromScriptValueAndKeyPath(JSGlobalObject& lexica
 {
     if (std::holds_alternative<Vector<String>>(keyPath)) {
         auto& array = std::get<Vector<String>>(keyPath);
-        Vector<RefPtr<IDBKey>> result;
-        result.reserveInitialCapacity(array.size());
-        for (auto& string : array) {
-            RefPtr<IDBKey> key = internalCreateIDBKeyFromScriptValueAndKeyPath(lexicalGlobalObject, value, string);
+        bool hasNullKey = false;
+        auto result = WTF::map(array, [&](auto& string) -> RefPtr<IDBKey> {
+            auto key = internalCreateIDBKeyFromScriptValueAndKeyPath(lexicalGlobalObject, value, string);
             if (!key)
+                hasNullKey = true;
+            return key;
+        });
+        if (hasNullKey)
                 return nullptr;
-            result.uncheckedAppend(WTFMove(key));
-        }
         return IDBKey::createArray(WTFMove(result));
     }
 
@@ -404,10 +406,11 @@ static JSValue deserializeIDBValueToJSValue(JSGlobalObject& lexicalGlobalObject,
 
     auto serializedValue = SerializedScriptValue::createFromWireBytes(Vector<uint8_t>(data));
 
-    lexicalGlobalObject.vm().apiLock().lock();
-    Vector<RefPtr<MessagePort>> messagePorts;
+    Ref apiLock = lexicalGlobalObject.vm().apiLock();
+    apiLock->lock();
+    Vector<Ref<MessagePort>> messagePorts;
     JSValue result = serializedValue->deserialize(lexicalGlobalObject, &globalObject, messagePorts, value.blobURLs(), value.blobFilePaths(), SerializationErrorMode::NonThrowing);
-    lexicalGlobalObject.vm().apiLock().unlock();
+    apiLock->unlock();
 
     return result;
 }
@@ -472,13 +475,19 @@ static IndexKey::Data createKeyPathArray(JSGlobalObject& lexicalGlobalObject, JS
     return std::visit(visitor, info.keyPath());
 }
 
-void generateIndexKeyForValue(JSGlobalObject& lexicalGlobalObject, const IDBIndexInfo& info, JSValue value, IndexKey& outKey, const std::optional<IDBKeyPath>& objectStoreKeyPath, const IDBKeyData& objectStoreKey)
+static void generateIndexKeyForValueWithoutLock(JSGlobalObject& lexicalGlobalObject, const IDBIndexInfo& info, JSValue value, IndexKey& outKey, const std::optional<IDBKeyPath>& objectStoreKeyPath, const IDBKeyData& objectStoreKey)
 {
     auto keyDatas = createKeyPathArray(lexicalGlobalObject, value, info, objectStoreKeyPath, objectStoreKey);
     if (std::holds_alternative<std::nullptr_t>(keyDatas))
         return;
 
     outKey = IndexKey(WTFMove(keyDatas));
+}
+
+void generateIndexKeyForValue(JSGlobalObject& lexicalGlobalObject, const IDBIndexInfo& info, JSValue value, IndexKey& outKey, const std::optional<IDBKeyPath>& objectStoreKeyPath, const IDBKeyData& objectStoreKey)
+{
+    JSLockHolder locker(lexicalGlobalObject.vm());
+    generateIndexKeyForValueWithoutLock(lexicalGlobalObject, info, value, outKey, objectStoreKeyPath, objectStoreKey);
 }
 
 IndexIDToIndexKeyMap generateIndexKeyMapForValueIsolatedCopy(JSC::JSGlobalObject& lexicalGlobalObject, const IDBObjectStoreInfo& storeInfo, const IDBKeyData& key, const IDBValue& value)
@@ -498,7 +507,7 @@ IndexIDToIndexKeyMap generateIndexKeyMapForValueIsolatedCopy(JSC::JSGlobalObject
 
     for (const auto& entry : indexMap) {
         IndexKey indexKey;
-        generateIndexKeyForValue(lexicalGlobalObject, entry.value, jsValue, indexKey, storeInfo.keyPath(), key);
+        generateIndexKeyForValueWithoutLock(lexicalGlobalObject, entry.value, jsValue, indexKey, storeInfo.keyPath(), key);
 
         if (indexKey.isNull())
             continue;
@@ -518,7 +527,7 @@ std::optional<JSC::JSValue> deserializeIDBValueWithKeyInjection(JSGlobalObject& 
     JSLockHolder locker(lexicalGlobalObject.vm());
     if (!injectIDBKeyIntoScriptValue(lexicalGlobalObject, key, jsValue, keyPath.value())) {
         auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
-        propagateException(lexicalGlobalObject, throwScope, Exception(UnknownError, "Cannot inject key into script value"_s));
+        propagateException(lexicalGlobalObject, throwScope, Exception(ExceptionCode::UnknownError, "Cannot inject key into script value"_s));
         return std::nullopt;
     }
 
@@ -528,13 +537,15 @@ std::optional<JSC::JSValue> deserializeIDBValueWithKeyInjection(JSGlobalObject& 
 class IDBSerializationContext {
 public:
     IDBSerializationContext()
-        : m_thread(Thread::current())
+#if ASSERT_ENABLED
+        : m_threadUID(Thread::current().uid())
+#endif
     {
     }
 
     ~IDBSerializationContext()
     {
-        ASSERT(&m_thread == &Thread::current());
+        ASSERT(m_threadUID == Thread::current().uid());
         if (!m_vm)
             return;
 
@@ -545,7 +556,7 @@ public:
 
     JSC::JSGlobalObject& globalObject()
     {
-        ASSERT(&m_thread == &Thread::current());
+        ASSERT(m_threadUID == Thread::current().uid());
 
         initializeVM();
         return *m_globalObject.get();
@@ -568,7 +579,9 @@ private:
 
     RefPtr<JSC::VM> m_vm;
     JSC::Strong<JSIDBSerializationGlobalObject> m_globalObject;
-    Thread& m_thread;
+#if ASSERT_ENABLED
+    uint32_t m_threadUID;
+#endif
 };
 
 void callOnIDBSerializationThreadAndWait(Function<void(JSC::JSGlobalObject&)>&& function)
@@ -577,7 +590,7 @@ void callOnIDBSerializationThreadAndWait(Function<void(JSC::JSGlobalObject&)>&& 
     static std::once_flag createThread;
 
     std::call_once(createThread, [] {
-        Thread::create("IndexedDB Serialization", [] {
+        Thread::create("IndexedDB Serialization"_s, [] {
             IDBSerializationContext serializationContext;
             while (auto function = queue->waitForMessage()) {
                 AutodrainedPool pool;

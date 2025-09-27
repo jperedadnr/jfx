@@ -26,10 +26,13 @@
 #pragma once
 
 #include "CustomElementFormValue.h"
+#include "Element.h"
 #include "GCReachableRef.h"
 #include "QualifiedName.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/AtomString.h>
 
@@ -49,7 +52,7 @@ class HTMLFormElement;
 class JSCustomElementInterface;
 
 class CustomElementReactionQueueItem {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CustomElementReactionQueueItem);
     WTF_MAKE_NONCOPYABLE(CustomElementReactionQueueItem);
 public:
     enum class Type : uint8_t {
@@ -95,26 +98,28 @@ private:
 
 // https://html.spec.whatwg.org/multipage/custom-elements.html#element-queue
 class CustomElementQueue {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CustomElementQueue);
     WTF_MAKE_NONCOPYABLE(CustomElementQueue);
 public:
-    CustomElementQueue();
-    ~CustomElementQueue();
+    CustomElementQueue() = default;
+    ~CustomElementQueue() { ASSERT(isEmpty()); }
 
+    bool isEmpty() const { return m_elements.isEmpty(); }
     void add(Element&);
-    void processQueue(JSC::JSGlobalObject*);
+    WEBCORE_EXPORT void processQueue(JSC::JSGlobalObject*);
 
-    Vector<GCReachableRef<Element>, 4> takeElements();
+    Vector<Ref<Element>, 4> takeElements();
 
 private:
     void invokeAll();
 
-    Vector<GCReachableRef<Element>, 4> m_elements;
+    Vector<Ref<Element>, 4> m_elements;
     bool m_invoking { false };
 };
 
-class CustomElementReactionQueue {
-    WTF_MAKE_FAST_ALLOCATED;
+class CustomElementReactionQueue final : public CanMakeCheckedPtr<CustomElementReactionQueue> {
+    WTF_MAKE_TZONE_ALLOCATED(CustomElementReactionQueue);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CustomElementReactionQueue);
     WTF_MAKE_NONCOPYABLE(CustomElementReactionQueue);
 public:
     CustomElementReactionQueue(JSCustomElementInterface&);
@@ -223,17 +228,15 @@ public:
 
     ALWAYS_INLINE ~CustomElementReactionStack()
     {
-        if (UNLIKELY(m_queue))
-            processQueue(m_state);
+        if (UNLIKELY(!m_queue.isEmpty()))
+            m_queue.processQueue(m_state);
         s_currentProcessingStack = m_previousProcessingStack;
     }
 
-    Vector<GCReachableRef<Element>, 4> takeElements();
+    Vector<Ref<Element>, 4> takeElements() { return m_queue.takeElements(); }
 
 private:
-    WEBCORE_EXPORT void processQueue(JSC::JSGlobalObject*);
-
-    CustomElementQueue* m_queue { nullptr }; // Use raw pointer to avoid generating delete in the destructor.
+    CustomElementQueue m_queue;
     CustomElementReactionStack* const m_previousProcessingStack;
     JSC::JSGlobalObject* const m_state;
 

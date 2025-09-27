@@ -25,11 +25,11 @@
 
 #pragma once
 
+#include "CSSPrimitiveValue.h"
 #include "CSSValue.h"
+#include <wtf/Function.h>
 
 namespace WebCore {
-
-class CSSPrimitiveValue;
 
 class CSSReflectValue final : public CSSValue {
 public:
@@ -39,8 +39,19 @@ public:
     const CSSPrimitiveValue& offset() const { return m_offset.get(); }
     const CSSValue* mask() const { return m_mask.get(); }
 
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSReflectValue&) const;
+
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    {
+        if (func(m_offset.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        if (m_mask) {
+            if (func(*m_mask) == IterationStatus::Done)
+                return IterationStatus::Done;
+        }
+        return IterationStatus::Continue;
+    }
 
 private:
     CSSReflectValue(CSSValueID direction, Ref<CSSPrimitiveValue> offset, RefPtr<CSSValue> mask);

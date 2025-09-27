@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2009 Google Inc. All rights reserved.
- * Copyright (C) 2016-2023 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -45,6 +45,8 @@
 #include <JavaScriptCore/CatchScope.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSRunLoopTimer.h>
+#include <wtf/AutodrainedPool.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if USE(GLIB)
 #include <glib.h>
@@ -52,7 +54,12 @@
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerRunLoop);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerDedicatedRunLoop);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerDedicatedRunLoop::Task);
+
 class WorkerSharedTimer final : public SharedTimer {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(WorkerSharedTimer);
 public:
     // SharedTimer interface.
     void setFiredFunction(Function<void()>&& function) final { m_sharedTimerFunction = WTFMove(function); }
@@ -176,6 +183,8 @@ MessageQueueWaitResult WorkerDedicatedRunLoop::runInMode(WorkerOrWorkletGlobalSc
     ASSERT(context);
     ASSERT(context->workerOrWorkletThread()->thread() == &Thread::current());
 
+    AutodrainedPool pool;
+
     const String predicateMode = predicate.mode();
     JSC::JSRunLoopTimer::TimerNotificationCallback timerAddedTask = createSharedTask<JSC::JSRunLoopTimer::TimerNotificationType>([this, predicateMode] {
         // We don't actually do anything here, we just want to loop around runInMode
@@ -195,6 +204,15 @@ MessageQueueWaitResult WorkerDedicatedRunLoop::runInMode(WorkerOrWorkletGlobalSc
     CFAbsoluteTime nextCFRunLoopTimerFireDate = CFRunLoopGetNextTimerFireDate(CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
     double timeUntilNextCFRunLoopTimerInSeconds = nextCFRunLoopTimerFireDate - CFAbsoluteTimeGetCurrent();
     timeoutDelay = std::max(0_s, Seconds(timeUntilNextCFRunLoopTimerInSeconds));
+#endif
+
+#if OS(WINDOWS)
+    RunLoop::cycle();
+
+    if (auto* script = context->script()) {
+        JSC::VM& vm = script->vm();
+        timeoutDelay = vm.deferredWorkTimer->timeUntilFire().value_or(Seconds::infinity());
+    }
 #endif
 
     if (predicate.isDefaultMode() && m_sharedTimer->isActive())
@@ -315,7 +333,7 @@ void WorkerMainRunLoop::postTaskAndTerminate(ScriptExecutionContext::Task&& task
     if (m_terminated)
         return;
 
-    RunLoop::main().dispatch([weakThis = WeakPtr { *this }, task = WTFMove(task)]() mutable {
+    RunLoop::protectedMain()->dispatch([weakThis = WeakPtr { *this }, task = WTFMove(task)]() mutable {
         if (!weakThis || !weakThis->m_workerOrWorkletGlobalScope || weakThis->m_terminated)
             return;
 
@@ -329,7 +347,7 @@ void WorkerMainRunLoop::postTaskForMode(ScriptExecutionContext::Task&& task, con
     if (m_terminated)
         return;
 
-    RunLoop::main().dispatch([weakThis = WeakPtr { *this }, task = WTFMove(task)]() mutable {
+    RunLoop::protectedMain()->dispatch([weakThis = WeakPtr { *this }, task = WTFMove(task)]() mutable {
         if (!weakThis || !weakThis->m_workerOrWorkletGlobalScope || weakThis->m_terminated)
             return;
 

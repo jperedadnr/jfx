@@ -67,8 +67,8 @@ public:
     float contentLogicalTopAdjustedForPrecedingLineBox() const;
     float contentLogicalBottomAdjustedForFollowingLineBox() const;
 
-    float inkOverflowTop() const;
-    float inkOverflowBottom() const;
+    float inkOverflowLogicalTop() const;
+    float inkOverflowLogicalBottom() const;
     float scrollableOverflowTop() const;
     float scrollableOverflowBottom() const;
 
@@ -81,7 +81,6 @@ public:
     RenderObject::HighlightState ellipsisSelectionState() const;
 
     const RenderBlockFlow& formattingContextRoot() const;
-    RenderFragmentContainer* containingFragment() const;
 
     bool isHorizontal() const;
     FontBaseline baselineType() const;
@@ -89,8 +88,12 @@ public:
     bool isFirst() const;
     bool isFirstAfterPageBreak() const;
 
-    LeafBoxIterator firstLeafBox() const;
-    LeafBoxIterator lastLeafBox() const;
+    // Text-relative left/right
+    LeafBoxIterator lineLeftmostLeafBox() const;
+    LeafBoxIterator lineRightmostLeafBox() const;
+    // Coordinate-relative left/right
+    inline LeafBoxIterator logicalLeftmostLeafBox() const;
+    inline LeafBoxIterator logicalRightmostLeafBox() const;
 
     LineBoxIterator next() const;
     LineBoxIterator previous() const;
@@ -193,17 +196,17 @@ inline float LineBox::logicalWidth() const
     });
 }
 
-inline float LineBox::inkOverflowTop() const
+inline float LineBox::inkOverflowLogicalTop() const
 {
     return WTF::switchOn(m_pathVariant, [](const auto& path) {
-        return path.inkOverflowTop();
+        return path.inkOverflowLogicalTop();
     });
 }
 
-inline float LineBox::inkOverflowBottom() const
+inline float LineBox::inkOverflowLogicalBottom() const
 {
     return WTF::switchOn(m_pathVariant, [](const auto& path) {
-        return path.inkOverflowBottom();
+        return path.inkOverflowLogicalBottom();
     });
 }
 
@@ -301,13 +304,6 @@ inline const RenderBlockFlow& LineBox::formattingContextRoot() const
 {
     return WTF::switchOn(m_pathVariant, [](const auto& path) -> const RenderBlockFlow& {
         return path.formattingContextRoot();
-    });
-}
-
-inline RenderFragmentContainer* LineBox::containingFragment() const
-{
-    return WTF::switchOn(m_pathVariant, [](const auto& path) {
-        return path.containingFragment();
     });
 }
 

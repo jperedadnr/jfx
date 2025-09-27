@@ -30,6 +30,7 @@
 #include "GraphicsContextGLCV.h"
 #include "ImageOrientation.h"
 #include <memory>
+#include <wtf/TZoneMalloc.h>
 
 typedef struct __CVBuffer* CVPixelBufferRef;
 
@@ -39,7 +40,7 @@ class GraphicsContextGLCocoa;
 // GraphicsContextGLCV implementation for GraphicsContextGLCocoa.
 // This class is part of the internal implementation of GraphicsContextGLCocoa.
 class GraphicsContextGLCVCocoa final : public GraphicsContextGLCV {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(GraphicsContextGLCVCocoa);
 public:
     static std::unique_ptr<GraphicsContextGLCVCocoa> create(GraphicsContextGLCocoa&);
 
@@ -72,6 +73,7 @@ private:
 
     struct TextureContent {
         intptr_t surface { 0 };
+        uint32_t surfaceID { 0 };
         uint32_t surfaceSeed { 0 };
         GCGLint level { 0 };
         GCGLenum internalFormat { 0 };
@@ -80,9 +82,9 @@ private:
         FlipY unpackFlipY { FlipY::No };
         ImageOrientation orientation;
 
-        bool operator==(const TextureContent&) const;
+        friend bool operator==(const TextureContent&, const TextureContent&) = default;
     };
-    using TextureContentMap = HashMap<GCGLuint, TextureContent, IntHash<GCGLuint>, WTF::UnsignedWithZeroKeyHashTraits<GCGLuint>>;
+    using TextureContentMap = UncheckedKeyHashMap<GCGLuint, TextureContent, IntHash<GCGLuint>, WTF::UnsignedWithZeroKeyHashTraits<GCGLuint>>;
     TextureContentMap m_knownContent;
 };
 

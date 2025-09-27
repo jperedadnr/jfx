@@ -24,30 +24,29 @@
 
 #include "MediaPlayerPrivate.h"
 #include "PlatformLayer.h"
+#include <wtf/RefCounted.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
-
-#if USE(NICOSIA)
-#include "NicosiaContentLayerTextureMapperImpl.h"
-#else
-#include "TextureMapperPlatformLayerProxyProvider.h"
-#endif
 
 namespace WebCore {
 
-class TextureMapperPlatformLayerProxy;
+class CoordinatedPlatformLayerBufferProxy;
 
-class MediaPlayerPrivateHolePunch : public MediaPlayerPrivateInterface, public CanMakeWeakPtr<MediaPlayerPrivateHolePunch>
-#if USE(NICOSIA)
-    , public Nicosia::ContentLayerTextureMapperImpl::Client
-#else
-    , public PlatformLayer
-#endif
+class MediaPlayerPrivateHolePunch
+    : public MediaPlayerPrivateInterface
+    , public CanMakeWeakPtr<MediaPlayerPrivateHolePunch>
+    , public RefCounted<MediaPlayerPrivateHolePunch>
 {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(MediaPlayerPrivateHolePunch);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     MediaPlayerPrivateHolePunch(MediaPlayer*);
     ~MediaPlayerPrivateHolePunch();
+
+    constexpr MediaPlayerType mediaPlayerType() const final { return MediaPlayerType::HolePunch; }
 
     static void registerMediaEngine(MediaEngineRegistrar);
 
@@ -63,7 +62,9 @@ public:
     void play() final { };
     void pause() final { };
 
+#if USE(COORDINATED_GRAPHICS)
     PlatformLayer* platformLayer() const final;
+#endif
 
     FloatSize naturalSize() const final;
 
@@ -73,6 +74,7 @@ public:
     void setPageIsVisible(bool) final { };
 
     bool seeking() const final { return false; }
+    void seekToTarget(const SeekTarget&) final { }
 
     bool paused() const final { return false; };
 
@@ -94,15 +96,12 @@ public:
     bool shouldIgnoreIntrinsicSize() final { return true; }
 
     void pushNextHolePunchBuffer();
-    void swapBuffersIfNeeded() final;
     void setNetworkState(MediaPlayer::NetworkState);
-#if !USE(NICOSIA)
-    RefPtr<TextureMapperPlatformLayerProxy> proxy() const final;
-#endif
+
+    static void getSupportedTypes(HashSet<String>&);
 
 private:
     friend class MediaPlayerFactoryHolePunch;
-    static void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>&);
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
 
     void notifyReadyState();
@@ -111,12 +110,8 @@ private:
     IntSize m_size;
     RunLoop::Timer m_readyTimer;
     MediaPlayer::NetworkState m_networkState;
-#if USE(TEXTURE_MAPPER_GL)
-#if USE(NICOSIA)
-    Ref<Nicosia::ContentLayer> m_nicosiaLayer;
-#else
-    RefPtr<TextureMapperPlatformLayerProxy> m_platformLayerProxy;
-#endif
+#if USE(COORDINATED_GRAPHICS)
+    RefPtr<CoordinatedPlatformLayerBufferProxy> m_contentsBufferProxy;
 #endif
 
 };

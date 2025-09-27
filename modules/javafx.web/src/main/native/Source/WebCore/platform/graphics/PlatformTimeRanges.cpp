@@ -29,9 +29,12 @@
 #include <math.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/PrintStream.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PlatformTimeRanges);
 
 PlatformTimeRanges::PlatformTimeRanges()
 {
@@ -355,14 +358,9 @@ String PlatformTimeRanges::toString() const
     StringBuilder result;
 
     for (size_t i = 0; i < length(); ++i)
-        result.append("[", start(i).toString(), "..", end(i).toString(), "] ");
+        result.append('[', start(i).toString(), ".."_s, end(i).toString(), "] "_s);
 
     return result.toString();
-}
-
-bool PlatformTimeRanges::operator==(const PlatformTimeRanges& other) const
-{
-    return m_ranges == other.m_ranges;
 }
 
 size_t PlatformTimeRanges::findLastRangeIndexBefore(const MediaTime& start, const MediaTime& end) const

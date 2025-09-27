@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(MANAGED_MEDIA_SOURCE)
+#if ENABLE(MEDIA_SOURCE)
 
 #include "MediaSource.h"
 #include "Timer.h"
@@ -34,9 +34,9 @@
 namespace WebCore {
 
 class ManagedMediaSource final : public MediaSource {
-    WTF_MAKE_ISO_ALLOCATED(ManagedMediaSource);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ManagedMediaSource);
 public:
-    static Ref<ManagedMediaSource> create(ScriptExecutionContext&);
+    static Ref<ManagedMediaSource> create(ScriptExecutionContext&, MediaSourceInit&&);
     ~ManagedMediaSource();
 
     enum class PreferredQuality { Low, Medium, High };
@@ -44,16 +44,15 @@ public:
 
     static bool isTypeSupported(ScriptExecutionContext&, const String& type);
 
-    bool streaming() const { return m_streaming; }
+    bool streaming() const override { return m_streaming; }
     bool streamingAllowed() const { return m_streamingAllowed; }
 
     bool isManaged() const final { return true; }
 
 private:
-    explicit ManagedMediaSource(ScriptExecutionContext&);
+    ManagedMediaSource(ScriptExecutionContext&, MediaSourceInit&&);
     void monitorSourceBuffers() final;
-    bool isOpen() const final;
-    bool isBuffered(const PlatformTimeRanges&) const;
+    void elementDetached() final;
     void setStreaming(bool);
     void streamingTimerFired();
     void ensurePrefsRead();
@@ -71,4 +70,4 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ManagedMediaSource)
     static bool isType(const WebCore::MediaSource& mediaSource) { return mediaSource.isManaged(); }
 SPECIALIZE_TYPE_TRAITS_END()
 
-#endif
+#endif // ENABLE(MEDIA_SOURCE)

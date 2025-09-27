@@ -28,14 +28,15 @@
 #include "WebGPUBindGroupLayout.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore::WebGPU {
 
 class CompilationInfo;
 
-class ShaderModule : public RefCounted<ShaderModule> {
+class ShaderModule : public RefCountedAndCanMakeWeakPtr<ShaderModule> {
 public:
     virtual ~ShaderModule() = default;
 

@@ -41,17 +41,19 @@
 #include "NodeRenderStyle.h"
 #include "RenderSearchField.h"
 #include "ScriptDisallowedScope.h"
-#include "ShadowPseudoIds.h"
 #include "ShadowRoot.h"
 #include "TextControlInnerElements.h"
+#include "UserAgentParts.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SearchInputType);
 
 using namespace HTMLNames;
 
 SearchInputType::SearchInputType(HTMLInputElement& element)
     : BaseTextInputType(Type::Search, element)
-    , m_searchEventTimer(*this, &SearchInputType::searchEventTimerFired)
 {
     ASSERT(needsShadowSubtree());
 }
@@ -63,19 +65,19 @@ void SearchInputType::addSearchResult()
     // we don't update the associated renderers until after the next tree update, so we could actually end up here
     // with a mismatched renderer (e.g. through form submission).
     ASSERT(element());
-    if (is<RenderSearchField>(element()->renderer()))
-        downcast<RenderSearchField>(*element()->renderer()).addSearchResult();
+    if (CheckedPtr renderer = dynamicDowncast<RenderSearchField>(element()->renderer()))
+        renderer->addSearchResult();
 #endif
 }
 
 static void updateResultButtonPseudoType(SearchFieldResultsButtonElement& resultButton, int maxResults)
 {
     if (!maxResults)
-        resultButton.setPseudo(ShadowPseudoIds::webkitSearchResultsDecoration());
+        resultButton.setUserAgentPart(UserAgentParts::webkitSearchResultsDecoration());
     else if (maxResults < 0)
-        resultButton.setPseudo(ShadowPseudoIds::webkitSearchDecoration());
+        resultButton.setUserAgentPart(UserAgentParts::webkitSearchDecoration());
     else
-        resultButton.setPseudo(ShadowPseudoIds::webkitSearchResultsButton());
+        resultButton.setUserAgentPart(UserAgentParts::webkitSearchResultsButton());
 }
 
 void SearchInputType::attributeChanged(const QualifiedName& name)
@@ -120,11 +122,11 @@ void SearchInputType::createShadowSubtree()
 
     ASSERT(element());
     m_resultsButton = SearchFieldResultsButtonElement::create(element()->document());
-    container->insertBefore(*m_resultsButton, textWrapper.get());
+    container->insertBefore(*m_resultsButton, textWrapper.copyRef());
     updateResultButtonPseudoType(*m_resultsButton, element()->maxResults());
 
     m_cancelButton = SearchFieldCancelButtonElement::create(element()->document());
-    container->insertBefore(*m_cancelButton, textWrapper->nextSibling());
+    container->insertBefore(*m_cancelButton, textWrapper->protectedNextSibling());
 }
 
 HTMLElement* SearchInputType::resultsButtonElement() const
@@ -147,63 +149,26 @@ auto SearchInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBase
     if (key == "U+001B"_s) {
         Ref<HTMLInputElement> protectedInputElement(*element());
         protectedInputElement->setValue(emptyString(), DispatchChangeEvent);
-        if (protectedInputElement->document().settings().searchInputIncrementalAttributeAndSearchEventEnabled())
-        protectedInputElement->onSearch();
         event.setDefaultHandled();
         return ShouldCallBaseEventHandler::Yes;
     }
     return TextFieldInputType::handleKeydownEvent(event);
 }
 
-void SearchInputType::destroyShadowSubtree()
+void SearchInputType::removeShadowSubtree()
 {
-    TextFieldInputType::destroyShadowSubtree();
+    TextFieldInputType::removeShadowSubtree();
     m_resultsButton = nullptr;
     m_cancelButton = nullptr;
-}
-
-void SearchInputType::startSearchEventTimer()
-{
-    ASSERT(element());
-    ASSERT(element()->renderer());
-    unsigned length = element()->innerTextValue().length();
-
-    if (!length) {
-        m_searchEventTimer.startOneShot(0_ms);
-        return;
-    }
-
-    // After typing the first key, we wait 0.5 seconds.
-    // After the second key, 0.4 seconds, then 0.3, then 0.2 from then on.
-    m_searchEventTimer.startOneShot(std::max(200_ms, 600_ms - 100_ms * length));
-}
-
-void SearchInputType::stopSearchEventTimer()
-{
-    m_searchEventTimer.stop();
-}
-
-void SearchInputType::searchEventTimerFired()
-{
-    ASSERT(element());
-    element()->onSearch();
-}
-
-bool SearchInputType::searchEventsShouldBeDispatched() const
-{
-    ASSERT(element());
-    return element()->document().settings().searchInputIncrementalAttributeAndSearchEventEnabled()
-        && element()->hasAttributeWithoutSynchronization(incrementalAttr);
 }
 
 void SearchInputType::didSetValueByUserEdit()
 {
     ASSERT(element());
-    if (m_cancelButton && is<RenderSearchField>(element()->renderer()))
-        downcast<RenderSearchField>(*element()->renderer()).updateCancelButtonVisibility();
-    // If the incremental attribute is set, then dispatch the search event
-    if (searchEventsShouldBeDispatched())
-        startSearchEventTimer();
+    if (m_cancelButton) {
+        if (CheckedPtr renderer = dynamicDowncast<RenderSearchField>(element()->renderer()))
+            renderer->updateCancelButtonVisibility();
+    }
 
     TextFieldInputType::didSetValueByUserEdit();
 }

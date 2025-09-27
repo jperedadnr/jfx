@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2006, 2014, 2020 Apple Inc.
+ * Copyright (C) 2006-2023 Apple Inc.
+ * Copyright (C) 2014 Google Inc.
  * Copyright (C) 2012 Nokia Corporation and/or its subsidiary(-ies)
  *
  * This library is free software; you can redistribute it and/or
@@ -25,6 +26,7 @@
 #include "HitTestRequest.h"
 #include <wtf/Forward.h>
 #include <wtf/ListHashSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -39,7 +41,7 @@ class Scrollbar;
 enum class HitTestProgress { Stop, Continue };
 
 class HitTestResult {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(HitTestResult, WEBCORE_EXPORT);
 public:
     using NodeSet = ListHashSet<Ref<Node>>;
 
@@ -64,7 +66,7 @@ public:
     void setURLElement(Element*);
     Element* URLElement() const { return m_innerURLElement.get(); }
 
-    void setScrollbar(Scrollbar*);
+    void setScrollbar(RefPtr<Scrollbar>&&);
     Scrollbar* scrollbar() const { return m_scrollbar.get(); }
 
     bool isOverWidget() const { return m_isOverWidget; }
@@ -92,6 +94,7 @@ public:
 
     const HitTestLocation& hitTestLocation() const { return m_hitTestLocation; }
 
+    WEBCORE_EXPORT LocalFrame* frame() const;
     WEBCORE_EXPORT LocalFrame* targetFrame() const;
     WEBCORE_EXPORT bool isSelected() const;
     WEBCORE_EXPORT String selectedText() const;
@@ -103,11 +106,12 @@ public:
     WEBCORE_EXPORT String titleDisplayString() const;
     WEBCORE_EXPORT Image* image() const;
     WEBCORE_EXPORT IntRect imageRect() const;
-    bool hasEntireImage() const;
+    WEBCORE_EXPORT bool hasEntireImage() const;
     WEBCORE_EXPORT URL absoluteImageURL() const;
     WEBCORE_EXPORT URL absolutePDFURL() const;
     WEBCORE_EXPORT URL absoluteMediaURL() const;
     WEBCORE_EXPORT URL absoluteLinkURL() const;
+    WEBCORE_EXPORT bool hasLocalDataForLinkURL() const;
     WEBCORE_EXPORT String textContent() const;
     bool isOverLink() const;
     WEBCORE_EXPORT bool isContentEditable() const;
@@ -115,6 +119,8 @@ public:
     void toggleMediaLoopPlayback() const;
     void toggleShowMediaStats() const;
     WEBCORE_EXPORT bool mediaIsInFullscreen() const;
+    bool mediaIsInVideoViewer() const;
+    void toggleVideoViewer() const;
     void toggleMediaFullscreenState() const;
     void enterFullscreenForVideo() const;
     bool mediaControlsEnabled() const;
@@ -123,6 +129,7 @@ public:
     bool mediaPlaying() const;
     bool mediaSupportsFullscreen() const;
     void toggleMediaPlayState() const;
+    WEBCORE_EXPORT bool hasMediaElement() const;
     WEBCORE_EXPORT bool mediaHasAudio() const;
     WEBCORE_EXPORT bool mediaIsVideo() const;
     bool mediaMuted() const;
@@ -151,8 +158,10 @@ public:
 
     Vector<String> dictationAlternatives() const;
 
-    WEBCORE_EXPORT Node* targetNode() const;
+    Node* targetNode() const { return innerNode(); }
+    WEBCORE_EXPORT RefPtr<Node> protectedTargetNode() const;
     WEBCORE_EXPORT Element* targetElement() const;
+    RefPtr<Element> protectedTargetElement() const;
 
 private:
     NodeSet& mutableListBasedTestResult(); // See above.

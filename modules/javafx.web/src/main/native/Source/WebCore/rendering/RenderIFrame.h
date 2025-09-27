@@ -32,21 +32,20 @@ namespace WebCore {
 class RenderView;
 
 class RenderIFrame final : public RenderFrameBase {
-    WTF_MAKE_ISO_ALLOCATED(RenderIFrame);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderIFrame);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderIFrame);
 public:
     RenderIFrame(HTMLIFrameElement&, RenderStyle&&);
+    virtual ~RenderIFrame();
 
     HTMLIFrameElement& iframeElement() const;
 
 private:
     void frameOwnerElement() const = delete;
 
-    bool shouldComputeSizeAsReplaced() const override;
-    bool isInlineBlockOrInlineTable() const override;
+    bool isNonReplacedAtomicInline() const override;
 
     void layout() override;
-
-    bool isRenderIFrame() const override { return true; }
 
     ASCIILiteral renderName() const override { return "RenderIFrame"_s; }
 

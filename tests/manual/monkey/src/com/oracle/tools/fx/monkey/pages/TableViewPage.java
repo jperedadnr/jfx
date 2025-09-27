@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,11 +30,17 @@ import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.scene.AccessibleAttribute;
 import javafx.scene.Node;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
 import javafx.scene.control.ConstrainedColumnResizeBase;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.Labeled;
+import javafx.scene.control.Menu;
 import javafx.scene.control.SelectionMode;
-import javafx.scene.control.SplitMenuButton;
+import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableColumnBase;
 import javafx.scene.control.TableRow;
@@ -44,11 +50,14 @@ import javafx.scene.control.cell.TextFieldTableCell;
 import javafx.scene.control.skin.TableViewSkin;
 import javafx.scene.layout.Background;
 import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
 import javafx.util.Callback;
+import com.oracle.tools.fx.monkey.Loggers;
 import com.oracle.tools.fx.monkey.options.BooleanOption;
 import com.oracle.tools.fx.monkey.options.ObjectOption;
 import com.oracle.tools.fx.monkey.sheets.ControlPropertySheet;
 import com.oracle.tools.fx.monkey.sheets.Options;
+import com.oracle.tools.fx.monkey.sheets.TableColumnPropertySheet;
 import com.oracle.tools.fx.monkey.util.ColumnBuilder;
 import com.oracle.tools.fx.monkey.util.DataRow;
 import com.oracle.tools.fx.monkey.util.FX;
@@ -67,7 +76,14 @@ public class TableViewPage extends TestPaneBase implements HasSkinnable {
     public TableViewPage() {
         super("TableViewPage");
 
-        control = new TableView<>();
+        control = new TableView<>() {
+            @Override
+            public Object queryAccessibleAttribute(AccessibleAttribute a, Object... ps) {
+                Object v = super.queryAccessibleAttribute(a, ps);
+                Loggers.accessibility.log(a, v);
+                return v;
+            }
+        };
 
         Button addDataItemButton = FX.button("Add Data Item", () -> {
             control.getItems().add(new DataRow());
@@ -77,32 +93,13 @@ public class TableViewPage extends TestPaneBase implements HasSkinnable {
             control.getItems().clear();
         });
 
-        SplitMenuButton addColumnButton = new SplitMenuButton(
-            FX.menuItem("at the beginning", () -> addColumn(0)),
-            FX.menuItem("in the middle", () -> addColumn(1)),
-            FX.menuItem("at the end", () -> addColumn(2))
-        );
-        addColumnButton.setText("Add Column");
-
-        SplitMenuButton removeColumnButton = new SplitMenuButton(
-            FX.menuItem("at the beginning", () -> removeColumn(0)),
-            FX.menuItem("in the middle", () -> removeColumn(1)),
-            FX.menuItem("at the end", () -> removeColumn(2)),
-            FX.menuItem("all", () -> removeAllColumns())
-        );
-        removeColumnButton.setText("Remove Column");
-
         Button refresh = FX.button("Refresh", () -> {
             control.refresh();
         });
 
-        // layout
-
         OptionPane op = new OptionPane();
         op.section("TableView");
-
         op.option("Columns:", createColumnsSelector("columns", control.getColumns()));
-        op.option(Utils.buttons(addColumnButton, removeColumnButton));
         op.option("Column Resize Policy:", createColumnResizePolicy("columnResizePolicy", control.columnResizePolicyProperty()));
         op.option(new BooleanOption("editable", "editable", control.editableProperty()));
         op.option("Fixed Cell Size:", Options.fixedSizeOption("fixedCellSize", control.fixedCellSizeProperty()));
@@ -114,136 +111,85 @@ public class TableViewPage extends TestPaneBase implements HasSkinnable {
         op.option("Selection Model:", createSelectionModelOptions("selectionModel"));
         op.option("Sort Policy: TODO", null); // TODO
         op.option(new BooleanOption("tableMenuButtonVisible", "table menu button visible", control.tableMenuButtonVisibleProperty()));
-
-        // TODO
-//        op.label("Filter:");
-//        op.option(filterSelector);
-//        op.label("Cell Value:");
-//        op.option(cellValueSelector);
-//        op.label("Cell Factory:");
-//        op.option(cellFactorySelector);
-//        op.label("Selection Model:");
-//        op.option(selectionSelector);
-
         op.separator();
         op.option(refresh);
-
-        // currently selected column option sheet
-        //TableColumnOptions.appendTo(op, currentColumn);
-
-        // control option sheet
         ControlPropertySheet.appendTo(op, control);
 
         setContent(control);
         setOptions(op);
     }
 
-    private void addColumn(int where) {
+    private ContextMenu createColumnPopupMenu(TableColumn tc) {
+        ContextMenu m = new ContextMenu();
+        FX.item(m, "Add Column Before", () -> addColumn(tc, false));
+        FX.item(m, "Add Column After", () -> addColumn(tc, true));
+        FX.separator(m);
+        FX.item(m, "Remove Column", () -> control.getColumns().remove(tc));
+        FX.item(m, "Remove All Columns", () -> control.getColumns().clear());
+        FX.separator(m);
+        Menu m2 = FX.menu(m, "Cell Factory");
+        FX.item(m2, "Default", () -> tc.setCellFactory(TableColumn.DEFAULT_CELL_FACTORY));
+        FX.item(m2, "Canvas", () -> tc.setCellFactory(new Callback<TableColumn<?,?>, TableCell<?,?>>() {
+            @Override
+            public TableCell call(TableColumn param) {
+                return new TableCell() {
+                    @Override
+                    protected void updateItem(Object item, boolean empty) {
+                        if (item == getItem()) {
+                            return;
+                        }
+
+                        super.updateItem(item, empty);
+
+                        if (item == null) {
+                            super.setText(null);
+                            super.setGraphic(null);
+                        } else if (item instanceof Node) {
+                            super.setText(null);
+                            super.setGraphic((Node)item);
+                        } else {
+                            String text = item.toString();
+                            Canvas c = createCanvas(this, text);
+
+                            super.setText(null);
+                            super.setGraphic(c);
+                        }
+                    }
+                };
+            }
+        }));
+        FX.separator(m);
+        FX.item(m, "Properties...", () -> TableColumnPropertySheet.open(this, tc));
+        return m;
+    }
+
+    private TableColumn<DataRow, Object> newColumn() {
+        TableColumn<DataRow, Object> tc = new TableColumn();
+        tc.setCellFactory(TextFieldTableCell.<DataRow, Object>forTableColumn(DataRow.converter()));
+        tc.setCellValueFactory((cdf) -> {
+            Object v = cdf.getValue();
+            if (v instanceof DataRow r) {
+                return r.getValue(tc);
+            }
+            return new SimpleObjectProperty(v);
+        });
+        tc.setContextMenu(createColumnPopupMenu(tc));
+        return tc;
+    }
+
+    private void addColumn(TableColumn<?, ?> ref, boolean after) {
+        int ix = control.getColumns().indexOf(ref);
+        if (ix < 0) {
+            return;
+        }
+        if (after) {
+            ix++;
+        }
+
         TableColumn<DataRow, Object> c = newColumn();
         c.setText("C" + System.currentTimeMillis());
-        //c.setCellValueFactory((f) -> new SimpleStringProperty(describe(c)));
-
-        int ct = control.getColumns().size();
-        int ix;
-        switch (where) {
-        case 0:
-            ix = 0;
-            break;
-        case 1:
-            ix = ct / 2;
-            break;
-        case 2:
-        default:
-            ix = ct;
-            break;
-        }
-        if ((ct == 0) || (ix >= ct)) {
-            control.getColumns().add(c);
-        } else {
-            control.getColumns().add(ix, c);
-        }
+        control.getColumns().add(ix, c);
     }
-
-    private void removeColumn(int where) {
-        int ct = control.getColumns().size();
-        int ix;
-        switch (where) {
-        case 0:
-            ix = 0;
-            break;
-        case 1:
-            ix = ct / 2;
-            break;
-        case 2:
-        default:
-            ix = ct - 1;
-            break;
-        }
-
-        if ((ct >= 0) && (ix < ct)) {
-            control.getColumns().remove(ix);
-        }
-    }
-
-    private void removeAllColumns() {
-        control.getColumns().clear();
-    }
-
-//                case COL_WITH_GRAPHIC:
-//                    {
-//                        TableColumn<Object, String> c = new TableColumn<>();
-//                        tableView.getColumns().add(c);
-//                        c.setText("C" + tableView.getColumns().size());
-//                        c.setCellValueFactory((f) -> new SimpleStringProperty(describe(c)));
-//                        c.setCellFactory((r) -> {
-//                            return new TableCell<>() {
-//                                @Override
-//                                protected void updateItem(String item, boolean empty) {
-//                                    super.updateItem(item, empty);
-//                                    Text t = new Text(
-//                                        "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111\n2\n3\n");
-//                                    t.wrappingWidthProperty().bind(widthProperty());
-//                                    setPrefHeight(USE_COMPUTED_SIZE);
-//                                    setGraphic(t);
-//                                }
-//                            };
-//                        });
-//                        lastColumn = c;
-//                    }
-
-    // FIX move to column menu
-//    void filter() {
-//        Filter f = filterSelector.getSelectionModel().getSelectedItem();
-//        if (f == Filter.NONE) {
-//            f = null;
-//        }
-//        if (f != null) {
-//            ObservableList<Object> items = FXCollections.observableArrayList();
-//            items.addAll(tableView.getItems());
-//            FilteredList<Object> filteredList = new FilteredList<>(items);
-//            switch(f) {
-//            case SKIP1S:
-//                filteredList.setPredicate((s) -> {
-//                    if (s == null) {
-//                        return true;
-//                    }
-//                    return !((String)s).contains("11");
-//                });
-//                break;
-//            case SKIP2S:
-//                filteredList.setPredicate((s) -> {
-//                    if (s == null) {
-//                        return true;
-//                    }
-//                    return !((String)s).contains("22");
-//                });
-//                break;
-//            default:
-//                throw new Error("?" + f);
-//            }
-//            //tableView.setItems(filteredList);
-//        }
-//    }
 
     @Override
     public void nullSkin() {
@@ -254,92 +200,6 @@ public class TableViewPage extends TestPaneBase implements HasSkinnable {
     public void newSkin() {
         control.setSkin(new TableViewSkin<>(control));
     }
-
-    // FIX move to column menu
-//    private Callback<CellDataFeatures<Object, String>, ObservableValue<String>> getValueFactory(CellValue t) {
-//        if (t != null) {
-//            switch (t) {
-//            case MIN_MAX:
-//                return (f) -> {
-//                    String s = describe(f.getTableColumn());
-//                    return new SimpleStringProperty(s);
-//                };
-//            case QUOTED:
-//                return (f) -> {
-//                    String s = "\"" + f.getValue() + '"';
-//                    return new SimpleStringProperty(s);
-//                };
-//            case VALUE:
-//                return (f) -> {
-//                    String s = String.valueOf(f.getValue());
-//                    return new SimpleStringProperty(s);
-//                };
-//            }
-//        }
-//        return null;
-//    }
-
-//    private Node getIcon(String text) {
-//        if (text.contains("0")) {
-//            return icon(Color.RED);
-//        } else if (text.contains("1")) {
-//            return icon(Color.GREEN);
-//        }
-//        return null;
-//    }
-//
-//    private Node icon(Color color) {
-//        Canvas c = new Canvas(16, 16);
-//        GraphicsContext g = c.getGraphicsContext2D();
-//        g.setFill(color);
-//        g.fillRect(0, 0, c.getWidth(), c.getHeight());
-//        return c;
-//    }
-
-    // FIX move to column menu
-//    private Callback getCellFactory(Cells t) {
-//        if (t != null) {
-//            switch (t) {
-//            case NULL:
-//                return null;
-//            case GRAPHICS:
-//                return (r) -> {
-//                    return new TableCell<String,String>() {
-//                        @Override
-//                        protected void updateItem(String item, boolean empty) {
-//                            super.updateItem(item, empty);
-//                            if (item == null) {
-//                                super.setText(null);
-//                                super.setGraphic(null);
-//                            } else {
-//                                String s = item.toString();
-//                                super.setText(s);
-//                                Node n = getIcon(s);
-//                                super.setGraphic(n);
-//                            }
-//                        }
-//                    };
-//                };
-//            case VARIABLE:
-//                return (r) -> {
-//                    return new TableCell<String,String>() {
-//                        @Override
-//                        protected void updateItem(String item, boolean empty) {
-//                            super.updateItem(item, empty);
-//                            String s =
-//                                "111111111111111111111111111111111111111111111" +
-//                                "11111111111111111111111111111111111111111\n2\n3\n";
-//                            Text t = new Text(s);
-//                            t.wrappingWidthProperty().bind(widthProperty());
-//                            setPrefHeight(USE_COMPUTED_SIZE);
-//                            setGraphic(t);
-//                        }
-//                    };
-//                };
-//            }
-//        }
-//        return TableColumn.DEFAULT_CELL_FACTORY;
-//    }
 
     /**
      * a user-defined policy demonstrates that we can indeed create a custom policy using the new API.
@@ -362,6 +222,10 @@ public class TableViewPage extends TestPaneBase implements HasSkinnable {
             }
             return false;
         }
+    }
+
+    private ColumnBuilder<TableColumn<DataRow, ?>> columnBuilder() {
+        return new ColumnBuilder<>(this::newColumn);
     }
 
     private Node createColumnsSelector(String name, ObservableList<TableColumn<DataRow, ?>> columns) {
@@ -388,6 +252,16 @@ public class TableViewPage extends TestPaneBase implements HasSkinnable {
             var cs = columnBuilder();
             for (int i = 1; i < 20; i++) {
                 cs.col("C" + i).pref(30);
+            }
+            return cs.asList();
+        });
+        s.addChoiceSupplier("200", () -> {
+            var cs = columnBuilder();
+            for (int i = 1; i < 200; i++) {
+                cs.col("C" + i);
+                if(i % 2 == 0) {
+                    cs.pref(30 + i);
+                }
             }
             return cs.asList();
         });
@@ -435,23 +309,6 @@ public class TableViewPage extends TestPaneBase implements HasSkinnable {
         );
         s.addChoice("<empty>", FXCollections.observableArrayList());
         return s;
-    }
-
-    private ColumnBuilder<TableColumn<DataRow, ?>> columnBuilder() {
-        return new ColumnBuilder<>(this::newColumn);
-    }
-
-    private TableColumn<DataRow, Object> newColumn() {
-        TableColumn<DataRow, Object> tc = new TableColumn();
-        tc.setCellFactory(TextFieldTableCell.<DataRow, Object>forTableColumn(DataRow.converter()));
-        tc.setCellValueFactory((cdf) -> {
-            Object v = cdf.getValue();
-            if (v instanceof DataRow r) {
-                return r.getValue(tc);
-            }
-            return new SimpleObjectProperty(v);
-        });
-        return tc;
     }
 
     private Node createColumnResizePolicy(String name, ObjectProperty<Callback<ResizeFeatures, Boolean>> p) {
@@ -513,12 +370,36 @@ public class TableViewPage extends TestPaneBase implements HasSkinnable {
         return s;
     }
 
-    private Callback<TableView<DataRow>, TableRow<DataRow>> createRowFactory(Color c) {
+    private static Callback<TableView<DataRow>, TableRow<DataRow>> createRowFactory(Color c) {
         return (v) -> {
             TableRow<DataRow> row = new TableRow<>();
             row.setBackground(Background.fill(c));
             return row;
         };
+    }
+
+    private static Callback<TableView<DataRow>, TableRow<DataRow>> createCanvasRowFactory() {
+        return (v) -> {
+            TableRow<DataRow> row = new TableRow<>();
+            Canvas c = createCanvas(row, null);
+            row.setGraphic(c);
+            row.setText(null);
+            return row;
+        };
+    }
+
+    private static Canvas createCanvas(Labeled r, String text) {
+        Font f = r.getFont();
+        double w = r.getWidth() - r.snappedLeftInset() - r.snappedRightInset();
+        double h = r.getHeight() - r.snappedTopInset() - r.snappedBottomInset();
+        Canvas c = new Canvas(w, h);
+        GraphicsContext g = c.getGraphicsContext2D();
+        g.setFill(Color.rgb(0, 255, 0, 0.1));
+        g.fillRect(0, 0, w, h);
+        g.setFill(r.getTextFill());
+        g.setFont(f);
+        g.fillText(text, 0, f.getSize(), w);
+        return c;
     }
 
     private Node createRowFactoryOptions(String name, ObjectProperty<Callback<TableView<DataRow>, TableRow<DataRow>>> p) {
@@ -527,6 +408,7 @@ public class TableViewPage extends TestPaneBase implements HasSkinnable {
         s.addChoice("<default>", defaultValue);
         s.addChoice("Red Background", createRowFactory(Color.RED));
         s.addChoice("Green Background", createRowFactory(Color.GREEN));
+        s.addChoice("Canvas-based", createCanvasRowFactory());
         s.addChoice("<null>", null);
         s.selectFirst();
         return s;

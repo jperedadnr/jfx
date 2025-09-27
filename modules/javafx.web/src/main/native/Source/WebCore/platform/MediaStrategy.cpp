@@ -51,6 +51,11 @@ void MediaStrategy::resetMediaEngines()
     m_mockMediaSourceEnabled = false;
 }
 
+bool MediaStrategy::hasThreadSafeMediaSourceSupport() const
+{
+    return false;
+}
+
 #if ENABLE(MEDIA_SOURCE)
 void MediaStrategy::enableMockMediaSource()
 {
@@ -72,6 +77,14 @@ void MediaStrategy::addMockMediaSourceEngine()
 {
     MediaPlayerFactorySupport::callRegisterMediaEngine(MockMediaPlayerMediaSource::registerMediaEngine);
 }
+#endif
+
+#if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
+std::unique_ptr<MediaRecorderPrivateWriter> MediaStrategy::createMediaRecorderPrivateWriter(const String&, MediaRecorderPrivateWriterListener&) const
+{
+    return nullptr;
+}
+
 #endif
 
 }

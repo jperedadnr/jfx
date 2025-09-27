@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,7 @@
 #include <WebCore/DOMException.h>
 #include <WebCore/HTMLFormElement.h>
 #include <WebCore/HTMLInputElement.h>
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/NodeList.h>
 #include <WebCore/JSExecState.h>
@@ -423,7 +424,7 @@ JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_HTMLInputElementImpl_getValueAsD
 JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLInputElementImpl_setValueAsDateImpl(JNIEnv*, jclass, jlong peer, jlong value)
 {
     WebCore::JSMainThreadNullState state;
-
+    double convertedValue = static_cast<double>(value);
     IMPL->setValueAsDate(value);
 }
 
@@ -491,18 +492,6 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLInputElementImpl_setUseMapImp
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setAttributeWithoutSynchronization(WebCore::HTMLNames::usemapAttr, AtomString {String(env, value)});
-}
-
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLInputElementImpl_getIncrementalImpl(JNIEnv*, jclass, jlong peer)
-{
-    WebCore::JSMainThreadNullState state;
-    return IMPL->hasAttribute(WebCore::HTMLNames::incrementalAttr);
-}
-
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLInputElementImpl_setIncrementalImpl(JNIEnv*, jclass, jlong peer, jboolean value)
-{
-    WebCore::JSMainThreadNullState state;
-    IMPL->setBooleanAttribute(WebCore::HTMLNames::incrementalAttr, value);
 }
 
 JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_HTMLInputElementImpl_getAccessKeyImpl(JNIEnv* env, jclass, jlong peer)

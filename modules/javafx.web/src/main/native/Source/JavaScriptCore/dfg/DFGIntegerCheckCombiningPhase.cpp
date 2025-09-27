@@ -83,12 +83,7 @@ public:
             return m_kind + m_source.hash() + PtrHash<Node*>::hash(m_key);
         }
 
-        bool operator==(const RangeKey& other) const
-        {
-            return m_kind == other.m_kind
-                && m_source == other.m_source
-                && m_key == other.m_key;
-        }
+        friend bool operator==(const RangeKey&, const RangeKey&) = default;
 
         void dump(PrintStream& out) const
         {
@@ -156,7 +151,7 @@ public:
     };
 
     IntegerCheckCombiningPhase(Graph& graph)
-        : Phase(graph, "integer check combining")
+        : Phase(graph, "integer check combining"_s)
         , m_insertionSet(graph)
     {
     }
@@ -187,14 +182,12 @@ private:
 
         for (auto* node : *block) {
             RangeKeyAndAddend data = rangeKeyAndAddend(node);
-            if (DFGIntegerCheckCombiningPhaseInternal::verbose)
-                dataLog("For ", node, ": ", data, "\n");
+            dataLogLnIf(DFGIntegerCheckCombiningPhaseInternal::verbose, "For ", node, ": ", data);
             if (!data)
                 continue;
 
             Range& range = m_map.add(data.m_key, Range { }).iterator->value;
-            if (DFGIntegerCheckCombiningPhaseInternal::verbose)
-                dataLog("    Range: ", range, "\n");
+            dataLogLnIf(DFGIntegerCheckCombiningPhaseInternal::verbose, "    Range: ", range);
             if (range.m_count) {
                 if (data.m_addend > range.m_maxBound) {
                     range.m_maxBound = data.m_addend;
@@ -210,8 +203,7 @@ private:
                 range.m_maxOrigin = node->origin.semantic;
             }
             range.m_count++;
-            if (DFGIntegerCheckCombiningPhaseInternal::verbose)
-                dataLog("    New range: ", range, "\n");
+            dataLogLnIf(DFGIntegerCheckCombiningPhaseInternal::verbose, "    New range: ", range);
         }
 
         for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex) {
@@ -384,7 +376,7 @@ private:
                 nodeIndex, origin, jsNumber(addend), source.useKind()));
     }
 
-    using RangeMap = HashMap<GenericHashKey<RangeKey, RangeKey::Hash>, Range>;
+    using RangeMap = UncheckedKeyHashMap<GenericHashKey<RangeKey, RangeKey::Hash>, Range>;
     RangeMap m_map;
 
     InsertionSet m_insertionSet;

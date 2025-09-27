@@ -21,8 +21,10 @@
 
 #pragma once
 
+#include "CalculationRandomKeyMap.h"
 #include "CustomElementDefaultARIA.h"
 #include "CustomElementReactionQueue.h"
+#include "CustomStateSet.h"
 #include "DOMTokenList.h"
 #include "DatasetDOMStringMap.h"
 #include "ElementAnimationRareData.h"
@@ -33,12 +35,15 @@
 #include "NodeRareData.h"
 #include "PopoverData.h"
 #include "PseudoElement.h"
+#include "PseudoElementIdentifier.h"
 #include "RenderElement.h"
 #include "ResizeObserver.h"
 #include "ShadowRoot.h"
 #include "SpaceSplitString.h"
 #include "StylePropertyMap.h"
 #include "StylePropertyMapReadOnly.h"
+#include "VisibilityAdjustment.h"
+#include <wtf/HashMap.h>
 #include <wtf/Markable.h>
 
 namespace WebCore {
@@ -73,7 +78,7 @@ public:
 
     unsigned childIndex() const { return m_childIndex; }
     void setChildIndex(unsigned index) { m_childIndex = index; }
-    static ptrdiff_t childIndexMemoryOffset() { return OBJECT_OFFSETOF(ElementRareData, m_childIndex); }
+    static constexpr ptrdiff_t childIndexMemoryOffset() { return OBJECT_OFFSETOF(ElementRareData, m_childIndex); }
 
     void clearShadowRoot() { m_shadowRoot = nullptr; }
     ShadowRoot* shadowRoot() const { return m_shadowRoot.get(); }
@@ -91,11 +96,14 @@ public:
     NamedNodeMap* attributeMap() const { return m_attributeMap.get(); }
     void setAttributeMap(std::unique_ptr<NamedNodeMap>&& attributeMap) { m_attributeMap = WTFMove(attributeMap); }
 
+    String userInfo() const { return m_userInfo; }
+    void setUserInfo(String&& userInfo) { m_userInfo = WTFMove(userInfo); }
+
     RenderStyle* computedStyle() const { return m_computedStyle.get(); }
     void setComputedStyle(std::unique_ptr<RenderStyle>&& computedStyle) { m_computedStyle = WTFMove(computedStyle); }
 
-    RenderStyle* displayContentsStyle() const { return m_displayContentsStyle.get(); }
-    void setDisplayContentsStyle(std::unique_ptr<RenderStyle> style) { m_displayContentsStyle = WTFMove(style); }
+    RenderStyle* displayContentsOrNoneStyle() const { return m_displayContentsOrNoneStyle.get(); }
+    void setDisplayContentsOrNoneStyle(std::unique_ptr<RenderStyle> style) { m_displayContentsOrNoneStyle = WTFMove(style); }
 
     const AtomString& effectiveLang() const { return m_effectiveLang; }
     void setEffectiveLang(const AtomString& lang) { m_effectiveLang = lang; }
@@ -106,11 +114,14 @@ public:
     DatasetDOMStringMap* dataset() const { return m_dataset.get(); }
     void setDataset(std::unique_ptr<DatasetDOMStringMap>&& dataset) { m_dataset = WTFMove(dataset); }
 
-    IntPoint savedLayerScrollPosition() const { return m_savedLayerScrollPosition; }
-    void setSavedLayerScrollPosition(IntPoint position) { m_savedLayerScrollPosition = position; }
+    ScrollPosition savedLayerScrollPosition() const { return m_savedLayerScrollPosition; }
+    void setSavedLayerScrollPosition(ScrollPosition position) { m_savedLayerScrollPosition = position; }
 
-    ElementAnimationRareData* animationRareData(PseudoId) const;
-    ElementAnimationRareData& ensureAnimationRareData(PseudoId);
+    ElementAnimationRareData* animationRareData(const std::optional<Style::PseudoElementIdentifier>&) const;
+    ElementAnimationRareData& ensureAnimationRareData(const std::optional<Style::PseudoElementIdentifier>&);
+
+    AtomString viewTransitionCapturedName(const std::optional<Style::PseudoElementIdentifier>&) const;
+    void setViewTransitionCapturedName(const std::optional<Style::PseudoElementIdentifier>&, AtomString);
 
     DOMTokenList* partList() const { return m_partList.get(); }
     void setPartList(std::unique_ptr<DOMTokenList>&& partList) { m_partList = WTFMove(partList); }
@@ -145,19 +156,30 @@ public:
     PopoverData* popoverData() { return m_popoverData.get(); }
     void setPopoverData(std::unique_ptr<PopoverData>&& popoverData) { m_popoverData = WTFMove(popoverData); }
 
-    const OptionSet<ContentRelevancyStatus>& contentRelevancyStatus() const { return m_contentRelevancyStatus; }
-    void setContentRelevancyStatus(OptionSet<ContentRelevancyStatus>& contentRelevancyStatus) { m_contentRelevancyStatus = contentRelevancyStatus; }
+    const std::optional<OptionSet<ContentRelevancy>>& contentRelevancy() const { return m_contentRelevancy; }
+    void setContentRelevancy(OptionSet<ContentRelevancy>& contentRelevancy) { m_contentRelevancy = contentRelevancy; }
+
+    CustomStateSet* customStateSet() { return m_customStateSet.get(); }
+    void setCustomStateSet(Ref<CustomStateSet>&& customStateSet) { m_customStateSet = WTFMove(customStateSet); }
+
+    OptionSet<VisibilityAdjustment> visibilityAdjustment() const { return m_visibilityAdjustment; }
+    void setVisibilityAdjustment(OptionSet<VisibilityAdjustment> adjustment) { m_visibilityAdjustment = adjustment; }
+
+    Ref<Calculation::RandomKeyMap> ensureRandomKeyMap(const std::optional<Style::PseudoElementIdentifier>&);
+    bool hasRandomKeyMap() const;
 
 #if DUMP_NODE_STATISTICS
     OptionSet<UseType> useTypes() const
     {
         auto result = NodeRareData::useTypes();
+        if (m_unusualTabIndex)
+            result.add(UseType::TabIndex);
         if (!m_savedLayerScrollPosition.isZero())
             result.add(UseType::ScrollingPosition);
         if (m_computedStyle)
             result.add(UseType::ComputedStyle);
-        if (m_displayContentsStyle)
-            result.add(UseType::DisplayContentsStyle);
+        if (m_displayContentsOrNoneStyle)
+            result.add(UseType::DisplayContentsOrNoneStyle);
         if (!m_effectiveLang.isEmpty())
             result.add(UseType::EffectiveLang);
         if (m_dataset)
@@ -198,6 +220,10 @@ public:
             result.add(UseType::Popover);
         if (m_childIndex)
             result.add(UseType::ChildIndex);
+        if (!m_customStateSet.isEmpty())
+            result.add(UseType::CustomStateSet);
+        if (m_userInfo)
+            result.add(UseType::UserInfo);
         return result;
     }
 #endif
@@ -206,11 +232,13 @@ private:
     unsigned short m_childIndex { 0 }; // Keep on top for better bit packing with NodeRareData.
     int m_unusualTabIndex { 0 }; // Keep on top for better bit packing with NodeRareData.
 
-    OptionSet<ContentRelevancyStatus> m_contentRelevancyStatus;
+    std::optional<OptionSet<ContentRelevancy>> m_contentRelevancy;
+    ScrollPosition m_savedLayerScrollPosition;
 
-    IntPoint m_savedLayerScrollPosition;
+    String m_userInfo;
+
     std::unique_ptr<RenderStyle> m_computedStyle;
-    std::unique_ptr<RenderStyle> m_displayContentsStyle;
+    std::unique_ptr<RenderStyle> m_displayContentsOrNoneStyle;
 
     AtomString m_effectiveLang;
     std::unique_ptr<DatasetDOMStringMap> m_dataset;
@@ -228,7 +256,9 @@ private:
     Markable<LayoutUnit, LayoutUnitMarkableTraits> m_lastRememberedLogicalWidth;
     Markable<LayoutUnit, LayoutUnitMarkableTraits> m_lastRememberedLogicalHeight;
 
-    Vector<std::unique_ptr<ElementAnimationRareData>> m_animationRareData;
+    HashMap<std::optional<Style::PseudoElementIdentifier>, std::unique_ptr<ElementAnimationRareData>> m_animationRareData;
+
+    HashMap<std::optional<Style::PseudoElementIdentifier>, AtomString> m_viewTransitionCapturedName;
 
     RefPtr<PseudoElement> m_beforePseudoElement;
     RefPtr<PseudoElement> m_afterPseudoElement;
@@ -244,6 +274,12 @@ private:
     ExplicitlySetAttrElementsMap m_explicitlySetAttrElementsMap;
 
     std::unique_ptr<PopoverData> m_popoverData;
+
+    RefPtr<CustomStateSet> m_customStateSet;
+
+    OptionSet<VisibilityAdjustment> m_visibilityAdjustment;
+
+    HashMap<std::optional<Style::PseudoElementIdentifier>, Ref<Calculation::RandomKeyMap>> m_randomKeyMaps;
 };
 
 inline ElementRareData::ElementRareData()
@@ -287,22 +323,41 @@ inline void ElementRareData::setUnusualTabIndex(int tabIndex)
     m_unusualTabIndex = tabIndex;
 }
 
-inline ElementAnimationRareData* ElementRareData::animationRareData(PseudoId pseudoId) const
+inline ElementAnimationRareData* ElementRareData::animationRareData(const std::optional<Style::PseudoElementIdentifier>& pseudoElementIdentifier) const
 {
-    for (auto& animationRareData : m_animationRareData) {
-        if (animationRareData->pseudoId() == pseudoId)
-            return animationRareData.get();
-    }
-    return nullptr;
+    return m_animationRareData.get(pseudoElementIdentifier);
 }
 
-inline ElementAnimationRareData& ElementRareData::ensureAnimationRareData(PseudoId pseudoId)
+inline ElementAnimationRareData& ElementRareData::ensureAnimationRareData(const std::optional<Style::PseudoElementIdentifier>& pseudoElementIdentifier)
 {
-    if (auto* animationRareData = this->animationRareData(pseudoId))
+    if (auto* animationRareData = this->animationRareData(pseudoElementIdentifier))
         return *animationRareData;
 
-    m_animationRareData.append(makeUnique<ElementAnimationRareData>(pseudoId));
-    return *m_animationRareData.last().get();
+    auto result = m_animationRareData.add(pseudoElementIdentifier, makeUnique<ElementAnimationRareData>());
+    ASSERT(result.isNewEntry);
+    return *result.iterator->value.get();
+}
+
+inline AtomString ElementRareData::viewTransitionCapturedName(const std::optional<Style::PseudoElementIdentifier>& pseudoElementIdentifier) const
+{
+    return m_viewTransitionCapturedName.get(pseudoElementIdentifier);
+}
+
+inline void ElementRareData::setViewTransitionCapturedName(const std::optional<Style::PseudoElementIdentifier>& pseudoElementIdentifier, AtomString captureName)
+{
+    m_viewTransitionCapturedName.set(pseudoElementIdentifier, captureName);
+}
+
+inline Ref<Calculation::RandomKeyMap> ElementRareData::ensureRandomKeyMap(const std::optional<Style::PseudoElementIdentifier>& pseudoElementIdentifier)
+{
+    return m_randomKeyMaps.ensure(pseudoElementIdentifier, [] -> Ref<Calculation::RandomKeyMap> {
+        return Calculation::RandomKeyMap::create();
+    }).iterator->value;
+}
+
+inline bool ElementRareData::hasRandomKeyMap() const
+{
+    return !m_randomKeyMaps.isEmpty();
 }
 
 inline ElementRareData* Element::elementRareData() const
@@ -313,9 +368,9 @@ inline ElementRareData* Element::elementRareData() const
 
 inline ShadowRoot* Node::shadowRoot() const
 {
-    if (!is<Element>(*this))
+    if (auto* element = dynamicDowncast<Element>(*this))
+        return element->shadowRoot();
         return nullptr;
-    return downcast<Element>(*this).shadowRoot();
 }
 
 inline ShadowRoot* Element::shadowRoot() const

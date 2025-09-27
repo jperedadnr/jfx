@@ -34,7 +34,8 @@
 namespace WebCore {
 
 class HTMLFormControlElement : public HTMLElement, public ValidatedFormListedElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLFormControlElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLFormControlElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLFormControlElement);
 public:
     virtual ~HTMLFormControlElement();
 
@@ -98,15 +99,16 @@ public:
 
     virtual String resultForDialogSubmit() const;
 
-    HTMLElement* popoverTargetElement() const;
+    RefPtr<HTMLElement> popoverTargetElement() const;
     const AtomString& popoverTargetAction() const;
     void setPopoverTargetAction(const AtomString& value);
+
+    bool isKeyboardFocusable(KeyboardEvent*) const override;
 
     using Node::ref;
     using Node::deref;
 
 protected:
-    constexpr static auto CreateHTMLFormControlElement = CreateHTMLElement | NodeFlag::HasCustomStyleResolveCallbacks;
     HTMLFormControlElement(const QualifiedName& tagName, Document&, HTMLFormElement*);
 
     InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
@@ -120,14 +122,13 @@ protected:
     void readOnlyStateChanged() override;
     virtual void requiredStateChanged();
 
-    bool isKeyboardFocusable(KeyboardEvent*) const override;
     bool isMouseFocusable() const override;
 
     void didRecalcStyle(Style::Change) override;
 
     void dispatchBlurEvent(RefPtr<Element>&& newFocusedElement) override;
 
-    void handlePopoverTargetAction() const;
+    void handlePopoverTargetAction(const EventTarget*) const;
 
 private:
     void refFormAssociatedElement() const final { ref(); }
@@ -136,8 +137,6 @@ private:
     void runFocusingStepsForAutofocus() final;
     HTMLElement* validationAnchorElement() final { return this; }
 
-    bool isFormControlElement() const final { return true; }
-
     // These functions can be called concurrently for ValidityState.
     HTMLElement& asHTMLElement() final { return *this; }
     const HTMLFormControlElement& asHTMLElement() const final { return *this; }
@@ -145,8 +144,6 @@ private:
     FormAssociatedElement* asFormAssociatedElement() final { return this; }
     FormListedElement* asFormListedElement() final { return this; }
     ValidatedFormListedElement* asValidatedFormListedElement() final { return this; }
-
-    bool needsMouseFocusableQuirk() const;
 
     unsigned m_isRequired : 1;
     unsigned m_valueMatchesRenderer : 1;
@@ -157,6 +154,6 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::HTMLFormControlElement)
     static bool isType(const WebCore::Element& element) { return element.isFormControlElement(); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::Element>(node) && isType(downcast<WebCore::Element>(node)); }
-    static bool isType(const WebCore::FormListedElement& element) { return element.isFormControlElement(); }
+    static bool isType(const WebCore::Node& node) { return node.isFormControlElement(); }
+    static bool isType(const WebCore::FormListedElement& listedElement) { return listedElement.asHTMLElement().isFormControlElement(); }
 SPECIALIZE_TYPE_TRAITS_END()

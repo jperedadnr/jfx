@@ -42,7 +42,9 @@ public:
     WEBCORE_EXPORT String href() const;
     WEBCORE_EXPORT MediaList& media() const;
     WEBCORE_EXPORT CSSStyleSheet* styleSheet() const;
+    RefPtr<CSSStyleSheet> protectedStyleSheet() const;
     String layerName() const;
+    String supportsText() const;
 
 private:
     friend class MediaList;
@@ -51,8 +53,11 @@ private:
 
     StyleRuleType styleRuleType() const final { return StyleRuleType::Import; }
     String cssText() const final;
+    String cssText(const CSS::SerializationContext&) const final;
     void reattach(StyleRuleBase&) final;
+    void getChildStyleSheets(UncheckedKeyHashSet<RefPtr<CSSStyleSheet>>&) final;
 
+    String cssTextInternal(const String& urlString) const;
     const MQ::MediaQueryList& mediaQueries() const;
     void setMediaQueries(MQ::MediaQueryList&&);
 

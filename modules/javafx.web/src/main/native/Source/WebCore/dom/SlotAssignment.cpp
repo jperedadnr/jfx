@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,15 +31,20 @@
 #include "RenderTreeUpdater.h"
 #include "ShadowRoot.h"
 #include "TypedElementDescendantIteratorInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SlotAssignment);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NamedSlotAssignment);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NamedSlotAssignment::Slot);
 
 using namespace HTMLNames;
 
 struct SameSizeAsNamedSlotAssignment {
     virtual ~SameSizeAsNamedSlotAssignment() = default;
     uint32_t values[4];
-    HashMap<void*, void*> pointer;
+    UncheckedKeyHashMap<void*, void*> pointer;
 #if ASSERT_ENABLED
     WeakHashSet<Element> hashSet;
 #endif
@@ -73,14 +78,16 @@ static HTMLSlotElement* findSlotElement(ShadowRoot& shadowRoot, const AtomString
 
 static HTMLSlotElement* nextSlotElementSkippingSubtree(ContainerNode& startingNode, ContainerNode* skippedSubtree)
 {
-    Node* node = &startingNode;
-    do {
-        if (UNLIKELY(node == skippedSubtree))
-            node = NodeTraversal::nextSkippingChildren(*node);
-        else
-            node = NodeTraversal::next(*node);
-    } while (node && !is<HTMLSlotElement>(node));
-    return downcast<HTMLSlotElement>(node);
+    auto nextNode = [&](Node& node) {
+        if (UNLIKELY(&node == skippedSubtree))
+            return NodeTraversal::nextSkippingChildren(node);
+        return NodeTraversal::next(node);
+    };
+    for (auto* node = nextNode(startingNode); node; node = nextNode(*node)) {
+        if (auto* slotElement = dynamicDowncast<HTMLSlotElement>(*node))
+            return slotElement;
+    }
+    return nullptr;
 }
 
 NamedSlotAssignment::NamedSlotAssignment() = default;
@@ -124,10 +131,12 @@ void NamedSlotAssignment::addSlotElementByName(const AtomString& name, HTMLSlotE
 #endif
 
     // FIXME: We should be able to do a targeted reconstruction.
-    shadowRoot.host()->invalidateStyleAndRenderersForSubtree();
+    ASSERT(shadowRoot.host());
+    Ref shadowRootHost = *shadowRoot.host();
+    shadowRootHost->invalidateStyleAndRenderersForSubtree();
 
     if (!m_slotElementCount)
-        shadowRoot.host()->setHasShadowRootContainingSlots(true);
+        shadowRootHost->setHasShadowRootContainingSlots(true);
     m_slotElementCount++;
 
     auto& slotName = slotNameFromAttributeValue(name);
@@ -296,8 +305,10 @@ void NamedSlotAssignment::didChangeSlot(const AtomString& slotAttrValue, ShadowR
     if (!slot)
         return;
 
-    RenderTreeUpdater::tearDownRenderersAfterSlotChange(*shadowRoot.host());
-    shadowRoot.host()->invalidateStyleForSubtree();
+    ASSERT(shadowRoot.host());
+    Ref shadowRootHost = *shadowRoot.host();
+    RenderTreeUpdater::tearDownRenderersAfterSlotChange(shadowRootHost);
+    shadowRootHost->invalidateStyleForSubtree();
 
     slot->assignedNodes.clear();
     m_slotAssignmentsIsValid = false;
@@ -308,6 +319,11 @@ void NamedSlotAssignment::didChangeSlot(const AtomString& slotAttrValue, ShadowR
 
     if (shadowRoot.shouldFireSlotchangeEvent())
         slotElement->enqueueSlotChangeEvent();
+
+    if (slotElement->selfOrPrecedingNodesAffectDirAuto())
+        slotElement->updateEffectiveTextDirection();
+
+    slotElement->updateAccessibilityOnSlotChange();
 }
 
 void NamedSlotAssignment::didRemoveAllChildrenOfShadowHost(ShadowRoot& shadowRoot)
@@ -394,7 +410,7 @@ void NamedSlotAssignment::assignSlots(ShadowRoot& shadowRoot)
         entry.value->assignedNodes.shrink(0);
 
     if (auto* host = shadowRoot.host()) {
-        for (auto* child = host->firstChild(); child; child = child->nextSibling()) {
+        for (RefPtr child = host->firstChild(); child; child = child->nextSibling()) {
             if (!is<Text>(*child) && !is<Element>(*child))
                 continue;
             auto slotName = slotNameForHostChild(*child);
@@ -460,7 +476,7 @@ void ManualSlotAssignment::renameSlotElement(HTMLSlotElement&, const AtomString&
 void ManualSlotAssignment::addSlotElementByName(const AtomString&, HTMLSlotElement& slot, ShadowRoot& shadowRoot)
 {
     if (!m_slotElementCount)
-        shadowRoot.host()->setHasShadowRootContainingSlots(true);
+        shadowRoot.protectedHost()->setHasShadowRootContainingSlots(true);
     ++m_slotElementCount;
     ++m_slottableVersion;
 
@@ -491,7 +507,7 @@ void ManualSlotAssignment::removeSlotElementByName(const AtomString&, HTMLSlotEl
 void ManualSlotAssignment::slotManualAssignmentDidChange(HTMLSlotElement& slot, Vector<WeakPtr<Node, WeakPtrImplWithEventTargetData>>& previous, Vector<WeakPtr<Node, WeakPtrImplWithEventTargetData>>& current, ShadowRoot& shadowRoot)
 {
     auto effectivePrevious = effectiveAssignedNodes(shadowRoot, previous);
-    HashSet<Ref<HTMLSlotElement>> affectedSlots;
+    UncheckedKeyHashSet<Ref<HTMLSlotElement>> affectedSlots;
     for (auto& node : current) {
         RefPtr protectedNode = node.get();
         if (RefPtr previousSlot = protectedNode->manuallyAssignedSlot()) {
@@ -522,8 +538,9 @@ void ManualSlotAssignment::slotManualAssignmentDidChange(HTMLSlotElement& slot, 
         }
     };
 
-    RenderTreeUpdater::tearDownRenderersAfterSlotChange(*shadowRoot.host());
-    shadowRoot.host()->invalidateStyleForSubtree();
+    RefPtr shadowRootHost = shadowRoot.host();
+    RenderTreeUpdater::tearDownRenderersAfterSlotChange(*shadowRootHost);
+    shadowRootHost->invalidateStyleForSubtree();
 
     if (!shadowRoot.shouldFireSlotchangeEvent())
         return;
@@ -543,10 +560,11 @@ void ManualSlotAssignment::slotManualAssignmentDidChange(HTMLSlotElement& slot, 
 void ManualSlotAssignment::didRemoveManuallyAssignedNode(HTMLSlotElement& slot, const Node& node, ShadowRoot& shadowRoot)
 {
     ASSERT(slot.containingShadowRoot() == &shadowRoot);
-    ASSERT_UNUSED(node, node.parentNode() == shadowRoot.host());
+    RefPtr shadowRootHost = shadowRoot.host();
+    ASSERT_UNUSED(node, node.parentNode() == shadowRootHost);
     ++m_slottableVersion;
-    RenderTreeUpdater::tearDownRenderersAfterSlotChange(*shadowRoot.host());
-    shadowRoot.host()->invalidateStyleForSubtree();
+    RenderTreeUpdater::tearDownRenderersAfterSlotChange(*shadowRootHost);
+    shadowRootHost->invalidateStyleForSubtree();
     if (shadowRoot.shouldFireSlotchangeEvent())
         slot.enqueueSlotChangeEvent();
 }

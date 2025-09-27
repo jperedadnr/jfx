@@ -52,21 +52,21 @@ static bool isValidMediaMIMEType(const ContentType& contentType)
     // A "bucket" MIME types is one whose container type does not uniquely specify a codec.
     // See: https://tools.ietf.org/html/rfc6381
     static constexpr ComparableASCIILiteral bucketMIMETypeArray[] = {
-        "application/mp21",
-        "application/mp4",
-        "audio/3gpp",
-        "audio/3gpp2",
-        "audio/mp4",
-        "audio/ogg",
-        "audio/vnd.apple.mpegurl",
-        "audio/webm",
-        "video/3gpp",
-        "video/3gpp2",
-        "video/mp4",
-        "video/ogg",
-        "video/quicktime",
-        "video/vnd.apple.mpegurl",
-        "video/webm",
+        "application/mp21"_s,
+        "application/mp4"_s,
+        "audio/3gpp"_s,
+        "audio/3gpp2"_s,
+        "audio/mp4"_s,
+        "audio/ogg"_s,
+        "audio/vnd.apple.mpegurl"_s,
+        "audio/webm"_s,
+        "video/3gpp"_s,
+        "video/3gpp2"_s,
+        "video/mp4"_s,
+        "video/ogg"_s,
+        "video/quicktime"_s,
+        "video/vnd.apple.mpegurl"_s,
+        "video/webm"_s,
     };
     static constexpr SortedArraySet bucketMIMETypes { bucketMIMETypeArray };
 
@@ -168,7 +168,7 @@ static bool isValidMediaConfiguration(const MediaConfiguration& configuration)
 static void gatherDecodingInfo(Document& document, MediaDecodingConfiguration&& configuration, MediaEngineConfigurationFactory::DecodingConfigurationCallback&& callback)
 {
     RELEASE_LOG_INFO(Media, "Gathering decoding MediaCapabilities");
-    MediaEngineConfigurationFactory::DecodingConfigurationCallback decodingCallback = [callback = WTFMove(callback)](auto&& result) mutable {
+    MediaEngineConfigurationFactory::DecodingConfigurationCallback decodingCallback = [callback = WTFMove(callback)](MediaCapabilitiesDecodingInfo&& result) mutable {
         RELEASE_LOG_INFO(Media, "Finished gathering decoding MediaCapabilities");
         callback(WTFMove(result));
     };
@@ -235,7 +235,7 @@ void MediaCapabilities::decodingInfo(ScriptExecutionContext& context, MediaDecod
     // 3. If configuration.audio is present and is not a valid audio configuration, return a Promise rejected with a TypeError.
     if (!isValidMediaConfiguration(configuration)) {
         RELEASE_LOG_INFO(Media, "Invalid decoding media configuration");
-        promise->reject(TypeError);
+        promise->reject(ExceptionCode::TypeError);
         return;
     }
 
@@ -249,14 +249,14 @@ void MediaCapabilities::decodingInfo(ScriptExecutionContext& context, MediaDecod
         });
     };
 
-    if (is<Document>(context)) {
-        gatherDecodingInfo(downcast<Document>(context), WTFMove(configuration), WTFMove(callback));
+    if (RefPtr document = dynamicDowncast<Document>(context)) {
+        gatherDecodingInfo(*document, WTFMove(configuration), WTFMove(callback));
         return;
     }
 
     m_decodingTasks.add(++m_nextTaskIdentifier, WTFMove(callback));
     context.postTaskToResponsibleDocument([configuration = WTFMove(configuration).isolatedCopy(), contextIdentifier = context.identifier(), weakThis = WeakPtr { this }, taskIdentifier = m_nextTaskIdentifier](auto& document) mutable {
-        gatherDecodingInfo(document, WTFMove(configuration), [contextIdentifier, weakThis = WTFMove(weakThis), taskIdentifier](auto&& result) mutable {
+        gatherDecodingInfo(document, WTFMove(configuration), [contextIdentifier, weakThis = WTFMove(weakThis), taskIdentifier](MediaCapabilitiesDecodingInfo&& result) mutable {
             ScriptExecutionContext::postTaskTo(contextIdentifier, [weakThis = WTFMove(weakThis), taskIdentifier, result = WTFMove(result).isolatedCopy()](auto&) mutable {
                 if (!weakThis)
                     return;
@@ -292,7 +292,7 @@ void MediaCapabilities::encodingInfo(ScriptExecutionContext& context, MediaEncod
     // encoding modules.
     if (!isValidMediaConfiguration(configuration)) {
         RELEASE_LOG_INFO(Media, "Invalid encoding media configuration");
-        promise->reject(TypeError);
+        promise->reject(ExceptionCode::TypeError);
         return;
     }
 
@@ -306,8 +306,8 @@ void MediaCapabilities::encodingInfo(ScriptExecutionContext& context, MediaEncod
         });
     };
 
-    if (is<Document>(context)) {
-        gatherEncodingInfo(downcast<Document>(context), WTFMove(configuration), WTFMove(callback));
+    if (RefPtr document = dynamicDowncast<Document>(context)) {
+        gatherEncodingInfo(*document, WTFMove(configuration), WTFMove(callback));
         return;
     }
 

@@ -27,6 +27,10 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include <wtf/Compiler.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 #include "WasmCalleeGroup.h"
 #include "WasmJS.h"
 #include "WasmMemory.h"
@@ -39,16 +43,18 @@
 namespace JSC {
 
 class VM;
+class JSWebAssemblyInstance;
 
 namespace Wasm {
 
 class LLIntPlan;
 class IPIntPlan;
 struct ModuleInformation;
+enum class BindingFailure;
 
 class Module : public ThreadSafeRefCounted<Module> {
 public:
-    using ValidationResult = Expected<RefPtr<Module>, String>;
+    using ValidationResult = Expected<Ref<Module>, String>;
     typedef void CallbackType(ValidationResult&&);
     using AsyncValidationCallback = RefPtr<SharedTask<CallbackType>>;
 
@@ -64,7 +70,7 @@ public:
         return adoptRef(*new Module(plan));
     }
 
-    Wasm::TypeIndex typeIndexFromFunctionIndexSpace(unsigned functionIndexSpace) const;
+    Wasm::TypeIndex typeIndexFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace) const;
     const Wasm::ModuleInformation& moduleInformation() const { return m_moduleInformation.get(); }
 
     Ref<CalleeGroup> compileSync(VM&, MemoryMode);
@@ -76,7 +82,7 @@ public:
 
     void copyInitialCalleeGroupToAllMemoryModes(MemoryMode);
 
-    WasmToJSCallee& wasmToJSCallee() { return m_wasmToJSCallee.get(); }
+    CodePtr<WasmEntryPtrTag> importFunctionStub(FunctionSpaceIndex importFunctionNum) { return m_wasmToJSExitStubs[importFunctionNum].code(); }
 
 private:
     Ref<CalleeGroup> getOrCreateCalleeGroup(VM&, MemoryMode);
@@ -87,11 +93,12 @@ private:
     RefPtr<CalleeGroup> m_calleeGroups[numberOfMemoryModes];
     Ref<LLIntCallees> m_llintCallees;
     Ref<IPIntCallees> m_ipintCallees;
-    Ref<WasmToJSCallee> m_wasmToJSCallee;
-    MacroAssemblerCodeRef<JITCompilationPtrTag> m_llintEntryThunks;
+    FixedVector<MacroAssemblerCodeRef<WasmEntryPtrTag>> m_wasmToJSExitStubs;
     Lock m_lock;
 };
 
 } } // namespace JSC::Wasm
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

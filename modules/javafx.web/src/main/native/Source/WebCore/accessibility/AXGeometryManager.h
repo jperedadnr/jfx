@@ -26,7 +26,7 @@
 #pragma once
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-#include "AccessibilityObjectInterface.h"
+#include "AXCoreObject.h"
 #include "IntRectHash.h"
 #include <wtf/Lock.h>
 #include <wtf/RefCounted.h>
@@ -35,9 +35,10 @@ namespace WebCore {
 
 class AXObjectCache;
 
-class AXGeometryManager : public ThreadSafeRefCounted<AXGeometryManager> {
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AXGeometryManager);
+class AXGeometryManager final : public ThreadSafeRefCounted<AXGeometryManager> {
     WTF_MAKE_NONCOPYABLE(AXGeometryManager);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(AXGeometryManager);
 public:
     explicit AXGeometryManager(AXObjectCache&);
     AXGeometryManager();
@@ -50,7 +51,7 @@ public:
     void willUpdateObjectRegions();
     void scheduleObjectRegionsUpdate(bool /* scheduleImmediately */);
 
-    void cacheRect(AXID, IntRect&&);
+    void cacheRect(std::optional<AXID>, IntRect&&);
     // std::nullopt if there is no cached rect for the given ID (i.e. because it hasn't been cached yet via paint or otherwise, or cannot be painted / cached at all).
     std::optional<IntRect> cachedRectForID(AXID);
 
@@ -67,7 +68,7 @@ private:
 
     // The cache that owns this instance.
     WeakPtr<AXObjectCache> m_cache;
-    HashMap<AXID, IntRect> m_cachedRects;
+    UncheckedKeyHashMap<AXID, IntRect> m_cachedRects;
     Timer m_updateObjectRegionsTimer;
 
 #if PLATFORM(MAC)

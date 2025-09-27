@@ -32,12 +32,19 @@
 #include "CSSParserTokenRange.h"
 #include "CSSPrimitiveValue.h"
 #include "MediaQuery.h"
+#include <wtf/WeakRef.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class CSSValue;
 class Document;
+
+struct CSSParserContext;
+
+namespace CSS {
+enum class LengthUnit : uint8_t;
+}
 
 class SizesAttributeParser {
 public:
@@ -46,18 +53,20 @@ public:
     float length();
 
     static float defaultLength(const Document&);
-    static float computeLength(double value, CSSUnitType, const Document&);
+    static float computeLength(double value, CSS::LengthUnit, const Document&);
 
     auto& dynamicMediaQueryResults() const { return m_dynamicMediaQueryResults; }
 
 private:
-    bool parse(CSSParserTokenRange);
+    bool parse(CSSParserTokenRange, const CSSParserContext&);
     float effectiveSize();
-    bool calculateLengthInPixels(CSSParserTokenRange, float& result);
+    std::optional<float> calculateLengthInPixels(CSSParserTokenRange);
     bool mediaConditionMatches(const MQ::MediaQuery&);
     unsigned effectiveSizeDefaultValue();
 
-    const Document& m_document;
+    Ref<const Document> protectedDocument() const;
+
+    WeakRef<const Document, WeakPtrImplWithEventTargetData> m_document;
     Vector<MQ::MediaQueryResult> m_dynamicMediaQueryResults;
     float m_length { 0 };
     bool m_lengthWasSet { false };

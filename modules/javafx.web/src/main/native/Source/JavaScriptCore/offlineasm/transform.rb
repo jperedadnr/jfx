@@ -268,6 +268,7 @@ class Label
             result = Label.forName(codeOrigin, name, @definedInFile)
             result.setGlobal() if global?
             result.setUnalignedGlobal() unless aligned?
+            result.setAligned(@alignTo) if aligned? and @alignTo
             result.clearExtern unless extern?
             result
         else
@@ -288,6 +289,7 @@ class Label
             result = Label.forName(codeOrigin, name, @definedInFile)
             result.setGlobal() if global?
             result.setUnalignedGlobal() unless aligned?
+            result.setAligned(@alignTo) if aligned? and @alignTo
             result.clearExtern unless extern?
             result
         else
@@ -398,7 +400,7 @@ class Sequence
         @list.each {
             | item |
             if item.is_a? LocalLabel
-                mapping[item] = LocalLabel.unique(if comment then comment + "_" else "" end + item.cleanName)
+                mapping[item] = LocalLabel.unique(codeOrigin, if comment then comment + "_" else "" end + item.cleanName)
             end
         }
         
@@ -675,6 +677,11 @@ class RegisterID
 end
 
 class FPRegisterID
+    def validate
+    end
+end
+
+class VecRegisterID
     def validate
     end
 end

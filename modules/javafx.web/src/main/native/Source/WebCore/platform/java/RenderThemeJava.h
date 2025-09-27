@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,7 +48,7 @@ public:
     RenderThemeJava();
 
     // A method asking if the theme's controls actually care about redrawing when hovered.
-    bool supportsHover(const RenderStyle&) const override { return true; }
+    bool supportsHover() const override { return true; }
 
 protected:
     bool paintCheckbox(const RenderObject& o, const PaintInfo& i, const FloatRect& r) override;
@@ -64,7 +64,7 @@ protected:
     bool paintTextField(const RenderObject&, const PaintInfo&, const FloatRect&) override;
 
     void adjustSearchFieldStyle(RenderStyle&, const Element*) const override;
-    bool paintSearchField(const RenderObject&, const PaintInfo&, const IntRect&) override;
+    bool paintSearchField(const RenderObject&, const PaintInfo&, const FloatRect&) override;
 
     void adjustMenuListStyle(RenderStyle&, const Element*) const override;
     bool paintMenuList(const RenderObject&, const PaintInfo&, const FloatRect&) override;
@@ -74,7 +74,7 @@ protected:
 
     void adjustTextAreaStyle(RenderStyle&, const Element* e) const override;
     bool paintTextArea(const RenderObject&, const PaintInfo&, const FloatRect&) override;
-    bool supportsFocusRing(const RenderStyle&) const override;
+    bool supportsFocusRing(const RenderObject&, const RenderStyle&) const override;
 
     Color platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
     Color platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const override;
@@ -88,13 +88,14 @@ protected:
     bool paintMediaSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&) override;
     bool paintMediaSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&) override;
 #endif
+    void adjustSwitchStyle(RenderStyle& style, const Element*) const override;
 
     Seconds animationRepeatIntervalForProgressBar(const RenderProgress&) const override;
-    Seconds animationDurationForProgressBar(const RenderProgress&) const override;
+    Seconds animationDurationForProgressBar() const override;
     void adjustProgressBarStyle(RenderStyle&, const Element*) const override;
     bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&) override;
 
-    bool supportsMeter(StyleAppearance, const HTMLMeterElement&) const override;
+    bool supportsMeter(StyleAppearance) const override;
     bool paintMeter(const RenderObject&, const PaintInfo&, const IntRect&) override;
 
 #if ENABLE(DATALIST_ELEMENT)

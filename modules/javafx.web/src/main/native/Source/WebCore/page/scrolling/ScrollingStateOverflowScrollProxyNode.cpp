@@ -30,13 +30,17 @@
 
 #include "ScrollingStateOverflowScrollingNode.h"
 #include "ScrollingStateTree.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-Ref<ScrollingStateOverflowScrollProxyNode> ScrollingStateOverflowScrollProxyNode::create(ScrollingStateTree& stateTree, ScrollingNodeID nodeID)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScrollingStateOverflowScrollProxyNode);
+
+ScrollingStateOverflowScrollProxyNode::ScrollingStateOverflowScrollProxyNode(ScrollingNodeID nodeID, Vector<Ref<ScrollingStateNode>>&& children, OptionSet<ScrollingStateNodeProperty> changedProperties, std::optional<PlatformLayerIdentifier> layerID, std::optional<ScrollingNodeID> overflowScrollingNode)
+    : ScrollingStateNode(ScrollingNodeType::OverflowProxy, nodeID, WTFMove(children), changedProperties, layerID)
+    , m_overflowScrollingNodeID(overflowScrollingNode)
 {
-    return adoptRef(*new ScrollingStateOverflowScrollProxyNode(stateTree, nodeID));
 }
 
 ScrollingStateOverflowScrollProxyNode::ScrollingStateOverflowScrollProxyNode(ScrollingStateTree& stateTree, ScrollingNodeID nodeID)
@@ -67,7 +71,7 @@ OptionSet<ScrollingStateNode::Property> ScrollingStateOverflowScrollProxyNode::a
 }
 
 
-void ScrollingStateOverflowScrollProxyNode::setOverflowScrollingNode(ScrollingNodeID nodeID)
+void ScrollingStateOverflowScrollProxyNode::setOverflowScrollingNode(std::optional<ScrollingNodeID> nodeID)
 {
     if (nodeID == m_overflowScrollingNodeID)
         return;
@@ -83,8 +87,8 @@ void ScrollingStateOverflowScrollProxyNode::dumpProperties(TextStream& ts, Optio
     ScrollingStateNode::dumpProperties(ts, behavior);
 
     if (auto relatedOverflowNode = scrollingStateTree().stateNodeForID(m_overflowScrollingNodeID)) {
-        auto scrollPosition = downcast<ScrollingStateOverflowScrollingNode>(*relatedOverflowNode).scrollPosition();
-        ts.dumpProperty("related overflow scrolling node scroll position", scrollPosition);
+        if (RefPtr overflowScrollingNode = dynamicDowncast<ScrollingStateOverflowScrollingNode>(relatedOverflowNode))
+            ts.dumpProperty("related overflow scrolling node scroll position", overflowScrollingNode->scrollPosition());
     }
 
     if (behavior & ScrollingStateTreeAsTextBehavior::IncludeNodeIDs)

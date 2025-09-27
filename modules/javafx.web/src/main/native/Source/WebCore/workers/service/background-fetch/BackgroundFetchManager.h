@@ -25,12 +25,10 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "BackgroundFetchRegistration.h"
 #include "JSDOMPromiseDeferred.h"
 #include "ServiceWorkerTypes.h"
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -42,7 +40,7 @@ struct BackgroundFetchOptions;
 class FetchRequest;
 class ServiceWorkerRegistration;
 
-class BackgroundFetchManager : public RefCounted<BackgroundFetchManager>, public CanMakeWeakPtr<BackgroundFetchManager> {
+class BackgroundFetchManager : public RefCountedAndCanMakeWeakPtr<BackgroundFetchManager> {
 public:
     static Ref<BackgroundFetchManager> create(ServiceWorkerRegistration& registration) { return adoptRef(*new BackgroundFetchManager(registration)); }
     ~BackgroundFetchManager();
@@ -64,5 +62,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

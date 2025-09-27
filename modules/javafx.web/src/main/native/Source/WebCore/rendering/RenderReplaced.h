@@ -26,11 +26,12 @@
 namespace WebCore {
 
 class RenderReplaced : public RenderBox {
-    WTF_MAKE_ISO_ALLOCATED(RenderReplaced);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderReplaced);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderReplaced);
 public:
     virtual ~RenderReplaced();
 
-    LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred = ComputeActual) const override;
+    LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred = ShouldComputePreferred::ComputeActual) const override;
     LayoutUnit computeReplacedLogicalHeight(std::optional<LayoutUnit> estimatedUsedWidth = std::nullopt) const override;
 
     LayoutRect replacedContentRect(const LayoutSize& intrinsicSize) const;
@@ -39,8 +40,7 @@ public:
     bool setNeedsLayoutIfNeededAfterIntrinsicSizeChange();
 
     LayoutSize intrinsicSize() const final;
-
-    RoundedRect roundedContentBoxRect() const;
+    FloatSize intrinsicRatio() const;
 
     bool isContentLikelyVisibleInViewport();
     bool needsPreferredWidthsRecalculation() const override;
@@ -49,10 +49,12 @@ public:
 
     void computeIntrinsicRatioInformation(FloatSize& intrinsicSize, FloatSize& intrinsicRatio) const override;
 
+    virtual bool paintsContent() const { return true; }
+
 protected:
-    RenderReplaced(Element&, RenderStyle&&);
-    RenderReplaced(Element&, RenderStyle&&, const LayoutSize& intrinsicSize);
-    RenderReplaced(Document&, RenderStyle&&, const LayoutSize& intrinsicSize);
+    RenderReplaced(Type, Element&, RenderStyle&&, OptionSet<ReplacedFlag> = { });
+    RenderReplaced(Type, Element&, RenderStyle&&, const LayoutSize& intrinsicSize, OptionSet<ReplacedFlag> = { });
+    RenderReplaced(Type, Document&, RenderStyle&&, const LayoutSize& intrinsicSize, OptionSet<ReplacedFlag> = { });
 
     void layout() override;
 
@@ -74,8 +76,10 @@ protected:
 
     void willBeDestroyed() override;
 
+    virtual void layoutShadowContent(const LayoutSize&);
+
 private:
-    LayoutUnit computeConstrainedLogicalWidth(ShouldComputePreferred) const;
+    LayoutUnit computeConstrainedLogicalWidth() const;
 
     virtual RenderBox* embeddedContentBox() const { return 0; }
     ASCIILiteral renderName() const override { return "RenderReplaced"_s; }
@@ -85,9 +89,9 @@ private:
     void computePreferredLogicalWidths() final;
     virtual void paintReplaced(PaintInfo&, const LayoutPoint&) { }
 
-    LayoutRect clippedOverflowRect(const RenderLayerModelObject* repaintContainer, VisibleRectContext) const override;
+    RepaintRects localRectsForRepaint(RepaintOutlineBounds) const override;
 
-    VisiblePosition positionForPoint(const LayoutPoint&, const RenderFragmentContainer*) final;
+    VisiblePosition positionForPoint(const LayoutPoint&, HitTestSource, const RenderFragmentContainer*) final;
 
     bool canBeSelectionLeaf() const override { return true; }
 
@@ -98,12 +102,11 @@ private:
     virtual bool shouldDrawSelectionTint() const;
 
     Color calculateHighlightColor() const;
-    bool isHighlighted(HighlightState, const HighlightData&) const;
+    bool isHighlighted(HighlightState, const RenderHighlight&) const;
 
     bool hasReplacedLogicalHeight() const;
 
     mutable LayoutSize m_intrinsicSize;
-    mutable FloatSize m_intrinsicRatio;
 };
 
 } // namespace WebCore

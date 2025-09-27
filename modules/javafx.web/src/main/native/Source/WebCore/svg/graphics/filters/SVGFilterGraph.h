@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2022-2023 Apple Inc.  All rights reserved.
+ * Copyright (C) 2022-2024 Apple Inc.  All rights reserved.
+ * Copyright (C) 2014 Google Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,8 +48,8 @@ public:
         m_sourceNodes.add(SourceGraphic::effectName(), WTFMove(sourceGraphic));
         m_sourceNodes.add(SourceAlpha::effectName(), WTFMove(sourceAlpha));
 
-        setNodeInputs(*this->sourceGraphic(), NodeVector { });
-        setNodeInputs(*this->sourceAlpha(), NodeVector { *this->sourceGraphic() });
+        setNodeInputs(Ref { *this->sourceGraphic() }, NodeVector { });
+        setNodeInputs(Ref { *this->sourceAlpha() }, NodeVector { *this->sourceGraphic() });
     }
 
     NodeType* sourceGraphic() const
@@ -77,17 +78,19 @@ public:
 
     RefPtr<NodeType> getNamedNode(const AtomString& id) const
     {
-        if (id.isEmpty()) {
-            if (m_lastNode)
-                return m_lastNode;
+        if (!id.isEmpty()) {
+            if (RefPtr sourceNode = m_sourceNodes.get(id))
+                return sourceNode;
 
-            return sourceGraphic();
+            if (RefPtr namedNode = m_namedNodes.get(id))
+                return namedNode;
         }
 
-        if (m_sourceNodes.contains(id))
-            return m_sourceNodes.get(id);
+        if (m_lastNode)
+            return m_lastNode;
 
-        return m_namedNodes.get(id);
+        // Fallback to the 'sourceGraphic' input.
+        return sourceGraphic();
     }
 
     std::optional<NodeVector> getNamedNodes(std::span<const AtomString> names) const
@@ -98,7 +101,7 @@ public:
 
         for (auto& name : names) {
             if (auto node = getNamedNode(name))
-            nodes.uncheckedAppend(node.releaseNonNull());
+                nodes.append(node.releaseNonNull());
             else if (!isSourceName(name))
                 return std::nullopt;
         }
@@ -126,13 +129,14 @@ public:
     NodeType* lastNode() const { return m_lastNode.get(); }
 
     template<typename Callback>
-    bool visit(Callback callback)
+    bool visit(NOESCAPE const Callback& callback)
     {
-        if (!lastNode())
+        RefPtr lastNode = m_lastNode;
+        if (!lastNode)
             return false;
 
         Vector<Ref<NodeType>> stack;
-        return visit(*lastNode(), stack, 0, callback);
+        return visit(*lastNode, stack, 0, callback);
     }
 
 private:
@@ -142,7 +146,7 @@ private:
     }
 
     template<typename Callback>
-    bool visit(NodeType& node, Vector<Ref<NodeType>>& stack, unsigned level, Callback callback)
+    bool visit(NodeType& node, Vector<Ref<NodeType>>& stack, unsigned level, NOESCAPE const Callback& callback)
     {
         // A cycle is detected.
         if (stack.containsIf([&](auto& item) { return item.ptr() == &node; }))
@@ -164,9 +168,9 @@ private:
         return true;
     }
 
-    HashMap<AtomString, Ref<NodeType>> m_sourceNodes;
-    HashMap<AtomString, Ref<NodeType>> m_namedNodes;
-    HashMap<Ref<NodeType>, NodeVector> m_nodeInputs;
+    UncheckedKeyHashMap<AtomString, Ref<NodeType>> m_sourceNodes;
+    UncheckedKeyHashMap<AtomString, Ref<NodeType>> m_namedNodes;
+    UncheckedKeyHashMap<Ref<NodeType>, NodeVector> m_nodeInputs;
     RefPtr<NodeType> m_lastNode;
 };
 

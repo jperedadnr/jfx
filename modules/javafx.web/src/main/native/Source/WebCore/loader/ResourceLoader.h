@@ -28,6 +28,8 @@
 
 #pragma once
 
+#include "CachedResourceHandle.h"
+#include "FrameLoaderTypes.h"
 #include "ResourceHandleClient.h"
 #include "ResourceLoadTiming.h"
 #include "ResourceLoaderIdentifier.h"
@@ -37,6 +39,7 @@
 #include "ResourceResponse.h"
 #include "SharedBuffer.h"
 #include <wtf/Forward.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -57,8 +60,12 @@ class LegacyPreviewLoader;
 class LocalFrame;
 class NetworkLoadMetrics;
 
+#if ENABLE(CONTENT_EXTENSIONS)
+class ResourceMonitor;
+#endif
+
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ResourceLoader);
-class ResourceLoader : public CanMakeWeakPtr<ResourceLoader>, public RefCounted<ResourceLoader>, protected ResourceHandleClient {
+class ResourceLoader : public RefCountedAndCanMakeWeakPtr<ResourceLoader>, protected ResourceHandleClient {
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ResourceLoader);
 public:
     virtual ~ResourceLoader() = 0;
@@ -79,11 +86,13 @@ public:
 #endif
 
     WEBCORE_EXPORT FrameLoader* frameLoader() const;
+    WEBCORE_EXPORT RefPtr<FrameLoader> protectedFrameLoader() const;
     DocumentLoader* documentLoader() const { return m_documentLoader.get(); }
+    WEBCORE_EXPORT RefPtr<DocumentLoader> protectedDocumentLoader() const;
     const ResourceRequest& originalRequest() const { return m_originalRequest; }
 
     WEBCORE_EXPORT void start();
-    WEBCORE_EXPORT void cancel(const ResourceError&);
+    WEBCORE_EXPORT void cancel(const ResourceError&, LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No);
     WEBCORE_EXPORT ResourceError cancelledError();
     WEBCORE_EXPORT ResourceError blockedError();
     ResourceError blockedByContentBlockerError();
@@ -93,7 +102,7 @@ public:
     virtual void setDefersLoading(bool);
     bool defersLoading() const { return m_defersLoading; }
 
-    ResourceLoaderIdentifier identifier() const { return m_identifier; }
+    std::optional<ResourceLoaderIdentifier> identifier() const { return m_identifier; }
 
     bool wasAuthenticationChallengeBlocked() const { return m_wasAuthenticationChallengeBlocked; }
 
@@ -101,6 +110,7 @@ public:
     const ResourceResponse& response() const { return m_response; }
 
     const FragmentedSharedBuffer* resourceData() const;
+    RefPtr<const FragmentedSharedBuffer> protectedResourceData() const;
     void clearResourceData();
 
     virtual bool isSubresourceLoader() const;
@@ -136,6 +146,7 @@ public:
     WEBCORE_EXPORT bool shouldIncludeCertificateInfo() const;
 
     virtual CachedResource* cachedResource() const { return nullptr; }
+    CachedResourceHandle<CachedResource> protectedCachedResource() const { return cachedResource(); }
 
     bool reachedTerminalState() const { return m_reachedTerminalState; }
 
@@ -153,7 +164,8 @@ public:
     void unschedule(WTF::SchedulePair&);
 #endif
 
-    const LocalFrame* frame() const { return m_frame.get(); }
+    WEBCORE_EXPORT LocalFrame* frame() const;
+    RefPtr<LocalFrame> protectedFrame() const;
 
     const ResourceLoaderOptions& options() const { return m_options; }
 
@@ -161,6 +173,10 @@ public:
     ResourceRequest takeDeferredRequest() { return std::exchange(m_deferredRequest, { }); }
 
     bool isPDFJSResourceLoad() const;
+
+#if ENABLE(CONTENT_EXTENSIONS)
+    WEBCORE_EXPORT ResourceMonitor* resourceMonitorIfExists();
+#endif
 
 protected:
     ResourceLoader(LocalFrame&, ResourceLoaderOptions);
@@ -180,7 +196,7 @@ protected:
     virtual void willSendRequestInternal(ResourceRequest&&, const ResourceResponse& redirectResponse, CompletionHandler<void(ResourceRequest&&)>&&);
 
     RefPtr<ResourceHandle> m_handle;
-    RefPtr<LocalFrame> m_frame;
+    WeakPtr<LocalFrame> m_frame;
     RefPtr<DocumentLoader> m_documentLoader;
     ResourceResponse m_response;
     ResourceLoadTiming m_loadTiming;
@@ -191,7 +207,7 @@ protected:
 
 private:
     virtual void willCancel(const ResourceError&) = 0;
-    virtual void didCancel(const ResourceError&) = 0;
+    virtual void didCancel(LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No) = 0;
 
     void addBuffer(const FragmentedSharedBuffer&, DataPayloadType);
     void loadDataURL();
@@ -227,7 +243,7 @@ private:
     ResourceRequest m_originalRequest; // Before redirects.
     SharedBufferBuilder m_resourceData;
 
-    ResourceLoaderIdentifier m_identifier;
+    Markable<ResourceLoaderIdentifier> m_identifier;
 
     bool m_reachedTerminalState { false };
     bool m_notifiedLoadComplete { false };

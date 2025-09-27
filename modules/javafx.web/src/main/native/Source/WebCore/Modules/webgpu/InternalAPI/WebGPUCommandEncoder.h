@@ -37,7 +37,8 @@
 #include "WebGPURenderPassEncoder.h"
 #include <optional>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore::WebGPU {
@@ -45,7 +46,7 @@ namespace WebCore::WebGPU {
 class Buffer;
 class QuerySet;
 
-class CommandEncoder : public RefCounted<CommandEncoder> {
+class CommandEncoder : public RefCountedAndCanMakeWeakPtr<CommandEncoder> {
 public:
     virtual ~CommandEncoder() = default;
 
@@ -57,8 +58,8 @@ public:
         setLabelInternal(m_label);
     }
 
-    virtual Ref<RenderPassEncoder> beginRenderPass(const RenderPassDescriptor&) = 0;
-    virtual Ref<ComputePassEncoder> beginComputePass(const std::optional<ComputePassDescriptor>&) = 0;
+    virtual RefPtr<RenderPassEncoder> beginRenderPass(const RenderPassDescriptor&) = 0;
+    virtual RefPtr<ComputePassEncoder> beginComputePass(const std::optional<ComputePassDescriptor>&) = 0;
 
     virtual void copyBufferToBuffer(
         const Buffer& source,
@@ -100,7 +101,7 @@ public:
         const Buffer& destination,
         Size64 destinationOffset) = 0;
 
-    virtual Ref<CommandBuffer> finish(const CommandBufferDescriptor&) = 0;
+    virtual RefPtr<CommandBuffer> finish(const CommandBufferDescriptor&) = 0;
 
 protected:
     CommandEncoder() = default;

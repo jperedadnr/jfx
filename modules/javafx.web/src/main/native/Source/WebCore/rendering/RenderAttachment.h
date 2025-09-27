@@ -33,9 +33,11 @@
 namespace WebCore {
 
 class RenderAttachment final : public RenderReplaced {
-    WTF_MAKE_ISO_ALLOCATED(RenderAttachment);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderAttachment);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderAttachment);
 public:
     RenderAttachment(HTMLAttachmentElement&, RenderStyle&&);
+    virtual ~RenderAttachment();
 
     HTMLAttachmentElement& attachmentElement() const;
 
@@ -53,10 +55,9 @@ public:
 
 private:
     void element() const = delete;
-    bool isAttachment() const override { return true; }
     ASCIILiteral renderName() const override { return "RenderAttachment"_s; }
     LayoutSize layoutWideLayoutAttachmentOnly();
-    void layoutShadowContent(const LayoutSize&);
+    void layoutShadowContent(const LayoutSize&) override;
 
     bool shouldDrawSelectionTint() const override { return isWideLayout(); }
     void paintReplaced(PaintInfo&, const LayoutPoint& offset) final;
@@ -73,6 +74,6 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderAttachment, isAttachment())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderAttachment, isRenderAttachment())
 
 #endif // ENABLE(ATTACHMENT_ELEMENT)

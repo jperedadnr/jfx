@@ -33,6 +33,7 @@
 #include "WebGPUTextureFormat.h"
 #include <IOSurface/IOSurfaceRef.h>
 #include <WebGPU/WebGPU.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore::WebGPU {
 
@@ -40,7 +41,7 @@ class ConvertToBackingContext;
 class TextureImpl;
 
 class PresentationContextImpl final : public PresentationContext {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PresentationContextImpl);
 public:
     static Ref<PresentationContextImpl> create(WebGPUPtr<WGPUSurface>&& surface, ConvertToBackingContext& convertToBackingContext)
     {
@@ -49,15 +50,12 @@ public:
 
     virtual ~PresentationContextImpl();
 
-    void setSize(uint32_t width, uint32_t height)
-    {
-        m_width = width;
-        m_height = height;
-    }
+    void setSize(uint32_t width, uint32_t height);
 
-    void present();
+    void present(uint32_t frameIndex, bool = false);
 
     WGPUSurface backing() const { return m_backing.get(); }
+    RefPtr<WebCore::NativeImage> getMetalTextureAsNativeImage(uint32_t bufferIndex, bool& isIOSurfaceSupportedFormat) final;
 
 private:
     friend class DowncastConvertToBackingContext;
@@ -69,10 +67,10 @@ private:
     PresentationContextImpl& operator=(const PresentationContextImpl&) = delete;
     PresentationContextImpl& operator=(PresentationContextImpl&&) = delete;
 
-    void configure(const CanvasConfiguration&) final;
+    bool configure(const CanvasConfiguration&) final;
     void unconfigure() final;
 
-    RefPtr<Texture> getCurrentTexture() final;
+    RefPtr<Texture> getCurrentTexture(uint32_t) final;
 
     TextureFormat m_format { TextureFormat::Bgra8unorm };
     uint32_t m_width { 0 };

@@ -29,7 +29,7 @@
 #include "ClientOrigin.h"
 #include "WebLockIdentifier.h"
 #include "WebLockMode.h"
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -42,8 +42,11 @@ class WebLockRegistry;
 struct ClientOrigin;
 struct WebLockManagerSnapshot;
 
-class WebLockManager : public RefCounted<WebLockManager>, public CanMakeWeakPtr<WebLockManager>, public ActiveDOMObject {
+class WebLockManager : public RefCountedAndCanMakeWeakPtr<WebLockManager>, public ActiveDOMObject {
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<WebLockManager> create(NavigatorBase&);
     ~WebLockManager();
 
@@ -70,7 +73,6 @@ private:
 
     // ActiveDOMObject.
     void stop() final;
-    const char* activeDOMObjectName() const final;
     bool virtualHasPendingActivity() const final;
 
     class MainThreadBridge;

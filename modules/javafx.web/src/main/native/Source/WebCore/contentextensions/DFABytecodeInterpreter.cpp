@@ -27,6 +27,7 @@
 #include "DFABytecodeInterpreter.h"
 
 #include "ContentExtensionsDebugging.h"
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/CString.h>
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -36,8 +37,7 @@ namespace WebCore::ContentExtensions {
 template <typename IntType>
 static IntType getBits(std::span<const uint8_t> bytecode, uint32_t index)
 {
-    ASSERT(index + sizeof(IntType) <= bytecode.size());
-    return *reinterpret_cast<const IntType*>(bytecode.data() + index);
+    return reinterpretCastSpanStartTo<const IntType>(bytecode.subspan(index));
 }
 
 static uint32_t get24BitsUnsigned(std::span<const uint8_t> bytecode, uint32_t index)
@@ -203,7 +203,7 @@ void DFABytecodeInterpreter::interpretTestFlagsAndAppendAction(uint32_t& program
 }
 
 template<bool caseSensitive>
-inline void DFABytecodeInterpreter::interpetJumpTable(std::span<const char> url, uint32_t& urlIndex, uint32_t& programCounter)
+inline void DFABytecodeInterpreter::interpretJumpTable(std::span<const LChar> url, uint32_t& urlIndex, uint32_t& programCounter)
 {
     DFABytecodeJumpSize jumpSize = getJumpSize(m_bytecode, programCounter);
 
@@ -245,12 +245,13 @@ auto DFABytecodeInterpreter::actionsMatchingEverything() -> Actions
 auto DFABytecodeInterpreter::interpret(const String& urlString, ResourceFlags flags) -> Actions
 {
     CString urlCString;
-    std::span<const char> url;
+    std::span<const LChar> url;
     if (LIKELY(urlString.is8Bit()))
-        url = { reinterpret_cast<const char*>(urlString.characters8()), urlString.length() };
+        url = urlString.span8();
     else {
+        // FIXME: Stuffing a UTF-8 string into a Latin1 buffer seems wrong.
         urlCString = urlString.utf8();
-        url = { urlCString.data(), urlCString.length() };
+        url = byteCast<LChar>(urlCString.span());
     }
     ASSERT(url.data());
 
@@ -330,13 +331,13 @@ auto DFABytecodeInterpreter::interpret(const String& urlString, ResourceFlags fl
                 if (urlIndex > url.size())
                     goto nextDFA;
 
-                interpetJumpTable<false>(url, urlIndex, programCounter);
+                interpretJumpTable<false>(url, urlIndex, programCounter);
                 break;
             case DFABytecodeInstruction::JumpTableCaseSensitive:
                 if (urlIndex > url.size())
                     goto nextDFA;
 
-                interpetJumpTable<true>(url, urlIndex, programCounter);
+                interpretJumpTable<true>(url, urlIndex, programCounter);
                 break;
 
             case DFABytecodeInstruction::CheckValueRangeCaseSensitive: {

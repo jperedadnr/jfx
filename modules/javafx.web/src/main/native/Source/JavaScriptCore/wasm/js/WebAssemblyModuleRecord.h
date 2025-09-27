@@ -44,7 +44,7 @@ class WebAssemblyModuleRecord final : public AbstractModuleRecord {
 public:
     using Base = AbstractModuleRecord;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     static void destroy(JSCell*);
 
     template<typename CellType, SubspaceAccess mode>
@@ -66,12 +66,13 @@ public:
 
     JSObject* exportsObject() const { return m_exportsObject.get(); }
 
-    static ptrdiff_t offsetOfExportsObject() { return OBJECT_OFFSETOF(WebAssemblyModuleRecord, m_exportsObject); }
+    static constexpr ptrdiff_t offsetOfExportsObject() { return OBJECT_OFFSETOF(WebAssemblyModuleRecord, m_exportsObject); }
 
 private:
     WebAssemblyModuleRecord(VM&, Structure*, const Identifier&);
 
     void finishCreation(JSGlobalObject*, VM&, const Wasm::ModuleInformation&);
+    JSValue evaluateConstantExpression(JSGlobalObject*, const Vector<uint8_t>&, const Wasm::ModuleInformation&, Wasm::Type, uint64_t&);
 
     DECLARE_VISIT_CHILDREN;
 

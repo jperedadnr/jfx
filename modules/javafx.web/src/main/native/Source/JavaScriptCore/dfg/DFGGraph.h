@@ -75,24 +75,36 @@ using SSADominators = Dominators<SSACFG>;
 using CPSNaturalLoops = NaturalLoops<CPSCFG>;
 using SSANaturalLoops = NaturalLoops<SSACFG>;
 
-#define DFG_NODE_DO_TO_CHILDREN(graph, node, thingToDo) do {            \
+#define APPLY_THING_TO_DO(node, edge, thingToDo) thingToDo(node, edge);
+#define APPLY_THING_TO_DO_WITH_CHECK(node, edge, thingToDo) \
+    if (thingToDo(node, edge) == IterationStatus::Done)     \
+        return;
+
+#define DFG_NODE_DO_TO_CHILDREN_COMMON(graph, node, thingToDo, THING_TO_DO)                 \
+    do {                                                                                    \
         Node* _node = (node);                                           \
         if (_node->flags() & NodeHasVarArgs) {                          \
             for (unsigned _childIdx = _node->firstChild();              \
                 _childIdx < _node->firstChild() + _node->numChildren(); \
                 _childIdx++) {                                          \
                 if (!!(graph).m_varArgChildren[_childIdx])              \
-                    thingToDo(_node, (graph).m_varArgChildren[_childIdx]); \
+                    THING_TO_DO(_node, (graph).m_varArgChildren[_childIdx], thingToDo)      \
             }                                                           \
         } else {                                                        \
             for (unsigned _edgeIndex = 0; _edgeIndex < AdjacencyList::Size; _edgeIndex++) { \
                 Edge& _edge = _node->children.child(_edgeIndex);        \
                 if (!_edge)                                             \
                     break;                                              \
-                thingToDo(_node, _edge);                                \
+                THING_TO_DO(_node, _edge, thingToDo)                                        \
             }                                                           \
         }                                                               \
     } while (false)
+
+#define DFG_NODE_DO_TO_CHILDREN(graph, node, thingToDo) \
+    DFG_NODE_DO_TO_CHILDREN_COMMON(graph, node, thingToDo, APPLY_THING_TO_DO)
+
+#define DFG_NODE_DO_TO_CHILDREN_WITH_CHECK(graph, node, thingToDo) \
+    DFG_NODE_DO_TO_CHILDREN_COMMON(graph, node, thingToDo, APPLY_THING_TO_DO_WITH_CHECK)
 
 #define DFG_ASSERT(graph, node, assertion, ...) do {                    \
         if (!!(assertion))                                              \
@@ -218,6 +230,11 @@ public:
         ASSERT(!child->replacement());
     }
 
+    Node* cloneAndAdd(const Node& node)
+    {
+        return m_nodes.cloneAndAdd(node);
+    }
+
     template<typename... Params>
     Node* addNode(Params... params)
     {
@@ -269,7 +286,17 @@ public:
     void assertIsRegistered(Structure* structure);
 
     // CodeBlock is optional, but may allow additional information to be dumped (e.g. Identifier names).
-    void dump(PrintStream& = WTF::dataFile(), DumpContext* = nullptr);
+    void dump() const
+    {
+        const_cast<Graph&>(*this).dump(WTF::dataFile(), nullptr);
+    }
+
+    void dump(PrintStream& out) const
+    {
+        const_cast<Graph&>(*this).dump(out, nullptr);
+    }
+
+    void dump(PrintStream&, DumpContext*);
 
     bool terminalsAreValid();
 
@@ -460,12 +487,11 @@ public:
         return arithRound->canSpeculateInt32(pass) && !hasExitSite(arithRound->origin.semantic, Overflow) && !hasExitSite(arithRound->origin.semantic, NegativeZero);
     }
 
-    static const char* opName(NodeType);
+    static ASCIILiteral opName(NodeType);
 
     RegisteredStructureSet* addStructureSet(const StructureSet& structureSet)
     {
-        m_structureSets.append();
-        RegisteredStructureSet* result = &m_structureSets.last();
+        RegisteredStructureSet* result = &m_structureSets.alloc();
 
         for (Structure* structure : structureSet)
             result->add(registerStructure(structure));
@@ -475,8 +501,7 @@ public:
 
     RegisteredStructureSet* addStructureSet(const RegisteredStructureSet& structureSet)
     {
-        m_structureSets.append();
-        RegisteredStructureSet* result = &m_structureSets.last();
+        RegisteredStructureSet* result = &m_structureSets.alloc();
 
         for (RegisteredStructure structure : structureSet)
             result->add(structure);
@@ -528,7 +553,7 @@ public:
     BasicBlock* block(BlockIndex blockIndex) const { return m_blocks[blockIndex].get(); }
     BasicBlock* lastBlock() const { return block(numBlocks() - 1); }
 
-    void appendBlock(Ref<BasicBlock>&& basicBlock)
+    void appendBlock(std::unique_ptr<BasicBlock>&& basicBlock)
     {
         basicBlock->index = m_blocks.size();
         m_blocks.append(WTFMove(basicBlock));
@@ -783,6 +808,29 @@ public:
         doToChildrenWithNode(node, ForwardingFunc(functor));
     }
 
+    template<typename ChildFunctor>
+    ALWAYS_INLINE void doToChildrenWithCheck(Node* node, const ChildFunctor& functor)
+    {
+        class ForwardingFunc {
+        public:
+            ForwardingFunc(const ChildFunctor& functor)
+                : m_functor(functor)
+            {
+            }
+
+            // This is a manually written func because we want ALWAYS_INLINE.
+            ALWAYS_INLINE IterationStatus operator()(Node*, Edge& edge) const
+            {
+                return m_functor(edge);
+            }
+
+        private:
+            const ChildFunctor& m_functor;
+        };
+
+        DFG_NODE_DO_TO_CHILDREN_WITH_CHECK(*this, node, ForwardingFunc(functor));
+    }
+
     bool uses(Node* node, Node* child)
     {
         bool result = false;
@@ -839,6 +887,13 @@ public:
         JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
         WatchpointSet& set = globalObject->masqueradesAsUndefinedWatchpointSet();
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::MasqueradesAsUndefinedWatchpointSet);
+    }
+
+    bool isWatchingArrayBufferDetachWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        WatchpointSet& set = globalObject->arrayBufferDetachWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::ArrayBufferDetachWatchpointSet);
     }
 
     bool isWatchingArrayIteratorProtocolWatchpoint(Node* node)
@@ -1021,6 +1076,7 @@ public:
             case op_call_varargs:
             case op_tail_call_varargs:
             case op_construct_varargs:
+            case op_super_construct_varargs:
                 // When inlining varargs call, uses include array used for varargs. But when we are in inlined function,
                 // the content of this is already read and flushed to the stack. So, at this point, we no longer need to
                 // keep these use registers. We can use the liveness at LivenessCalculationPoint::AfterUse point.
@@ -1151,7 +1207,11 @@ public:
 
     void freeDFGIRAfterLowering();
 
+    bool isNeverResizableOrGrowableSharedTypedArrayIncludingDataView(const AbstractValue&);
+
     const BoyerMooreHorspoolTable<uint8_t>* tryAddStringSearchTable8(const String&);
+
+    bool afterFixup() { return m_planStage >= PlanStage::AfterFixup; }
 
     StackCheck m_stackChecker;
     VM& m_vm;
@@ -1159,7 +1219,7 @@ public:
     CodeBlock* const m_codeBlock;
     CodeBlock* const m_profiledBlock;
 
-    Vector<RefPtr<BasicBlock>, 8> m_blocks;
+    Vector<std::unique_ptr<BasicBlock>, 8> m_blocks;
     Vector<BasicBlock*, 1> m_roots;
     Vector<Edge, 16> m_varArgChildren;
 
@@ -1176,10 +1236,10 @@ public:
     Vector<SimpleJumpTable> m_switchJumpTables;
     Vector<const UnlinkedStringJumpTable*> m_unlinkedStringSwitchJumpTables;
     Vector<StringJumpTable> m_stringSwitchJumpTables;
-    HashMap<String, std::unique_ptr<BoyerMooreHorspoolTable<uint8_t>>> m_stringSearchTable8;
+    UncheckedKeyHashMap<String, std::unique_ptr<BoyerMooreHorspoolTable<uint8_t>>> m_stringSearchTable8;
 
-    HashMap<EncodedJSValue, FrozenValue*, EncodedJSValueHash, EncodedJSValueHashTraits> m_frozenValueMap;
-    Bag<FrozenValue> m_frozenValues;
+    UncheckedKeyHashMap<EncodedJSValue, FrozenValue*, EncodedJSValueHash, EncodedJSValueHashTraits> m_frozenValueMap;
+    SegmentedVector<FrozenValue, 16> m_frozenValues;
 
     Vector<uint32_t> m_uint32ValuesInUse;
 
@@ -1188,7 +1248,7 @@ public:
     // In CPS, this is all of the SetArgumentDefinitely nodes for the arguments in the machine code block
     // that survived DCE. All of them except maybe "this" will survive DCE, because of the Flush
     // nodes. In SSA, this has no meaning. It's empty.
-    HashMap<BasicBlock*, ArgumentsVector> m_rootToArguments;
+    UncheckedKeyHashMap<BasicBlock*, ArgumentsVector> m_rootToArguments;
 
     // In SSA, this is the argument speculation that we've locked in for an entrypoint block.
     //
@@ -1231,10 +1291,12 @@ public:
     Bag<StackAccessData> m_stackAccessData;
     Bag<LazyJSValue> m_lazyJSValues;
     Bag<CallDOMGetterData> m_callDOMGetterData;
+    Bag<CallCustomAccessorData> m_callCustomAccessorData;
+    Bag<GetByIdData> m_getByIdData;
     Bag<BitVector> m_bitVectors;
     Vector<InlineVariableData, 4> m_inlineVariableData;
-    HashMap<CodeBlock*, std::unique_ptr<FullBytecodeLiveness>> m_bytecodeLiveness;
-    HashSet<std::pair<JSObject*, PropertyOffset>> m_safeToLoad;
+    UncheckedKeyHashMap<CodeBlock*, std::unique_ptr<FullBytecodeLiveness>> m_bytecodeLiveness;
+    UncheckedKeyHashSet<std::pair<JSObject*, PropertyOffset>> m_safeToLoad;
     Vector<Ref<Snippet>> m_domJITSnippets;
     std::unique_ptr<CPSDominators> m_cpsDominators;
     std::unique_ptr<SSADominators> m_ssaDominators;
@@ -1258,19 +1320,19 @@ public:
 
     // This maps an entrypoint index to a particular op_catch bytecode offset. By convention,
     // it'll never have zero as a key because we use zero to mean the op_enter entrypoint.
-    HashMap<unsigned, BytecodeIndex> m_entrypointIndexToCatchBytecodeIndex;
+    UncheckedKeyHashMap<unsigned, BytecodeIndex> m_entrypointIndexToCatchBytecodeIndex;
     Vector<CatchEntrypointData> m_catchEntrypoints;
 
-    HashSet<String> m_localStrings;
-    HashSet<String> m_copiedStrings;
+    UncheckedKeyHashSet<String> m_localStrings;
+    UncheckedKeyHashSet<String> m_copiedStrings;
 
 #if USE(JSVALUE32_64)
-    HashMap<GenericHashKey<int64_t>, double*> m_doubleConstantsMap;
+    UncheckedKeyHashMap<GenericHashKey<int64_t>, double*> m_doubleConstantsMap;
     Bag<double> m_doubleConstants;
 #endif
 
     Vector<LinkerIR::Value> m_constantPool;
-    HashMap<LinkerIR::Value, LinkerIR::Constant, LinkerIR::ValueHash, LinkerIR::ValueTraits> m_constantPoolMap;
+    UncheckedKeyHashMap<LinkerIR::Value, LinkerIR::Constant, LinkerIR::ValueHash, LinkerIR::ValueTraits> m_constantPoolMap;
 
     OptimizationFixpointState m_fixpointState;
     StructureRegistrationState m_structureRegistrationState;
@@ -1290,8 +1352,8 @@ public:
     RegisteredStructure stringStructure;
     RegisteredStructure symbolStructure;
 
-    HashSet<Node*> m_slowGetByVal;
-    HashSet<Node*> m_slowPutByVal;
+    UncheckedKeyHashSet<Node*> m_slowGetByVal;
+    UncheckedKeyHashSet<Node*> m_slowPutByVal;
 
 private:
     template<typename Visitor> void visitChildrenImpl(Visitor&);
@@ -1300,7 +1362,7 @@ private:
 
     void handleSuccessor(Vector<BasicBlock*, 16>& worklist, BasicBlock*, BasicBlock* successor);
 
-    AddSpeculationMode addImmediateShouldSpeculateInt32(Node* add, bool variableShouldSpeculateInt32, Node* operand, Node*immediate, RareCaseProfilingSource source)
+    AddSpeculationMode addImmediateShouldSpeculateInt32(Node* add, bool variableShouldSpeculateInt32, Node* operand, Node* immediate, RareCaseProfilingSource source)
     {
         ASSERT(immediate->hasConstant());
 
@@ -1320,6 +1382,8 @@ private:
         if (immediateValue.isBoolean() || jsNumber(immediateValue.asNumber()).isInt32())
             return add->canSpeculateInt32(source) ? SpeculateInt32 : DontSpeculateInt32;
 
+        // At this point {immediateValue} must be a double and {operandResultType} must be NodeResultInt32.
+        ASSERT(immediateValue.isDouble() && operandResultType == NodeResultInt32);
         double doubleImmediate = immediateValue.asDouble();
         if (std::isnan(doubleImmediate))
             return DontSpeculateInt32;
@@ -1329,13 +1393,12 @@ private:
             return DontSpeculateInt32;
 
         if (bytecodeCanTruncateInteger(add->arithNodeFlags())) {
-            // If int32 + const double, then we should not speculate this add node with int32 type.
-            // Because ToInt32(int32 + const double) is not always equivalent to int32 + ToInt32(const double).
+            // This function is called from attemptToMakeIntegerAdd. If we return SpeculateInt32AndTruncateConstants
+            // both operands will be truncated to integers. If int32 + double, then we should not speculate this add
+            // node with int32 type. Because ToInt32(int32 + double) is not always equivalent to int32 + ToInt32(double).
             // For example:
-            // let the int32 = -1 and const double = 0.1, then ToInt32(-1 + 0.1) = 0 but -1 + ToInt32(0.1) = -1.
-            if (operandResultType == NodeResultInt32 && !isInteger(doubleImmediate))
-                return DontSpeculateInt32;
-            return SpeculateInt32AndTruncateConstants;
+            //     let the int32 be -1 and double be 0.1, then ToInt32(-1 + 0.1) is 0 but -1 + ToInt32(0.1) is -1.
+            return isInteger(doubleImmediate) ? SpeculateInt32AndTruncateConstants : DontSpeculateInt32;
         }
 
         return DontSpeculateInt32;

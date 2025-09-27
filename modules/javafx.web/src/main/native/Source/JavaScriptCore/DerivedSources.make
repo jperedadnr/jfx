@@ -43,7 +43,7 @@ FRAMEWORK_FLAGS := $(addprefix -F, $(BUILT_PRODUCTS_DIR) $(FRAMEWORK_SEARCH_PATH
 HEADER_FLAGS := $(addprefix -I, $(BUILT_PRODUCTS_DIR) $(HEADER_SEARCH_PATHS) $(SYSTEM_HEADER_SEARCH_PATHS))
 EXTERNAL_FLAGS := -DRELEASE_WITHOUT_OPTIMIZATIONS $(addprefix -D, $(GCC_PREPROCESSOR_DEFINITIONS))
 
-platform_h_compiler_command = $(CC) -std=c++2a -x c++ $(1) $(SDK_FLAGS) $(TARGET_TRIPLE_FLAGS) $(FRAMEWORK_FLAGS) $(HEADER_FLAGS) $(EXTERNAL_FLAGS) -include "wtf/Platform.h" /dev/null
+platform_h_compiler_command = $(CC) -std=c++2b -x c++ $(1) $(SDK_FLAGS) $(TARGET_TRIPLE_FLAGS) $(FRAMEWORK_FLAGS) $(HEADER_FLAGS) $(EXTERNAL_FLAGS) -include "wtf/Platform.h" /dev/null
 
 FEATURE_AND_PLATFORM_DEFINES := $(shell $(call platform_h_compiler_command,-E -P -dM) | $(PERL) -ne "print if s/\#define ((HAVE_|USE_|ENABLE_|WTF_PLATFORM_)\w+) 1/\1/")
 
@@ -51,6 +51,8 @@ PLATFORM_HEADER_DIR := $(realpath $(BUILT_PRODUCTS_DIR)$(WK_LIBRARY_HEADERS_FOLD
 
 PLATFORM_HEADER_DEPENDENCIES := $(filter $(PLATFORM_HEADER_DIR)/%,$(realpath $(shell $(call platform_h_compiler_command,-M) | $(PERL) -e "local \$$/; my (\$$target, \$$deps) = split(/:/, <>); print split(/\\\\/, \$$deps);")))
 FEATURE_AND_PLATFORM_DEFINE_DEPENDENCIES = DerivedSources.make $(PLATFORM_HEADER_DEPENDENCIES)
+
+to-pattern = $(join $(basename $1), $(subst .,%,$(suffix $1)))
 
 # --------
 
@@ -74,7 +76,7 @@ all : \
     UnicodePatternTables.h \
     yarr/YarrCanonicalizeUnicode.cpp \
     WasmOps.h \
-    WasmB3IRGeneratorInlines.h \
+    WasmOMGIRGeneratorInlines.h \
 #
 
 # JavaScript builtins.
@@ -106,17 +108,17 @@ JavaScriptCore_BUILTINS_SOURCES = \
     $(JavaScriptCore)/builtins/ArrayConstructor.js \
     $(JavaScriptCore)/builtins/ArrayIteratorPrototype.js \
     $(JavaScriptCore)/builtins/ArrayPrototype.js \
-    $(JavaScriptCore)/builtins/AsyncIteratorPrototype.js \
     $(JavaScriptCore)/builtins/AsyncFunctionPrototype.js \
     $(JavaScriptCore)/builtins/AsyncGeneratorPrototype.js \
-    $(JavaScriptCore)/builtins/DatePrototype.js \
     $(JavaScriptCore)/builtins/FunctionPrototype.js \
     $(JavaScriptCore)/builtins/GeneratorPrototype.js \
     $(JavaScriptCore)/builtins/GlobalObject.js \
     $(JavaScriptCore)/builtins/GlobalOperations.js \
     $(JavaScriptCore)/builtins/InternalPromiseConstructor.js \
     $(JavaScriptCore)/builtins/IteratorHelpers.js \
-    $(JavaScriptCore)/builtins/IteratorPrototype.js \
+    $(JavaScriptCore)/builtins/JSIteratorConstructor.js \
+    $(JavaScriptCore)/builtins/JSIteratorHelperPrototype.js \
+    $(JavaScriptCore)/builtins/JSIteratorPrototype.js \
     $(JavaScriptCore)/builtins/MapConstructor.js \
     $(JavaScriptCore)/builtins/MapIteratorPrototype.js \
     $(JavaScriptCore)/builtins/MapPrototype.js \
@@ -139,6 +141,7 @@ JavaScriptCore_BUILTINS_SOURCES = \
     $(JavaScriptCore)/builtins/TypedArrayConstructor.js \
     $(JavaScriptCore)/builtins/TypedArrayPrototype.js \
     $(JavaScriptCore)/builtins/WebAssembly.js \
+    $(JavaScriptCore)/builtins/WrapForValidIteratorPrototype.js \
     $(JavaScriptCore)/inspector/InjectedScriptSource.js \
 #
 
@@ -148,7 +151,7 @@ JavaScriptCore_BUILTINS_SOURCES = \
 JavaScriptCore_BUILTINS_DEPENDENCIES_LIST : $(JavaScriptCore_SCRIPTS_DIR)/UpdateContents.py DerivedSources.make
 	$(PYTHON) $(JavaScriptCore_SCRIPTS_DIR)/UpdateContents.py '$(JavaScriptCore_BUILTINS_SOURCES) $(BUILTINS_GENERATOR_SCRIPTS)' $@
 
-JSC_BUILTINS_FILES_PATTERNS = $(subst .,%,$(JSC_BUILTINS_FILES))
+JSC_BUILTINS_FILES_PATTERNS = $(call to-pattern, $(JSC_BUILTINS_FILES))
 
 $(JSC_BUILTINS_FILES_PATTERNS) : $(BUILTINS_GENERATOR_SCRIPTS) $(JavaScriptCore_BUILTINS_SOURCES) JavaScriptCore_BUILTINS_DEPENDENCIES_LIST
 	$(PYTHON) $(JavaScriptCore_SCRIPTS_DIR)/generate-js-builtins.py --combined --output-directory . --framework JavaScriptCore $(JavaScriptCore_BUILTINS_SOURCES)
@@ -191,6 +194,7 @@ OBJECT_LUT_HEADERS = \
     JSDataViewPrototype.lut.h \
     JSGlobalObject.lut.h \
     JSInternalPromiseConstructor.lut.h \
+    JSIteratorHelperPrototype.lut.h \
     JSONObject.lut.h \
     JSPromiseConstructor.lut.h \
     JSPromisePrototype.lut.h \
@@ -273,7 +277,7 @@ BYTECODE_FILES = \
     InitWasm.asm \
     BytecodeDumperGenerated.cpp \
 #
-BYTECODE_FILES_PATTERNS = $(subst .,%,$(BYTECODE_FILES))
+BYTECODE_FILES_PATTERNS = $(call to-pattern, $(BYTECODE_FILES))
 
 all : $(BYTECODE_FILES)
 
@@ -292,7 +296,6 @@ $(BYTECODE_FILES_PATTERNS): $(wildcard $(JavaScriptCore)/generator/*.rb) $(JavaS
 
 INSPECTOR_DOMAINS := \
     $(JavaScriptCore)/inspector/protocol/Animation.json \
-    $(JavaScriptCore)/inspector/protocol/ApplicationCache.json \
     $(JavaScriptCore)/inspector/protocol/Audit.json \
     $(JavaScriptCore)/inspector/protocol/Browser.json \
     $(JavaScriptCore)/inspector/protocol/CPUProfiler.json \
@@ -302,7 +305,6 @@ INSPECTOR_DOMAINS := \
     $(JavaScriptCore)/inspector/protocol/DOM.json \
     $(JavaScriptCore)/inspector/protocol/DOMDebugger.json \
     $(JavaScriptCore)/inspector/protocol/DOMStorage.json \
-    $(JavaScriptCore)/inspector/protocol/Database.json \
     $(JavaScriptCore)/inspector/protocol/Debugger.json \
     $(JavaScriptCore)/inspector/protocol/GenericTypes.json \
     $(JavaScriptCore)/inspector/protocol/Heap.json \
@@ -352,7 +354,7 @@ INSPECTOR_DISPATCHER_FILES = \
     inspector/InspectorProtocolObjects.cpp \
     inspector/InspectorProtocolObjects.h \
 #
-INSPECTOR_DISPATCHER_FILES_PATTERNS = $(subst .,%,$(INSPECTOR_DISPATCHER_FILES))
+INSPECTOR_DISPATCHER_FILES_PATTERNS = $(call to-pattern, $(INSPECTOR_DISPATCHER_FILES))
 
 all : $(INSPECTOR_DISPATCHER_FILES)
 
@@ -375,7 +377,7 @@ AIR_OPCODE_FILES = \
     AirOpcodeUtils.h \
     AirOpcodeGenerated.h \
 #
-AIR_OPCODE_FILES_PATTERNS = $(subst .,%,$(AIR_OPCODE_FILES))
+AIR_OPCODE_FILES_PATTERNS = $(call to-pattern, $(AIR_OPCODE_FILES))
 
 all : $(AIR_OPCODE_FILES)
 
@@ -391,8 +393,8 @@ yarr/YarrCanonicalizeUnicode.cpp: $(JavaScriptCore)/yarr/generateYarrCanonicaliz
 WasmOps.h: $(JavaScriptCore)/wasm/generateWasmOpsHeader.py $(JavaScriptCore)/wasm/generateWasm.py $(JavaScriptCore)/wasm/wasm.json
 	$(PYTHON) $(JavaScriptCore)/wasm/generateWasmOpsHeader.py $(JavaScriptCore)/wasm/wasm.json ./WasmOps.h
 
-WasmB3IRGeneratorInlines.h: $(JavaScriptCore)/wasm/generateWasmB3IRGeneratorInlinesHeader.py $(JavaScriptCore)/wasm/generateWasm.py $(JavaScriptCore)/wasm/wasm.json
-	$(PYTHON) $(JavaScriptCore)/wasm/generateWasmB3IRGeneratorInlinesHeader.py $(JavaScriptCore)/wasm/wasm.json ./WasmB3IRGeneratorInlines.h
+WasmOMGIRGeneratorInlines.h: $(JavaScriptCore)/wasm/generateWasmOMGIRGeneratorInlinesHeader.py $(JavaScriptCore)/wasm/generateWasm.py $(JavaScriptCore)/wasm/wasm.json
+	$(PYTHON) $(JavaScriptCore)/wasm/generateWasmOMGIRGeneratorInlinesHeader.py $(JavaScriptCore)/wasm/wasm.json ./WasmOMGIRGeneratorInlines.h
 
 # Dynamically-defined targets are listed below. Static targets belong up top.
 

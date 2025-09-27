@@ -26,6 +26,7 @@
 #include "config.h"
 #include "HTMLSlotElement.h"
 
+#include "AXObjectCache.h"
 #include "ElementInlines.h"
 #include "Event.h"
 #include "EventNames.h"
@@ -34,13 +35,13 @@
 #include "ShadowRoot.h"
 #include "SlotAssignment.h"
 #include "Text.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/SetForScope.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLSlotElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLSlotElement);
 
 using namespace HTMLNames;
 
@@ -67,7 +68,7 @@ HTMLSlotElement::InsertedIntoAncestorResult HTMLSlotElement::insertedIntoAncesto
             shadowRoot->addSlotElementByName(attributeWithoutSynchronization(nameAttr), *this);
     }
 
-    return InsertedIntoAncestorResult::Done;
+    return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
 }
 
 void HTMLSlotElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
@@ -101,6 +102,13 @@ void HTMLSlotElement::attributeChanged(const QualifiedName& name, const AtomStri
     }
 }
 
+void HTMLSlotElement::didFinishInsertingNode()
+{
+    HTMLElement::didFinishInsertingNode();
+    if (selfOrPrecedingNodesAffectDirAuto())
+        updateEffectiveTextDirection();
+}
+
 const Vector<WeakPtr<Node, WeakPtrImplWithEventTargetData>>* HTMLSlotElement::assignedNodes() const
 {
     RefPtr shadowRoot = containingShadowRoot();
@@ -118,23 +126,22 @@ static void flattenAssignedNodes(Vector<Ref<Node>>& nodes, const HTMLSlotElement
     auto* assignedNodes = slot.assignedNodes();
     if (!assignedNodes) {
         for (RefPtr<Node> child = slot.firstChild(); child; child = child->nextSibling()) {
-            if (is<HTMLSlotElement>(*child))
-                flattenAssignedNodes(nodes, downcast<HTMLSlotElement>(*child));
+            if (auto* slot = dynamicDowncast<HTMLSlotElement>(*child))
+                flattenAssignedNodes(nodes, *slot);
             else if (is<Text>(*child) || is<Element>(*child))
                 nodes.append(*child);
         }
         return;
     }
-    for (auto& nodeWeakPtr : *assignedNodes) {
-        auto* node = nodeWeakPtr.get();
-        if (UNLIKELY(!node)) {
+    for (auto& weakNode : *assignedNodes) {
+        if (UNLIKELY(!weakNode)) {
             ASSERT_NOT_REACHED();
             continue;
         }
-        if (is<HTMLSlotElement>(*node) && downcast<HTMLSlotElement>(*node).containingShadowRoot())
-            flattenAssignedNodes(nodes, downcast<HTMLSlotElement>(*node));
+        if (RefPtr slot = dynamicDowncast<HTMLSlotElement>(*weakNode); slot && slot->containingShadowRoot())
+            flattenAssignedNodes(nodes, *slot);
         else
-            nodes.append(*node);
+            nodes.append(Ref { *weakNode });
     }
 }
 
@@ -159,10 +166,8 @@ Vector<Ref<Node>> HTMLSlotElement::assignedNodes(const AssignedNodesOptions& opt
 
 Vector<Ref<Element>> HTMLSlotElement::assignedElements(const AssignedNodesOptions& options) const
 {
-    return compactMap(assignedNodes(options), [](auto&& node) -> RefPtr<Element> {
-        if (!is<Element>(node))
-            return nullptr;
-        return static_reference_cast<Element>(WTFMove(node));
+    return compactMap(assignedNodes(options), [](Ref<Node>&& node) -> RefPtr<Element> {
+        return dynamicDowncast<Element>(WTFMove(node));
     });
 }
 
@@ -176,7 +181,7 @@ void HTMLSlotElement::assign(FixedVector<ElementOrText>&& nodes)
     }
 
     auto previous = std::exchange(m_manuallyAssignedNodes, { });
-    HashSet<RefPtr<Node>> seenNodes;
+    UncheckedKeyHashSet<RefPtr<Node>> seenNodes;
     m_manuallyAssignedNodes = WTF::compactMap(nodes, [&seenNodes](ElementOrText& node) -> std::optional<WeakPtr<Node, WeakPtrImplWithEventTargetData>> {
         auto mapper = [&seenNodes]<typename T>(RefPtr<T>& node) -> std::optional<WeakPtr<Node, WeakPtrImplWithEventTargetData>> {
             if (seenNodes.contains(node))
@@ -228,5 +233,10 @@ void HTMLSlotElement::dispatchSlotChangeEvent()
     dispatchEvent(event);
 }
 
+void HTMLSlotElement::updateAccessibilityOnSlotChange() const
+{
+    if (CheckedPtr cache = protectedDocument()->existingAXObjectCache())
+        cache->onSlottedContentChange(*this);
 }
 
+} // namespace WebCore

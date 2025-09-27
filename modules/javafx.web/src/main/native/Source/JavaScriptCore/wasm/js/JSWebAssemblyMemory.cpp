@@ -34,22 +34,14 @@
 #include "JSArrayBuffer.h"
 #include "ObjectConstructor.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 const ClassInfo JSWebAssemblyMemory::s_info = { "WebAssembly.Memory"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWebAssemblyMemory) };
 
-JSWebAssemblyMemory* JSWebAssemblyMemory::tryCreate(JSGlobalObject* globalObject, VM& vm, Structure* structure)
+JSWebAssemblyMemory* JSWebAssemblyMemory::create(VM& vm, Structure* structure)
 {
-    auto throwScope = DECLARE_THROW_SCOPE(vm);
-
-    auto exception = [&] (JSObject* error) {
-        throwException(globalObject, throwScope, error);
-        return nullptr;
-    };
-
-    if (!globalObject->webAssemblyEnabled())
-        return exception(createEvalError(globalObject, globalObject->webAssemblyDisabledErrorMessage()));
-
     auto* memory = new (NotNull, allocateCell<JSWebAssemblyMemory>(vm)) JSWebAssemblyMemory(vm, structure);
     memory->finishCreation(vm);
     return memory;
@@ -59,7 +51,7 @@ void JSWebAssemblyMemory::adopt(Ref<Wasm::Memory>&& memory)
 {
     m_memory.swap(memory);
     ASSERT(m_memory->refCount() == 1);
-    m_memory->check();
+    m_memory->checkLifetime();
 }
 
 Structure* JSWebAssemblyMemory::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
@@ -69,7 +61,7 @@ Structure* JSWebAssemblyMemory::createStructure(VM& vm, JSGlobalObject* globalOb
 
 JSWebAssemblyMemory::JSWebAssemblyMemory(VM& vm, Structure* structure)
     : Base(vm, structure)
-    , m_memory(Wasm::Memory::create())
+    , m_memory(Wasm::Memory::create(vm))
 {
 }
 
@@ -94,7 +86,7 @@ JSArrayBuffer* JSWebAssemblyMemory::buffer(JSGlobalObject* globalObject)
     size_t size = m_memory->size();
     ASSERT(memory);
         auto destructor = createSharedTask<void(void*)>([protectedHandle = WTFMove(protectedHandle)] (void*) { });
-    m_buffer = ArrayBuffer::createFromBytes(memory, size, WTFMove(destructor));
+        m_buffer = ArrayBuffer::createFromBytes({ static_cast<const uint8_t*>(memory), size }, WTFMove(destructor));
     m_buffer->makeWasmMemory();
         if (m_memory->sharingMode() == MemorySharingMode::Shared)
         m_buffer->makeShared();
@@ -171,16 +163,16 @@ void JSWebAssemblyMemory::growSuccessCallback(VM& vm, PageCount oldPageCount, Pa
         m_bufferWrapper.clear();
     }
 
-    memory().check();
+    memory().checkLifetime();
 
-    vm.heap.reportExtraMemoryAllocated(newPageCount.bytes() - oldPageCount.bytes());
+    vm.heap.reportExtraMemoryAllocated(this, newPageCount.bytes() - oldPageCount.bytes());
 }
 
 void JSWebAssemblyMemory::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
     ASSERT(inherits(info()));
-    vm.heap.reportExtraMemoryAllocated(memory().size());
+    vm.heap.reportExtraMemoryAllocated(this, memory().size());
 }
 
 void JSWebAssemblyMemory::destroy(JSCell* cell)
@@ -203,5 +195,7 @@ void JSWebAssemblyMemory::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 DEFINE_VISIT_CHILDREN(JSWebAssemblyMemory);
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

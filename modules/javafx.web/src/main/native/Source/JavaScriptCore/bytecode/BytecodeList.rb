@@ -26,7 +26,7 @@ types [
 
     :BasicBlockLocation,
     :BoundLabel,
-    :BaselineCallLinkInfo,
+    :DataOnlyCallLinkInfo,
     :DebugHookType,
     :ECMAMode,
     :ErrorTypeWithExtension,
@@ -62,7 +62,6 @@ types [
     :WasmBoundLabel,
     :WatchpointSet,
 
-    :ValueProfile,
     :ValueProfileAndVirtualRegisterBuffer,
     :ArrayProfile,
     :ArrayAllocationProfile,
@@ -96,7 +95,7 @@ op :tail_call_varargs,
         firstVarArg: int,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
+        callLinkInfo: DataOnlyCallLinkInfo,
     },
     tmps: {
         argCountIncludingThis: unsigned
@@ -114,10 +113,10 @@ op :call_varargs,
         arguments?: VirtualRegister,
         firstFree: VirtualRegister,
         firstVarArg: int,
+        valueProfile: unsigned,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
-        profile: ValueProfile,
+        callLinkInfo: DataOnlyCallLinkInfo,
     },
     tmps: {
         argCountIncludingThis: unsigned,
@@ -136,14 +135,14 @@ op :iterator_next,
         next: VirtualRegister,
         iterator: VirtualRegister,
         stackOffset: unsigned,
+        nextResultValueProfile: unsigned,
+        doneValueProfile: unsigned,
+        valueValueProfile: unsigned,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
-        nextResultProfile: ValueProfile,
+        callLinkInfo: DataOnlyCallLinkInfo,
         doneModeMetadata: GetByIdModeMetadata,
-        doneProfile: ValueProfile,
         valueModeMetadata: GetByIdModeMetadata,
-        valueProfile: ValueProfile,
         iterableProfile: ArrayProfile,
         iterationMetadata: IterationModeMetadata,
     },
@@ -164,10 +163,32 @@ op :construct_varargs,
         arguments?: VirtualRegister,
         firstFree: VirtualRegister,
         firstVarArg: int,
+        valueProfile: unsigned,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
-        profile: ValueProfile,
+        callLinkInfo: DataOnlyCallLinkInfo,
+    },
+    tmps: {
+        argCountIncludingThis: unsigned
+    },
+    checkpoints: {
+        determiningArgCount: nil,
+        makeCall: nil,
+    }
+
+op :super_construct_varargs,
+    args: {
+        dst: VirtualRegister,
+        callee: VirtualRegister,
+        thisValue?: VirtualRegister,
+        arguments?: VirtualRegister,
+        firstFree: VirtualRegister,
+        firstVarArg: int,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        callLinkInfo: DataOnlyCallLinkInfo,
+        cachedCallee: WriteBarrier[JSCell],
     },
     tmps: {
         argCountIncludingThis: unsigned
@@ -188,19 +209,39 @@ op :iterator_open,
         symbolIterator: VirtualRegister,
         iterable: VirtualRegister,
         stackOffset: unsigned,
+        iterableValueProfile: unsigned,
+        iteratorValueProfile: unsigned,
+        nextValueProfile: unsigned,
     },
     metadata: {
-        iterableProfile: ValueProfile,
-        callLinkInfo: BaselineCallLinkInfo,
-        iteratorProfile: ValueProfile,
+        callLinkInfo: DataOnlyCallLinkInfo,
         modeMetadata: GetByIdModeMetadata,
-        nextProfile: ValueProfile,
         arrayProfile: ArrayProfile,
         iterationMetadata: IterationModeMetadata,
     },
     checkpoints: {
         symbolCall: nil,
         getNext: nil,
+    }
+
+# Semantically, this is dst = value instanceof constructor.
+op :instanceof,
+    args: {
+        dst: VirtualRegister,
+        value: VirtualRegister,
+        constructor: VirtualRegister,
+        hasInstanceOrPrototype: VirtualRegister,
+        hasInstanceValueProfile: unsigned,
+        prototypeValueProfile: unsigned,
+    },
+    metadata: {
+        hasInstanceModeMetadata: GetByIdModeMetadata,
+        prototypeModeMetadata: GetByIdModeMetadata,
+    },
+    checkpoints: {
+        getHasInstance: nil,
+        getPrototype: nil,
+        instanceof: nil,
     }
 
 # Opcodes with metadata come next, in decreasing order of metadata alignment requirements
@@ -245,20 +286,23 @@ op :construct,
         callee: VirtualRegister,
         argc: unsigned,
         argv: unsigned,
+        valueProfile: unsigned,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
-        profile: ValueProfile,
+        callLinkInfo: DataOnlyCallLinkInfo,
     }
 
-op :to_object,
+op :super_construct,
     args: {
         dst: VirtualRegister,
-        operand: VirtualRegister,
-        message: unsigned,
+        callee: VirtualRegister,
+        argc: unsigned,
+        argv: unsigned,
+        valueProfile: unsigned,
     },
     metadata: {
-        profile: ValueProfile,
+        callLinkInfo: DataOnlyCallLinkInfo,
+        cachedCallee: WriteBarrier[JSCell],
     }
 
 op :tail_call,
@@ -269,7 +313,7 @@ op :tail_call,
         argv: unsigned,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
+        callLinkInfo: DataOnlyCallLinkInfo,
         arrayProfile: ArrayProfile,
     }
 
@@ -281,11 +325,11 @@ op :call_direct_eval,
         argv: unsigned,
         thisValue: VirtualRegister,
         scope: VirtualRegister,
-        ecmaMode: ECMAMode,
+        lexicallyScopedFeatures: unsigned,
+        valueProfile: unsigned,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
-        profile: ValueProfile,
+        callLinkInfo: DataOnlyCallLinkInfo,
     }
 
 op :tail_call_forward_arguments,
@@ -298,7 +342,7 @@ op :tail_call_forward_arguments,
         firstVarArg: int,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
+        callLinkInfo: DataOnlyCallLinkInfo,
     }
 
 op_group :CreateInternalFieldObjectOp,
@@ -312,31 +356,6 @@ op_group :CreateInternalFieldObjectOp,
     },
     metadata: {
         cachedCallee: WriteBarrier[JSCell]
-    }
-
-op :get_by_val,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        property: VirtualRegister,
-    },
-    metadata: {
-        profile: ValueProfile,
-        arrayProfile: ArrayProfile,
-        seenIdentifiers: GetByValHistory,
-    }
-
-op :get_private_name,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        property: VirtualRegister,
-    },
-    metadata: {
-        profile: ValueProfile,
-        structureID: StructureID,
-        offset: unsigned,
-        property: WriteBarrier[JSCell],
     }
 
 op :create_promise,
@@ -382,21 +401,21 @@ op :get_by_id,
         dst: VirtualRegister,
         base: VirtualRegister,
         property: unsigned,
+        valueProfile: unsigned,
     },
     metadata: {
         modeMetadata: GetByIdModeMetadata,
-        profile: ValueProfile,
     }
 
-op :get_by_id_with_this,
+op :get_length,
     args: {
         dst: VirtualRegister,
         base: VirtualRegister,
-        thisValue: VirtualRegister,
-        property: unsigned,
+        valueProfile: unsigned,
     },
     metadata: {
-        profile: ValueProfile,
+        modeMetadata: GetByIdModeMetadata,
+        arrayProfile: ArrayProfile,
     }
 
 op :profile_type,
@@ -419,87 +438,16 @@ op :profile_control_flow,
         basicBlockLocation: BasicBlockLocation.*,
     }
 
-op :get_by_val_with_this,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        thisValue: VirtualRegister,
-        property: VirtualRegister,
-    },
-    metadata: {
-        profile: ValueProfile,
-        arrayProfile: ArrayProfile,
-        seenIdentifiers: GetByValHistory,
-    }
-
-op :enumerator_get_by_val,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        mode: VirtualRegister,
-        propertyName: VirtualRegister,
-        index: VirtualRegister,
-        enumerator: VirtualRegister,
-    },
-    metadata: {
-        profile: ValueProfile,
-        arrayProfile: ArrayProfile,
-        enumeratorMetadata: EnumeratorMetadata,
-    }
-
-op :get_by_id_direct,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        property: unsigned,
-    },
-    metadata: {
-        profile: ValueProfile, # not used in llint
-        structureID: StructureID,
-        offset: unsigned,
-    }
-
-op :get_prototype_of,
-    args: {
-        dst: VirtualRegister,
-        value: VirtualRegister,
-    },
-    metadata: {
-        profile: ValueProfile,
-    }
-
-op :get_internal_field,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        index: unsigned,
-    },
-    metadata: {
-        profile: ValueProfile,
-    }
-
-op :try_get_by_id,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        property: unsigned,
-    },
-    metadata: {
-        profile: ValueProfile,
-        structureID: StructureID,
-        offset: unsigned,
-    }
-
 op :new_array_with_species,
     args: {
         dst: VirtualRegister,
         length: VirtualRegister,
         array: VirtualRegister,
+        valueProfile: unsigned,
     },
     metadata: {
         arrayAllocationProfile: ArrayAllocationProfile,
         arrayProfile: ArrayProfile,
-        profile: ValueProfile,
     }
 
 # op_call variations
@@ -509,11 +457,11 @@ op :call,
         callee: VirtualRegister,
         argc: unsigned,
         argv: unsigned,
+        valueProfile: unsigned,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
+        callLinkInfo: DataOnlyCallLinkInfo,
         arrayProfile: ArrayProfile,
-        profile: ValueProfile,
     }
 
 op :call_ignore_result,
@@ -523,31 +471,8 @@ op :call_ignore_result,
         argv: unsigned,
     },
     metadata: {
-        callLinkInfo: BaselineCallLinkInfo,
+        callLinkInfo: DataOnlyCallLinkInfo,
         arrayProfile: ArrayProfile,
-    }
-
-op :get_argument,
-    args: {
-        dst: VirtualRegister,
-        index: int,
-    },
-    metadata: {
-        profile: ValueProfile,
-    }
-
-op :put_private_name,
-    args: {
-        base: VirtualRegister,
-        property: VirtualRegister,
-        value: VirtualRegister,
-        putKind: PrivateFieldPutKind,
-    },
-    metadata: {
-        oldStructureID: StructureID,
-        property: WriteBarrier[JSCell],
-        offset: unsigned,
-        newStructureID: StructureID,
     }
 
 op :resolve_scope,
@@ -587,6 +512,7 @@ op :get_from_scope,
         getPutInfo: GetPutInfo,
         localScopeDepth: unsigned,
         offset: unsigned,
+        valueProfile: unsigned, # offset 7
     },
     metadata: {
         getPutInfo: GetPutInfo, # offset 4
@@ -595,7 +521,6 @@ op :get_from_scope,
             structure: WriteBarrierBase[Structure],
         },
         operand: uintptr_t, #offset 6
-        profile: ValueProfile, # offset 7
     },
     metadata_initializers: {
         getPutInfo: :getPutInfo,
@@ -625,16 +550,6 @@ op :put_to_scope,
         operand: :offset,
     }
 
-op :get_from_arguments,
-    args: {
-        dst: VirtualRegister,
-        arguments: VirtualRegister,
-        index: unsigned,
-    },
-    metadata: {
-        profile: ValueProfile,
-    }
-
 op :create_this,
     args: {
         dst: VirtualRegister,
@@ -654,17 +569,6 @@ op :new_object,
         objectAllocationProfile: ObjectAllocationProfile,
     }
 
-op :to_this,
-    args: {
-        srcDst: VirtualRegister,
-        ecmaMode: ECMAMode,
-    },
-    metadata: {
-        cachedStructureID: StructureID,
-        toThisStatus: ToThisStatus,
-        profile: ValueProfile,
-    }
-
 op :new_array,
     args: {
         dst: VirtualRegister,
@@ -676,6 +580,57 @@ op :new_array,
         arrayAllocationProfile: ArrayAllocationProfile,
     }
 
+op :get_by_val_with_this,
+    args: {
+        dst: VirtualRegister,
+        base: VirtualRegister,
+        thisValue: VirtualRegister,
+        property: VirtualRegister,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        arrayProfile: ArrayProfile,
+        seenIdentifiers: GetByValHistory,
+    }
+
+op :get_by_val,
+    args: {
+        dst: VirtualRegister,
+        base: VirtualRegister,
+        property: VirtualRegister,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        arrayProfile: ArrayProfile,
+        seenIdentifiers: GetByValHistory,
+    }
+
+op :put_private_name,
+    args: {
+        base: VirtualRegister,
+        property: VirtualRegister,
+        value: VirtualRegister,
+        putKind: PrivateFieldPutKind,
+    },
+    metadata: {
+        property: WriteBarrier[JSCell],
+        oldStructureID: StructureID,
+        offset: unsigned,
+        newStructureID: StructureID,
+    }
+
+op :get_private_name,
+    args: {
+        dst: VirtualRegister,
+        base: VirtualRegister,
+        property: VirtualRegister,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        structureID: StructureID,
+        offset: unsigned,
+        property: WriteBarrier[JSCell],
+    }
 
 # Alignment: 4
 op :put_by_val,
@@ -769,6 +724,56 @@ op :enumerator_put_by_val,
         enumeratorMetadata: EnumeratorMetadata,
     }
 
+op :to_this,
+    args: {
+        srcDst: VirtualRegister,
+        ecmaMode: ECMAMode,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        cachedStructureID: StructureID,
+        toThisStatus: ToThisStatus,
+    }
+
+op :enumerator_get_by_val,
+    args: {
+        dst: VirtualRegister,
+        base: VirtualRegister,
+        mode: VirtualRegister,
+        propertyName: VirtualRegister,
+        index: VirtualRegister,
+        enumerator: VirtualRegister,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        arrayProfile: ArrayProfile,
+        enumeratorMetadata: EnumeratorMetadata,
+    }
+
+op :get_by_id_direct,
+    args: {
+        dst: VirtualRegister,
+        base: VirtualRegister,
+        property: unsigned,
+        valueProfile: unsigned, # not used in llint
+    },
+    metadata: {
+        structureID: StructureID,
+        offset: unsigned,
+    }
+
+op :try_get_by_id,
+    args: {
+        dst: VirtualRegister,
+        base: VirtualRegister,
+        property: unsigned,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        structureID: StructureID,
+        offset: unsigned,
+    }
+
 # Alignment: 1
 op :jneq_ptr,
     args: {
@@ -781,6 +786,53 @@ op :jneq_ptr,
     }
 
 # Opcodes without metadata are last
+op :get_argument,
+    args: {
+        dst: VirtualRegister,
+        index: int,
+        valueProfile: unsigned,
+    }
+
+op :get_from_arguments,
+    args: {
+        dst: VirtualRegister,
+        arguments: VirtualRegister,
+        index: unsigned,
+        valueProfile: unsigned,
+    }
+
+op :get_prototype_of,
+    args: {
+        dst: VirtualRegister,
+        value: VirtualRegister,
+        valueProfile: unsigned,
+    }
+
+op :get_internal_field,
+    args: {
+        dst: VirtualRegister,
+        base: VirtualRegister,
+        index: unsigned,
+        valueProfile: unsigned,
+    }
+
+op :get_by_id_with_this,
+    args: {
+        dst: VirtualRegister,
+        base: VirtualRegister,
+        thisValue: VirtualRegister,
+        property: unsigned,
+        valueProfile: unsigned,
+    }
+
+op :to_object,
+    args: {
+        dst: VirtualRegister,
+        operand: VirtualRegister,
+        message: unsigned,
+        valueProfile: unsigned,
+    }
+
 op :in_by_id,
     args: {
         dst: VirtualRegister,
@@ -975,7 +1027,6 @@ op_group :SwitchValue,
     ],
     args: {
         tableIndex: unsigned,
-        defaultOffset: BoundLabel,
         scrutinee: VirtualRegister,
     }
 
@@ -1021,6 +1072,12 @@ op :to_primitive,
     }
 
 op :to_property_key,
+    args: {
+        dst: VirtualRegister,
+        src: VirtualRegister,
+    }
+
+op :to_property_key_or_number,
     args: {
         dst: VirtualRegister,
         src: VirtualRegister,
@@ -1332,21 +1389,6 @@ op :overrides_has_instance,
         hasInstanceValue: VirtualRegister,
     }
 
-op :instanceof,
-    args: {
-        dst: VirtualRegister,
-        value: VirtualRegister,
-        prototype: VirtualRegister,
-    }
-
-op :instanceof_custom,
-    args: {
-        dst: VirtualRegister,
-        value: VirtualRegister,
-        constructor: VirtualRegister,
-        hasInstanceValue: VirtualRegister,
-    }
-
 op :typeof,
     args: {
         dst: VirtualRegister,
@@ -1410,10 +1452,12 @@ op :llint_native_call_trampoline
 op :llint_native_construct_trampoline
 op :llint_internal_function_call_trampoline
 op :llint_internal_function_construct_trampoline
-op :llint_link_call_trampoline
+op :llint_default_call_trampoline
 op :llint_virtual_call_trampoline
 op :llint_virtual_construct_trampoline
 op :llint_virtual_tail_call_trampoline
+op :llint_polymorphic_normal_call_trampoline
+op :llint_polymorphic_closure_call_trampoline
 op :checkpoint_osr_exit_from_inlined_call_trampoline
 op :checkpoint_osr_exit_trampoline
 op :normal_osr_exit_trampoline
@@ -1424,47 +1468,48 @@ op :llint_handle_uncaught_exception
 op :op_call_return_location
 op :op_call_ignore_result_return_location
 op :op_construct_return_location
+op :op_super_construct_return_location
 op :op_call_varargs_return_location
 op :op_construct_varargs_return_location
-op :op_call_varargs_slow_return_location
-op :op_construct_varargs_slow_return_location
+op :op_super_construct_varargs_return_location
 op :op_get_by_id_return_location
+op :op_get_by_id_direct_return_location
+op :op_get_length_return_location
 op :op_get_by_val_return_location
 op :op_put_by_id_return_location
 op :op_put_by_val_return_location
+op :op_put_by_val_direct_return_location
+op :op_in_by_id_return_location
+op :op_in_by_val_return_location
+op :op_enumerator_get_by_val_return_location
+op :op_enumerator_put_by_val_return_location
+op :op_enumerator_in_by_val_return_location
 op :op_iterator_open_return_location
 op :op_iterator_next_return_location
-op :wasm_function_prologue
-op :wasm_function_prologue_simd
-
-op :op_call_slow_return_location
-op :op_call_ignore_result_slow_return_location
-op :op_construct_slow_return_location
-op :op_iterator_open_slow_return_location
-op :op_iterator_next_slow_return_location
-op :op_tail_call_slow_return_location
-op :op_tail_call_forward_arguments_slow_return_location
-op :op_tail_call_varargs_slow_return_location
 op :op_call_direct_eval_slow_return_location
+op :wasm_function_prologue_trampoline
+op :wasm_function_prologue
+op :wasm_function_prologue_simd_trampoline
+op :wasm_function_prologue_simd
+op :js_to_wasm_wrapper_entry
+op :wasm_to_wasm_wrapper_entry
+op :wasm_to_wasm_ipint_wrapper_entry
+op :wasm_to_js_wrapper_entry
+op :ipint_trampoline
+op :ipint_entry
+op :ipint_function_prologue_simd_trampoline
+op :ipint_function_prologue_simd
 
 op :js_trampoline_op_call
 op :js_trampoline_op_call_ignore_result
 op :js_trampoline_op_construct
+op :js_trampoline_op_super_construct
 op :js_trampoline_op_call_varargs
 op :js_trampoline_op_construct_varargs
+op :js_trampoline_op_super_construct_varargs
 op :js_trampoline_op_iterator_next
 op :js_trampoline_op_iterator_open
-op :js_trampoline_op_call_slow
-op :js_trampoline_op_call_ignore_result_slow
-op :js_trampoline_op_tail_call_slow
-op :js_trampoline_op_construct_slow
-op :js_trampoline_op_call_varargs_slow
-op :js_trampoline_op_tail_call_varargs_slow
-op :js_trampoline_op_tail_call_forward_arguments_slow
-op :js_trampoline_op_construct_varargs_slow
 op :js_trampoline_op_call_direct_eval_slow
-op :js_trampoline_op_iterator_next_slow
-op :js_trampoline_op_iterator_open_slow
 op :js_trampoline_llint_function_for_call_arity_check_untag
 op :js_trampoline_llint_function_for_call_arity_check_tag
 op :js_trampoline_llint_function_for_construct_arity_check_untag
@@ -1474,6 +1519,9 @@ op :wasm_trampoline_wasm_call_indirect
 op :wasm_trampoline_wasm_call_ref
 op :wasm_trampoline_wasm_tail_call
 op :wasm_trampoline_wasm_tail_call_indirect
+op :wasm_trampoline_wasm_tail_call_ref
+op :wasm_trampoline_wasm_ipint_call
+op :wasm_trampoline_wasm_ipint_tail_call
 
 end_section :NativeHelpers
 
@@ -1513,30 +1561,6 @@ op :llint_cloop_did_return_from_js_28
 op :llint_cloop_did_return_from_js_29
 op :llint_cloop_did_return_from_js_30
 op :llint_cloop_did_return_from_js_31
-op :llint_cloop_did_return_from_js_32
-op :llint_cloop_did_return_from_js_33
-op :llint_cloop_did_return_from_js_34
-op :llint_cloop_did_return_from_js_35
-op :llint_cloop_did_return_from_js_36
-op :llint_cloop_did_return_from_js_37
-op :llint_cloop_did_return_from_js_38
-op :llint_cloop_did_return_from_js_39
-op :llint_cloop_did_return_from_js_40
-op :llint_cloop_did_return_from_js_41
-op :llint_cloop_did_return_from_js_42
-op :llint_cloop_did_return_from_js_43
-op :llint_cloop_did_return_from_js_44
-op :llint_cloop_did_return_from_js_45
-op :llint_cloop_did_return_from_js_46
-op :llint_cloop_did_return_from_js_47
-op :llint_cloop_did_return_from_js_48
-op :llint_cloop_did_return_from_js_49
-op :llint_cloop_did_return_from_js_50
-op :llint_cloop_did_return_from_js_51
-op :llint_cloop_did_return_from_js_52
-op :llint_cloop_did_return_from_js_53
-op :llint_cloop_did_return_from_js_54
-op :llint_cloop_did_return_from_js_55
 
 end_section :CLoopReturnHelpers
 
@@ -1556,6 +1580,7 @@ op :throw_from_fault_handler_trampoline_reg_instance
 op :call_return_location
 op :call_indirect_return_location
 op :call_ref_return_location
+op :ipint_call_return_location
 
 # FIXME: Wasm and JS LLInt should share common opcodes
 # https://bugs.webkit.org/show_bug.cgi?id=203656
@@ -1743,6 +1768,15 @@ op :call_ref,
         numberOfStackArgs: unsigned,
     }
 
+op :tail_call_ref,
+    args: {
+        functionReference: VirtualRegister,
+        typeIndex: unsigned,
+        stackOffset: unsigned,
+        numberOfCalleeStackArgs: unsigned,
+        numberOfCallerStackArgs: unsigned,
+    }
+
 op :call_builtin,
     args: {
         builtinIndex: unsigned,
@@ -1869,6 +1903,11 @@ op :rethrow,
         exception: VirtualRegister,
     }
 
+op :throw_ref,
+    args: {
+        exception: VirtualRegister,
+    }
+
 op_group :Catch,
     [
         :catch,
@@ -1888,7 +1927,22 @@ op_group :CatchAll,
         exception: VirtualRegister,
     }
 
-op :i31_new,
+op_group :TryTableCatch,
+    [
+        :try_table_catch,
+        :try_table_catchref,
+        :try_table_catchall,
+        :try_table_catchallref,
+    ],
+    args: {
+        kind: unsigned,
+        exceptionIndex: unsigned,
+        exception: VirtualRegister,
+        argumentCount: unsigned,
+        startOffset: unsigned,
+    }
+
+op :ref_i31,
     args: {
         dst: VirtualRegister,
         value: VirtualRegister,
@@ -1933,6 +1987,15 @@ op :array_len,
         arrayref: VirtualRegister,
     }
 
+op :array_fill,
+    args: {
+        arrayref: VirtualRegister,
+        offset: VirtualRegister,
+        value: VirtualRegister,
+        size: VirtualRegister,
+        typeIndex: unsigned,
+    }
+
 op :struct_new,
     args: {
         dst: VirtualRegister,
@@ -1946,6 +2009,7 @@ op :struct_get,
         dst: VirtualRegister,
         structReference: VirtualRegister,
         fieldIndex: unsigned,
+        structGetKind: unsigned,
     }
 
 op :struct_set,
@@ -1955,7 +2019,7 @@ op :struct_set,
         value: VirtualRegister,
     }
 
-op :extern_externalize,
+op :extern_convert_any,
     args: {
         dst: VirtualRegister,
         reference: VirtualRegister,

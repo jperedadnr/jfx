@@ -41,6 +41,7 @@ public:
     uint32_t maxTextureDimension3D() const;
     uint32_t maxTextureArrayLayers() const;
     uint32_t maxBindGroups() const;
+    uint32_t maxBindGroupsPlusVertexBuffers() const;
     uint32_t maxBindingsPerBindGroup() const;
     uint32_t maxDynamicUniformBuffersPerPipelineLayout() const;
     uint32_t maxDynamicStorageBuffersPerPipelineLayout() const;
@@ -67,6 +68,8 @@ public:
     uint32_t maxComputeWorkgroupSizeY() const;
     uint32_t maxComputeWorkgroupSizeZ() const;
     uint32_t maxComputeWorkgroupsPerDimension() const;
+    uint32_t maxStorageBuffersInFragmentStage() const;
+    uint32_t maxStorageTexturesInFragmentStage() const;
 
     WebGPU::SupportedLimits& backing() { return m_backing; }
     const WebGPU::SupportedLimits& backing() const { return m_backing; }

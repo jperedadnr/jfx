@@ -28,8 +28,10 @@
 
 #include "CodeBlock.h"
 #include "FunctionCodeBlock.h"
+#include "FunctionConstructor.h"
 #include "FunctionExecutableInlines.h"
 #include "FunctionOverrides.h"
+#include "SourceCodeKey.h"
 #include "IsoCellSetInlines.h"
 #include "JSCJSValueInlines.h"
 
@@ -38,7 +40,7 @@ namespace JSC {
 const ClassInfo FunctionExecutable::s_info = { "FunctionExecutable"_s, &ScriptExecutable::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(FunctionExecutable) };
 
 FunctionExecutable::FunctionExecutable(VM& vm, ScriptExecutable* topLevelExecutable, const SourceCode& source, UnlinkedFunctionExecutable* unlinkedExecutable, Intrinsic intrinsic, bool isInsideOrdinaryFunction)
-    : ScriptExecutable(vm.functionExecutableStructure.get(), vm, source, unlinkedExecutable->lexicalScopeFeatures(), unlinkedExecutable->derivedContextType(), false, isInsideOrdinaryFunction || !unlinkedExecutable->isArrowFunction(), EvalContextType::None, intrinsic)
+    : ScriptExecutable(vm.functionExecutableStructure.get(), vm, source, unlinkedExecutable->lexicallyScopedFeatures(), unlinkedExecutable->derivedContextType(), false, isInsideOrdinaryFunction || !unlinkedExecutable->isArrowFunction(), EvalContextType::None, intrinsic)
     , m_topLevelExecutable(topLevelExecutable ? topLevelExecutable : this, WriteBarrierEarlyInit)
     , m_unlinkedExecutable(unlinkedExecutable, WriteBarrierEarlyInit)
 {
@@ -128,16 +130,26 @@ void FunctionExecutable::visitOutputConstraintsImpl(JSCell* cell, Visitor& visit
 DEFINE_VISIT_OUTPUT_CONSTRAINTS(FunctionExecutable);
 
 FunctionExecutable* FunctionExecutable::fromGlobalCode(
-    const Identifier& name, JSGlobalObject* globalObject, const SourceCode& source,
-    JSObject*& exception, int overrideLineNumber, std::optional<int> functionConstructorParametersEndPosition)
+    const Identifier& name, JSGlobalObject* globalObject, const SourceCode& source, LexicallyScopedFeatures lexicallyScopedFeatures,
+    JSObject*& exception, int overrideLineNumber, std::optional<int> functionConstructorParametersEndPosition, FunctionConstructionMode functionConstructionMode)
 {
+    if (overrideLineNumber == overrideLineNumberNotFound) {
+        if (auto* executable = globalObject->tryGetCachedFunctionExecutableForFunctionConstructor(name, source, lexicallyScopedFeatures, functionConstructionMode))
+            return executable;
+    }
+
     UnlinkedFunctionExecutable* unlinkedExecutable =
         UnlinkedFunctionExecutable::fromGlobalCode(
-            name, globalObject, source, exception, overrideLineNumber, functionConstructorParametersEndPosition);
+            name, globalObject, source, lexicallyScopedFeatures, exception, overrideLineNumber, functionConstructorParametersEndPosition);
     if (!unlinkedExecutable)
         return nullptr;
 
-    return unlinkedExecutable->link(globalObject->vm(), nullptr, source, overrideLineNumber);
+    auto* executable = unlinkedExecutable->link(globalObject->vm(), nullptr, source, overrideLineNumber);
+    if (overrideLineNumber == overrideLineNumberNotFound) {
+        if (executable)
+            globalObject->cachedFunctionExecutableForFunctionConstructor(executable);
+    }
+    return executable;
 }
 
 FunctionExecutable::RareData& FunctionExecutable::ensureRareDataSlow()
@@ -173,7 +185,7 @@ JSString* FunctionExecutable::toStringSlow(JSGlobalObject* globalObject)
     };
 
     if (isBuiltinFunction())
-        return cacheIfNoException(jsMakeNontrivialString(globalObject, "function ", name().string(), "() {\n    [native code]\n}"));
+        return cacheIfNoException(jsMakeNontrivialString(globalObject, "function "_s, name().string(), "() {\n    [native code]\n}"_s));
 
     if (isClass())
         return cache(jsString(vm, classSource().view()));

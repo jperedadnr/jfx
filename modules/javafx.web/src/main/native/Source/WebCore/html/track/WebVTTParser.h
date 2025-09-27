@@ -41,6 +41,7 @@
 #include "VTTRegion.h"
 #include <memory>
 #include <wtf/MediaTime.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -62,6 +63,7 @@ public:
 };
 
 class WebVTTCueData final : public RefCounted<WebVTTCueData> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(WebVTTCueData, WEBCORE_EXPORT);
 public:
 
     static Ref<WebVTTCueData> create() { return adoptRef(*new WebVTTCueData()); }
@@ -96,8 +98,8 @@ private:
     String m_settings;
 };
 
-class WebVTTParser final {
-    WTF_MAKE_FAST_ALLOCATED;
+class WEBCORE_EXPORT WebVTTParser final {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(WebVTTParser, WEBCORE_EXPORT);
 public:
     enum ParseState {
         Initial,
@@ -111,6 +113,7 @@ public:
         Finished
     };
 
+    WebVTTParser() = delete;
     WebVTTParser(WebVTTParserClient&, Document&);
 
     static inline bool isRecognizedTag(const AtomString& tagName)
@@ -129,7 +132,7 @@ public:
     static bool parseFloatPercentageValuePair(VTTScanner& valueScanner, char, FloatPoint&);
 
     // Input data to the parser to parse.
-    void parseBytes(const uint8_t*, unsigned);
+    void parseBytes(std::span<const uint8_t>);
     void parseFileHeader(String&&);
     void parseCueData(const ISOWebVTTCue&);
     void flush();

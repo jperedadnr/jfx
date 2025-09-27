@@ -37,6 +37,7 @@
 #include "RTCRtpTransformBackend.h"
 #include "RealtimeIncomingAudioSource.h"
 #include "RealtimeIncomingVideoSource.h"
+#include <wtf/TZoneMallocInlines.h>
 
 ALLOW_UNUSED_PARAMETERS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -47,6 +48,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 ALLOW_UNUSED_PARAMETERS_END
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LibWebRTCRtpReceiverBackend);
 
 LibWebRTCRtpReceiverBackend::LibWebRTCRtpReceiverBackend(rtc::scoped_refptr<webrtc::RtpReceiverInterface>&& rtcReceiver)
     : m_rtcReceiver(WTFMove(rtcReceiver))
@@ -62,7 +65,7 @@ RTCRtpParameters LibWebRTCRtpReceiverBackend::getParameters()
 
 static inline void fillRTCRtpContributingSource(RTCRtpContributingSource& source, const webrtc::RtpSource& rtcSource)
 {
-    source.timestamp = rtcSource.timestamp_ms();
+    source.timestamp = rtcSource.timestamp().ms();
     source.rtpTimestamp = rtcSource.rtp_timestamp();
     source.source = rtcSource.source_id();
     if (rtcSource.audio_level())

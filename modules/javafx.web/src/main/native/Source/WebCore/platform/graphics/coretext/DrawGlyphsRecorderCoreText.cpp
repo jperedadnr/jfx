@@ -35,6 +35,7 @@
 #include "GlyphBuffer.h"
 #include "GraphicsContextCG.h"
 #include "ImageBuffer.h"
+#include "PathCG.h"
 
 #include <CoreText/CoreText.h>
 #include <wtf/Vector.h>
@@ -59,7 +60,7 @@ static CGError drawGlyphs(CGContextDelegateRef delegate, CGRenderingStateRef rst
 {
     if (CGGStateGetAlpha(gstate) > 0) {
         DrawGlyphsRecorder& recorder = *static_cast<DrawGlyphsRecorder*>(CGContextDelegateGetInfo(delegate));
-        recorder.recordDrawGlyphs(rstate, gstate, tm, glyphs, positions, count);
+        recorder.recordDrawGlyphs(rstate, gstate, tm, unsafeMakeSpan(glyphs, count), unsafeMakeSpan(positions, count));
     }
     return kCGErrorSuccess;
 }
@@ -71,6 +72,13 @@ static CGError drawImage(CGContextDelegateRef delegate, CGRenderingStateRef rsta
     return kCGErrorSuccess;
 }
 
+static CGError drawPath(CGContextDelegateRef delegate, CGRenderingStateRef rstate, CGGStateRef gstate, CGPathDrawingMode drawingMode, CGPathRef path)
+{
+    DrawGlyphsRecorder& recorder = *static_cast<DrawGlyphsRecorder*>(CGContextDelegateGetInfo(delegate));
+    recorder.recordDrawPath(rstate, gstate, drawingMode, path);
+    return kCGErrorSuccess;
+}
+
 UniqueRef<GraphicsContext> DrawGlyphsRecorder::createInternalContext()
 {
     auto contextDelegate = adoptCF(CGContextDelegateCreate(this));
@@ -78,6 +86,7 @@ UniqueRef<GraphicsContext> DrawGlyphsRecorder::createInternalContext()
     CGContextDelegateSetCallback(contextDelegate.get(), deEndLayer, reinterpret_cast<CGContextDelegateCallback>(&endLayer));
     CGContextDelegateSetCallback(contextDelegate.get(), deDrawGlyphs, reinterpret_cast<CGContextDelegateCallback>(&WebCore::drawGlyphs));
     CGContextDelegateSetCallback(contextDelegate.get(), deDrawImage, reinterpret_cast<CGContextDelegateCallback>(&drawImage));
+    CGContextDelegateSetCallback(contextDelegate.get(), deDrawPath, reinterpret_cast<CGContextDelegateCallback>(&drawPath));
 #if HAVE(CORE_TEXT_FIX_FOR_RADAR_93925620)
     auto contextType = kCGContextTypeUnknown;
 #else
@@ -121,7 +130,7 @@ void DrawGlyphsRecorder::populateInternalContext(const GraphicsContextState& con
     if (m_originalState.dropShadow)
         m_internalContext->setDropShadow(*m_originalState.dropShadow);
     else
-        m_internalContext->clearShadow();
+        m_internalContext->clearDropShadow();
 
     m_internalContext->setTextDrawingMode(contextState.textDrawingMode());
 }
@@ -208,7 +217,7 @@ void DrawGlyphsRecorder::updateShadow(const std::optional<GraphicsDropShadow>& d
     if (dropShadow)
         m_owner.setDropShadow(*dropShadow);
     else
-        m_owner.clearShadow();
+        m_owner.clearDropShadow();
 
     m_owner.setShadowsIgnoreTransforms(shadowsIgnoreTransforms == ShadowsIgnoreTransforms::Yes);
 }
@@ -226,7 +235,7 @@ void DrawGlyphsRecorder::updateShadow(CGStyleRef style)
     auto shadowOffset = FloatSize(std::cos(rad), std::sin(rad)) * shadowStyle.height;
     auto shadowRadius = static_cast<float>(shadowStyle.radius);
     auto shadowColor = CGStyleGetColor(style);
-    updateShadow({ { shadowOffset, shadowRadius, Color::createAndPreserveColorSpace(shadowColor), ShadowRadiusMode::Default } }, ShadowsIgnoreTransforms::Yes);
+    updateShadow({ { shadowOffset, shadowRadius, Color::createAndPreserveColorSpace(shadowColor) } }, ShadowsIgnoreTransforms::Yes);
 }
 
 void DrawGlyphsRecorder::recordBeginLayer(CGRenderingStateRef, CGGStateRef gstate, CGRect)
@@ -247,30 +256,26 @@ struct AdvancesAndInitialPosition {
     CGPoint initialPosition;
 };
 
-static AdvancesAndInitialPosition computeHorizontalAdvancesFromPositions(const CGPoint positions[], size_t count, const CGAffineTransform& textMatrix)
+static AdvancesAndInitialPosition computeHorizontalAdvancesFromPositions(std::span<const CGPoint> positions, const CGAffineTransform& textMatrix)
 {
     // This function needs to be the inverse of fillVectorWithHorizontalGlyphPositions().
 
-    ASSERT(count); // Because we say "positions[0]" below.
-
     AdvancesAndInitialPosition result;
-    result.advances.reserveInitialCapacity(count);
+    result.advances.reserveInitialCapacity(positions.size());
     result.initialPosition = CGPointApplyAffineTransform(positions[0], textMatrix);
-    for (size_t i = 0; i < count - 1; ++i) {
+    for (size_t i = 0; i < positions.size() - 1; ++i) {
         auto nextPosition = positions[i + 1];
         auto currentPosition = positions[i];
         auto advance = CGSizeMake(nextPosition.x - currentPosition.x, nextPosition.y - currentPosition.y);
-        result.advances.uncheckedAppend(CGSizeApplyAffineTransform(advance, textMatrix));
+        result.advances.append(CGSizeApplyAffineTransform(advance, textMatrix));
     }
-    result.advances.uncheckedConstructAndAppend(CGSizeZero);
+    result.advances.constructAndAppend(CGSizeZero);
     return result;
 }
 
-static AdvancesAndInitialPosition computeVerticalAdvancesFromPositions(const CGSize translations[], const CGPoint positions[], unsigned count, float ascentDelta, AffineTransform textMatrix)
+static AdvancesAndInitialPosition computeVerticalAdvancesFromPositions(std::span<const CGSize> translations, std::span<const CGPoint> positions, float ascentDelta, AffineTransform textMatrix)
 {
     // This function needs to be the inverse of fillVectorWithVerticalGlyphPositions().
-
-    ASSERT(count); // Because we say "positions[0]" below.
 
     auto constantSyntheticTextMatrixOmittingOblique = computeBaseVerticalTextMatrix(computeBaseOverallTextMatrix(std::nullopt)); // See fillVectorWithVerticalGlyphPositions(), which describes what this is.
 
@@ -281,25 +286,25 @@ static AdvancesAndInitialPosition computeVerticalAdvancesFromPositions(const CGS
     };
 
     AdvancesAndInitialPosition result;
-    result.advances.reserveInitialCapacity(count);
+    result.advances.reserveInitialCapacity(positions.size());
     result.initialPosition = transformPoint(positions[0], translations[0]);
     CGPoint previousPosition = result.initialPosition;
     result.initialPosition.y -= ascentDelta;
 
-    for (size_t i = 1; i < count; ++i) {
+    for (size_t i = 1; i < positions.size(); ++i) {
         auto currentPosition = transformPoint(positions[i], translations[i]);
-        result.advances.uncheckedConstructAndAppend(CGSizeMake(currentPosition.x - previousPosition.x, currentPosition.y - previousPosition.y));
+        result.advances.constructAndAppend(CGSizeMake(currentPosition.x - previousPosition.x, currentPosition.y - previousPosition.y));
         previousPosition = currentPosition;
     }
-    result.advances.uncheckedAppend(CGSizeZero);
+    result.advances.append(CGSizeZero);
     return result;
 }
 
-void DrawGlyphsRecorder::recordDrawGlyphs(CGRenderingStateRef, CGGStateRef gstate, const CGAffineTransform*, const CGGlyph glyphs[], const CGPoint positions[], size_t count)
+void DrawGlyphsRecorder::recordDrawGlyphs(CGRenderingStateRef, CGGStateRef gstate, const CGAffineTransform*, std::span<const CGGlyph> glyphs, std::span<const CGPoint> positions)
 {
     ASSERT_IMPLIES(m_deriveFontFromContext == DeriveFontFromContext::No, m_originalFont);
 
-    if (!count)
+    if (glyphs.empty())
         return;
 
     CGFontRef usedFont = CGGStateGetFont(gstate);
@@ -346,14 +351,14 @@ void DrawGlyphsRecorder::recordDrawGlyphs(CGRenderingStateRef, CGGStateRef gstat
 
     AdvancesAndInitialPosition advances;
     if (font->platformData().orientation() == FontOrientation::Vertical) {
-        Vector<CGSize, 256> translations(count);
-        CTFontGetVerticalTranslationsForGlyphs(font->platformData().ctFont(), glyphs, translations.data(), count);
-        auto ascentDelta = font->fontMetrics().floatAscent(IdeographicBaseline) - font->fontMetrics().floatAscent();
-        advances = computeVerticalAdvancesFromPositions(translations.data(), positions, count, ascentDelta, textMatrix);
+        Vector<CGSize, 256> translations(glyphs.size());
+        CTFontGetVerticalTranslationsForGlyphs(font->platformData().ctFont(), glyphs.data(), translations.data(), glyphs.size());
+        auto ascentDelta = font->fontMetrics().ascent(IdeographicBaseline) - font->fontMetrics().ascent();
+        advances = computeVerticalAdvancesFromPositions(translations.span(), positions, ascentDelta, textMatrix);
     } else
-        advances = computeHorizontalAdvancesFromPositions(positions, count, textMatrix);
+        advances = computeHorizontalAdvancesFromPositions(positions, textMatrix);
 
-    m_owner.drawGlyphsAndCacheResources(font, glyphs, advances.advances.data(), count, advances.initialPosition, m_smoothingMode);
+    m_owner.drawGlyphsAndCacheResources(font, glyphs, advances.advances.span(), advances.initialPosition, m_smoothingMode);
 
     m_owner.concatCTM(inverseCTMFixup);
 }
@@ -372,23 +377,65 @@ void DrawGlyphsRecorder::recordDrawImage(CGRenderingStateRef, CGGStateRef gstate
     m_owner.scale(FloatSize(1, -1));
 
     auto image = NativeImage::create(cgImage);
-    m_owner.drawNativeImage(*image, image->size(), FloatRect(rect), FloatRect { { }, image->size() }, ImagePaintingOptions { ImageOrientation::Orientation::OriginTopLeft });
+    m_owner.drawNativeImage(*image, FloatRect(rect), FloatRect { { }, image->size() }, ImagePaintingOptions { ImageOrientation::Orientation::OriginTopLeft });
 
     // Undo the above y-flip to restore the context.
     m_owner.scale(FloatSize(1, -1));
     m_owner.translate(0, -(rect.size.height + 2 * rect.origin.y));
 }
 
-void DrawGlyphsRecorder::drawOTSVGRun(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& startPoint, FontSmoothingMode smoothingMode)
+void DrawGlyphsRecorder::recordDrawPath(CGRenderingStateRef, CGGStateRef gstate, CGPathDrawingMode drawingMode, CGPathRef coreGraphicsPath)
+{
+    auto* ctm = CGGStateGetCTM(gstate);
+    if (!ctm)
+        return;
+    updateCTM(*ctm);
+    // The path we get has already CTM applied to it but we should serialize the non-transformed version to correctly apply line width.
+    CGAffineTransform invertTransform = CGAffineTransformInvert(*ctm);
+    auto localPath = adoptCF(CGPathCreateMutableCopyByTransformingPath(coreGraphicsPath, &invertTransform));
+    Path path { PathCG::create(WTFMove(localPath)) };
+
+    updateShadow(CGGStateGetStyle(gstate));
+
+    switch (drawingMode) {
+    case CGPathDrawingMode::kCGPathEOFill:
+        updateFillColor(CGGStateGetFillColor(gstate));
+        m_owner.setFillRule(WindRule::EvenOdd);
+        m_owner.fillPath(path);
+        break;
+    case CGPathDrawingMode::kCGPathFill:
+        updateFillColor(CGGStateGetFillColor(gstate));
+        m_owner.setFillRule(WindRule::NonZero);
+        m_owner.fillPath(path);
+        break;
+    case CGPathDrawingMode::kCGPathStroke:
+        updateStrokeColor(CGGStateGetStrokeColor(gstate));
+        m_owner.strokePath(path);
+        break;
+    case CGPathDrawingMode::kCGPathFillStroke:
+        updateStrokeColor(CGGStateGetStrokeColor(gstate));
+        updateFillColor(CGGStateGetFillColor(gstate));
+        m_owner.setFillRule(WindRule::NonZero);
+        m_owner.drawPath(path);
+        break;
+    case CGPathDrawingMode::kCGPathEOFillStroke:
+        updateStrokeColor(CGGStateGetStrokeColor(gstate));
+        m_owner.setFillRule(WindRule::EvenOdd);
+        m_owner.drawPath(path);
+        break;
+    }
+}
+
+void DrawGlyphsRecorder::drawOTSVGRun(const Font& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& startPoint, FontSmoothingMode smoothingMode)
 {
     FloatPoint penPosition = startPoint;
 
-    for (unsigned i = 0; i < numGlyphs; ++i) {
+    for (size_t i = 0; i < glyphs.size(); ++i) {
         auto bounds = font.boundsForGlyph(glyphs[i]);
 
         // Create a local ImageBuffer because decoding the SVG fonts has to happen in WebProcess.
         if (auto imageBuffer = m_owner.createAlignedImageBuffer(bounds, DestinationColorSpace::SRGB(), RenderingMethod::Local)) {
-            FontCascade::drawGlyphs(imageBuffer->context(), font, glyphs + i, advances + i, 1, FloatPoint(), smoothingMode);
+            FontCascade::drawGlyphs(imageBuffer->context(), font, glyphs.subspan(i, 1), advances.subspan(i, 1), FloatPoint(), smoothingMode);
 
             FloatRect destinationRect = enclosingIntRect(bounds);
             destinationRect.moveBy(penPosition);
@@ -399,22 +446,22 @@ void DrawGlyphsRecorder::drawOTSVGRun(const Font& font, const GlyphBufferGlyph* 
     }
 }
 
-void DrawGlyphsRecorder::drawNonOTSVGRun(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& startPoint, FontSmoothingMode smoothingMode)
+void DrawGlyphsRecorder::drawNonOTSVGRun(const Font& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& startPoint, FontSmoothingMode smoothingMode)
 {
     prepareInternalContext(font, smoothingMode);
-    FontCascade::drawGlyphs(m_internalContext, font, glyphs, advances, numGlyphs, startPoint, smoothingMode);
+    FontCascade::drawGlyphs(m_internalContext, font, glyphs, advances, startPoint, smoothingMode);
     concludeInternalContext();
 }
 
-void DrawGlyphsRecorder::drawBySplittingIntoOTSVGAndNonOTSVGRuns(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& startPoint, FontSmoothingMode smoothingMode)
+void DrawGlyphsRecorder::drawBySplittingIntoOTSVGAndNonOTSVGRuns(const Font& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& startPoint, FontSmoothingMode smoothingMode)
 {
-    auto otsvgGlyphs = font.findOTSVGGlyphs(glyphs, numGlyphs);
+    auto otsvgGlyphs = font.findOTSVGGlyphs(glyphs);
     if (!otsvgGlyphs) {
-        drawNonOTSVGRun(font, glyphs, advances, numGlyphs, startPoint, smoothingMode);
+        drawNonOTSVGRun(font, glyphs, advances, startPoint, smoothingMode);
         return;
     }
 
-    ASSERT(otsvgGlyphs->size() >= numGlyphs);
+    ASSERT(otsvgGlyphs->size() >= glyphs.size());
 
     // We can't just partition the glyphs into OT-SVG glyphs and non-OT-SVG glyphs because glyphs are allowed to draw outside of their layout boxes.
     // This means that glyphs can overlap, which means we have to get the z-order correct. We can't have an earlier run be drawn on top of a later run.
@@ -422,16 +469,16 @@ void DrawGlyphsRecorder::drawBySplittingIntoOTSVGAndNonOTSVGRuns(const Font& fon
     FloatPoint penPosition = startPoint;
     size_t glyphCountInRun = 0;
     bool isOTSVGRun = false;
-    unsigned i;
+    size_t i;
     auto draw = [&] () {
         if (!glyphCountInRun)
             return;
         if (isOTSVGRun)
-            drawOTSVGRun(font, glyphs + i - glyphCountInRun, advances + i - glyphCountInRun, glyphCountInRun, runOrigin, smoothingMode);
+            drawOTSVGRun(font, glyphs.subspan(i - glyphCountInRun, glyphCountInRun), advances.subspan(i - glyphCountInRun, glyphCountInRun), runOrigin, smoothingMode);
         else
-            drawNonOTSVGRun(font, glyphs + i - glyphCountInRun, advances + i - glyphCountInRun, glyphCountInRun, runOrigin, smoothingMode);
+            drawNonOTSVGRun(font, glyphs.subspan(i - glyphCountInRun, glyphCountInRun), advances.subspan(i - glyphCountInRun, glyphCountInRun), runOrigin, smoothingMode);
     };
-    for (i = 0; i < numGlyphs; ++i) {
+    for (i = 0; i < glyphs.size(); ++i) {
         bool isOTSVGGlyph = otsvgGlyphs->quickGet(i);
         if (isOTSVGGlyph != isOTSVGRun) {
             draw();
@@ -445,9 +492,9 @@ void DrawGlyphsRecorder::drawBySplittingIntoOTSVGAndNonOTSVGRuns(const Font& fon
     draw();
 }
 
-void DrawGlyphsRecorder::drawGlyphs(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& startPoint, FontSmoothingMode smoothingMode)
+void DrawGlyphsRecorder::drawGlyphs(const Font& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& startPoint, FontSmoothingMode smoothingMode)
 {
-    drawBySplittingIntoOTSVGAndNonOTSVGRuns(font, glyphs, advances, numGlyphs, startPoint, smoothingMode);
+    drawBySplittingIntoOTSVGAndNonOTSVGRuns(font, glyphs, advances, startPoint, smoothingMode);
 }
 
 void DrawGlyphsRecorder::drawNativeText(CTFontRef font, CGFloat fontSize, CTLineRef line, CGRect lineRect)

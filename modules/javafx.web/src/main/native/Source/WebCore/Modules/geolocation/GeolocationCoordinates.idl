@@ -27,6 +27,7 @@
 // FIXME: The current standard says this should be annotated with 'SecureContext'.
 [
     Conditional=GEOLOCATION,
+    EnabledBySetting=GeolocationAPIEnabled,
     Exposed=Window
 ] interface GeolocationCoordinates {
     readonly attribute unrestricted double latitude;
@@ -36,6 +37,7 @@
     readonly attribute unrestricted double? altitudeAccuracy;
     readonly attribute unrestricted double? heading;
     readonly attribute unrestricted double? speed;
+    [Default] object toJSON();
     
     // Non standard.
     [EnabledBySetting=GeolocationFloorLevelEnabled] readonly attribute unrestricted double? floorLevel;

@@ -63,7 +63,7 @@ public:
     template<typename T, std::enable_if_t<!std::is_arithmetic<typename std::remove_const<T>>::value && !std::is_enum<T>::value>* = nullptr>
     Decoder& operator>>(std::optional<T>& result)
     {
-        result = Coder<T>::decode(*this);
+        result = Coder<T>::decodeForPersistence(*this);
         return *this;
     }
 
@@ -88,9 +88,7 @@ public:
         return numElements <= std::numeric_limits<size_t>::max() / sizeof(T) && bufferIsLargeEnoughToContain(numElements * sizeof(T));
     }
 
-    WTF_EXPORT_PRIVATE WARN_UNUSED_RETURN const uint8_t* bufferPointerForDirectRead(size_t numBytes);
-
-    static constexpr bool isIPCDecoder = false;
+    WTF_EXPORT_PRIVATE WARN_UNUSED_RETURN std::span<const uint8_t> bufferPointerForDirectRead(size_t numBytes);
 
 private:
     WTF_EXPORT_PRIVATE WARN_UNUSED_RETURN bool bufferIsLargeEnoughToContain(size_t) const;

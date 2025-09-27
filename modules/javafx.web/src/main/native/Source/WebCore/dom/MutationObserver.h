@@ -35,8 +35,8 @@
 #include "GCReachableRef.h"
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
-#include <wtf/IsoMalloc.h>
 #include <wtf/OptionSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakHashSet.h>
 
@@ -73,7 +73,7 @@ using MutationObserverOptions = OptionSet<MutationObserverOptionType>;
 using MutationRecordDeliveryOptions = OptionSet<MutationObserverOptionType>;
 
 class MutationObserver final : public RefCounted<MutationObserver> {
-    WTF_MAKE_ISO_ALLOCATED(MutationObserver);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(MutationObserver);
 public:
     static Ref<MutationObserver> create(Ref<MutationCallback>&&);
 
@@ -93,7 +93,7 @@ public:
 
     struct TakenRecords {
         Vector<Ref<MutationRecord>> records;
-        HashSet<GCReachableRef<Node>> pendingTargets;
+        UncheckedKeyHashSet<GCReachableRef<Node>> pendingTargets;
     };
     TakenRecords takeRecords();
     void disconnect();
@@ -107,6 +107,7 @@ public:
     bool isReachableFromOpaqueRoots(JSC::AbstractSlotVisitor&) const;
 
     MutationCallback& callback() const { return m_callback.get(); }
+    Ref<MutationCallback> protectedCallback() const;
 
     static void enqueueSlotChangeEvent(HTMLSlotElement&);
 
@@ -125,7 +126,7 @@ private:
 
     Ref<MutationCallback> m_callback;
     Vector<Ref<MutationRecord>> m_records;
-    HashSet<GCReachableRef<Node>> m_pendingTargets;
+    UncheckedKeyHashSet<GCReachableRef<Node>> m_pendingTargets;
     WeakHashSet<MutationObserverRegistration> m_registrations;
     unsigned m_priority;
 };

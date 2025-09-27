@@ -29,6 +29,7 @@
 #include "config.h"
 #include "SVGRenderStyleDefs.h"
 
+#include "RenderStyleDifference.h"
 #include "RenderStyleInlines.h"
 #include "SVGRenderStyle.h"
 #include <wtf/PointerComparison.h>
@@ -65,6 +66,19 @@ Ref<StyleFillData> StyleFillData::copy() const
 {
     return adoptRef(*new StyleFillData(*this));
 }
+
+#if !LOG_DISABLED
+void StyleFillData::dumpDifferences(TextStream& ts, const StyleFillData& other) const
+{
+    LOG_IF_DIFFERENT(opacity);
+    LOG_IF_DIFFERENT(paintColor);
+    LOG_IF_DIFFERENT(visitedLinkPaintColor);
+    LOG_IF_DIFFERENT(paintUri);
+    LOG_IF_DIFFERENT(visitedLinkPaintUri);
+    LOG_IF_DIFFERENT(paintType);
+    LOG_IF_DIFFERENT(visitedLinkPaintType);
+}
+#endif
 
 bool StyleFillData::operator==(const StyleFillData& other) const
 {
@@ -125,6 +139,23 @@ bool StyleStrokeData::operator==(const StyleStrokeData& other) const
         && visitedLinkPaintType == other.visitedLinkPaintType;
 }
 
+#if !LOG_DISABLED
+void StyleStrokeData::dumpDifferences(TextStream& ts, const StyleStrokeData& other) const
+{
+    LOG_IF_DIFFERENT(opacity);
+    LOG_IF_DIFFERENT(paintColor);
+    LOG_IF_DIFFERENT(visitedLinkPaintColor);
+    LOG_IF_DIFFERENT(paintUri);
+    LOG_IF_DIFFERENT(visitedLinkPaintUri);
+
+    LOG_IF_DIFFERENT(dashOffset);
+    LOG_IF_DIFFERENT(dashArray);
+
+    LOG_IF_DIFFERENT(paintType);
+    LOG_IF_DIFFERENT(visitedLinkPaintType);
+}
+#endif
+
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleStopData);
 
 StyleStopData::StyleStopData()
@@ -151,28 +182,13 @@ bool StyleStopData::operator==(const StyleStopData& other) const
         && color == other.color;
 }
 
-DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleTextData);
-
-StyleTextData::StyleTextData()
-    : kerning(SVGRenderStyle::initialKerning())
+#if !LOG_DISABLED
+void StyleStopData::dumpDifferences(TextStream& ts, const StyleStopData& other) const
 {
+    LOG_IF_DIFFERENT(opacity);
+    LOG_IF_DIFFERENT(color);
 }
-
-inline StyleTextData::StyleTextData(const StyleTextData& other)
-    : RefCounted<StyleTextData>()
-    , kerning(other.kerning)
-{
-}
-
-Ref<StyleTextData> StyleTextData::copy() const
-{
-    return adoptRef(*new StyleTextData(*this));
-}
-
-bool StyleTextData::operator==(const StyleTextData& other) const
-{
-    return kerning == other.kerning;
-}
+#endif
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleMiscData);
 
@@ -206,6 +222,16 @@ bool StyleMiscData::operator==(const StyleMiscData& other) const
         && baselineShiftValue == other.baselineShiftValue;
 }
 
+#if !LOG_DISABLED
+void StyleMiscData::dumpDifferences(TextStream& ts, const StyleMiscData& other) const
+{
+    LOG_IF_DIFFERENT(floodOpacity);
+    LOG_IF_DIFFERENT(floodColor);
+    LOG_IF_DIFFERENT(lightingColor);
+    LOG_IF_DIFFERENT(baselineShiftValue);
+}
+#endif
+
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleShadowSVGData);
 
 StyleShadowSVGData::StyleShadowSVGData()
@@ -227,6 +253,13 @@ bool StyleShadowSVGData::operator==(const StyleShadowSVGData& other) const
 {
     return arePointingToEqualData(shadow, other.shadow);
 }
+
+#if !LOG_DISABLED
+void StyleShadowSVGData::dumpDifferences(TextStream& ts, const StyleShadowSVGData& other) const
+{
+    LOG_IF_DIFFERENT(shadow);
+}
+#endif
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleInheritedResourceData);
 
@@ -257,6 +290,15 @@ bool StyleInheritedResourceData::operator==(const StyleInheritedResourceData& ot
         && markerEnd == other.markerEnd;
 }
 
+#if !LOG_DISABLED
+void StyleInheritedResourceData::dumpDifferences(TextStream& ts, const StyleInheritedResourceData& other) const
+{
+    LOG_IF_DIFFERENT(markerStart);
+    LOG_IF_DIFFERENT(markerMid);
+    LOG_IF_DIFFERENT(markerEnd);
+}
+#endif
+
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleLayoutData);
 
 StyleLayoutData::StyleLayoutData()
@@ -267,6 +309,7 @@ StyleLayoutData::StyleLayoutData()
     , ry(RenderStyle::initialRadius())
     , x(RenderStyle::zeroLength())
     , y(RenderStyle::zeroLength())
+    , d(nullptr)
 {
 }
 
@@ -279,6 +322,7 @@ inline StyleLayoutData::StyleLayoutData(const StyleLayoutData& other)
     , ry(other.ry)
     , x(other.x)
     , y(other.y)
+    , d(other.d)
 {
 }
 
@@ -295,14 +339,27 @@ bool StyleLayoutData::operator==(const StyleLayoutData& other) const
         && rx == other.rx
         && ry == other.ry
         && x == other.x
-        && y == other.y;
+        && y == other.y
+        && d == other.d;
 }
 
+#if !LOG_DISABLED
+void StyleLayoutData::dumpDifferences(TextStream& ts, const StyleLayoutData& other) const
+{
+    LOG_IF_DIFFERENT(cx);
+    LOG_IF_DIFFERENT(cy);
+    LOG_IF_DIFFERENT(r);
+    LOG_IF_DIFFERENT(rx);
+    LOG_IF_DIFFERENT(ry);
+    LOG_IF_DIFFERENT(x);
+    LOG_IF_DIFFERENT(y);
+    LOG_IF_DIFFERENT(d);
+}
+#endif
 
 TextStream& operator<<(TextStream& ts, AlignmentBaseline value)
 {
     switch (value) {
-    case AlignmentBaseline::Auto: ts << "auto"; break;
     case AlignmentBaseline::Baseline: ts << "baseline"; break;
     case AlignmentBaseline::BeforeEdge: ts << "before-edge"; break;
     case AlignmentBaseline::TextBeforeEdge: ts << "text-before-edge"; break;
@@ -473,12 +530,6 @@ TextStream& operator<<(TextStream& ts, const StyleStopData& data)
 {
     ts.dumpProperty("opacity", data.opacity);
     ts.dumpProperty("color", data.color);
-    return ts;
-}
-
-TextStream& operator<<(TextStream& ts, const StyleTextData& data)
-{
-    ts.dumpProperty("kerning", data.kerning);
     return ts;
 }
 

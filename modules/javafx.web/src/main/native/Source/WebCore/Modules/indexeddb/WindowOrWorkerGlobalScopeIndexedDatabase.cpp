@@ -36,11 +36,12 @@
 #include "Page.h"
 #include "Supplementable.h"
 #include "WorkerGlobalScope.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 class DOMWindowIndexedDatabase : public LocalDOMWindowProperty, public Supplement<LocalDOMWindow> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DOMWindowIndexedDatabase);
 public:
     explicit DOMWindowIndexedDatabase(LocalDOMWindow&);
     virtual ~DOMWindowIndexedDatabase() = default;
@@ -49,13 +50,13 @@ public:
     IDBFactory* indexedDB();
 
 private:
-    static const char* supplementName() { return "DOMWindowIndexedDatabase"; }
+    static ASCIILiteral supplementName() { return "DOMWindowIndexedDatabase"_s; }
 
     RefPtr<IDBFactory> m_idbFactory;
 };
 
 class WorkerGlobalScopeIndexedDatabase : public Supplement<WorkerGlobalScope> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WorkerGlobalScopeIndexedDatabase);
 public:
     explicit WorkerGlobalScopeIndexedDatabase(IDBClient::IDBConnectionProxy&);
     virtual ~WorkerGlobalScopeIndexedDatabase() = default;
@@ -64,13 +65,15 @@ public:
     IDBFactory* indexedDB();
 
 private:
-    static const char* supplementName() { return "WorkerGlobalScopeIndexedDatabase"; }
+    static ASCIILiteral supplementName() { return "WorkerGlobalScopeIndexedDatabase"_s; }
 
     RefPtr<IDBFactory> m_idbFactory;
     Ref<IDBClient::IDBConnectionProxy> m_connectionProxy;
 };
 
 // DOMWindowIndexedDatabase supplement.
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DOMWindowIndexedDatabase);
 
 DOMWindowIndexedDatabase::DOMWindowIndexedDatabase(LocalDOMWindow& window)
     : LocalDOMWindowProperty(&window)
@@ -93,11 +96,11 @@ IDBFactory* DOMWindowIndexedDatabase::indexedDB()
 #if PLATFORM(JAVA)
     return nullptr;
 #else /* PLATFORM(JAVA) */
-    auto* window = this->window();
+    RefPtr window = this->window();
     if (!window)
         return nullptr;
 
-    auto* document = window->document();
+    RefPtr document = window->document();
     if (!document)
         return nullptr;
 
@@ -121,6 +124,8 @@ IDBFactory* DOMWindowIndexedDatabase::indexedDB()
 }
 
 // WorkerGlobalScope supplement.
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerGlobalScopeIndexedDatabase);
 
 WorkerGlobalScopeIndexedDatabase::WorkerGlobalScopeIndexedDatabase(IDBClient::IDBConnectionProxy& connectionProxy)
     : m_connectionProxy(connectionProxy)
@@ -170,7 +175,7 @@ IDBFactory* WindowOrWorkerGlobalScopeIndexedDatabase::indexedDB(WorkerGlobalScop
 #endif /* PLATFORM(JAVA) */
 }
 
-IDBFactory* WindowOrWorkerGlobalScopeIndexedDatabase::indexedDB(LocalDOMWindow& window)
+IDBFactory* WindowOrWorkerGlobalScopeIndexedDatabase::indexedDB(DOMWindow& window)
 {
 #if PLATFORM(JAVA)
     UNUSED_PARAM(window);

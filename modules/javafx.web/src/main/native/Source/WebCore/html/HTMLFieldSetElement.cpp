@@ -36,12 +36,12 @@
 #include "RenderElement.h"
 #include "ScriptDisallowedScope.h"
 #include "TypedElementDescendantIteratorInlines.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLFieldSetElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLFieldSetElement);
 
 using namespace HTMLNames;
 
@@ -64,13 +64,10 @@ Ref<HTMLFieldSetElement> HTMLFieldSetElement::create(const QualifiedName& tagNam
 
 bool HTMLFieldSetElement::isDisabledFormControl() const
 {
-    if (document().settings().sendMouseEventsToDisabledFormControlsEnabled()) {
         // The fieldset element itself should never be considered disabled, it is
         // only supposed to affect its descendants:
         // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#concept-fe-disabled
         return false;
-    }
-    return HTMLFormControlElement::isDisabledFormControl();
 }
 
 // https://html.spec.whatwg.org/#concept-element-disabled
@@ -206,7 +203,7 @@ void HTMLFieldSetElement::addInvalidDescendant(const HTMLElement& invalidFormCon
 
     std::optional<Style::PseudoClassChangeInvalidation> styleInvalidation;
     if (m_invalidDescendants.isEmptyIgnoringNullReferences())
-        emplace(styleInvalidation, *this, { { CSSSelector::PseudoClassType::Valid, false }, { CSSSelector::PseudoClassType::Invalid, true } });
+        emplace(styleInvalidation, *this, { { CSSSelector::PseudoClass::Valid, false }, { CSSSelector::PseudoClass::Invalid, true } });
 
     m_invalidDescendants.add(invalidFormControlElement);
 }
@@ -218,7 +215,7 @@ void HTMLFieldSetElement::removeInvalidDescendant(const HTMLElement& formControl
 
     std::optional<Style::PseudoClassChangeInvalidation> styleInvalidation;
     if (m_invalidDescendants.computeSize() == 1)
-        emplace(styleInvalidation, *this, { { CSSSelector::PseudoClassType::Valid, true }, { CSSSelector::PseudoClassType::Invalid, false } });
+        emplace(styleInvalidation, *this, { { CSSSelector::PseudoClass::Valid, true }, { CSSSelector::PseudoClass::Invalid, false } });
 
     m_invalidDescendants.remove(formControlElement);
 }

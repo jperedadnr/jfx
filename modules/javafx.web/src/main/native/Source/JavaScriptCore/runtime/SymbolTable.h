@@ -357,13 +357,13 @@ private:
     const FatEntry* fatEntry() const
     {
         ASSERT(isFat());
-        return bitwise_cast<const FatEntry*>(m_bits);
+        return std::bit_cast<const FatEntry*>(m_bits);
     }
 
     FatEntry* fatEntry()
     {
         ASSERT(isFat());
-        return bitwise_cast<FatEntry*>(m_bits);
+        return std::bit_cast<FatEntry*>(m_bits);
     }
 
     FatEntry* inflate()
@@ -436,7 +436,7 @@ private:
 };
 
 struct SymbolTableIndexHashTraits : HashTraits<SymbolTableEntry> {
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 };
 
 class SymbolTable final : public JSCell {
@@ -446,10 +446,10 @@ public:
     typedef JSCell Base;
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
-    typedef HashMap<RefPtr<UniquedStringImpl>, SymbolTableEntry, IdentifierRepHash, HashTraits<RefPtr<UniquedStringImpl>>, SymbolTableIndexHashTraits> Map;
-    typedef HashMap<RefPtr<UniquedStringImpl>, GlobalVariableID, IdentifierRepHash> UniqueIDMap;
-    typedef HashMap<RefPtr<UniquedStringImpl>, RefPtr<TypeSet>, IdentifierRepHash> UniqueTypeSetMap;
-    typedef HashMap<VarOffset, RefPtr<UniquedStringImpl>> OffsetToVariableMap;
+    typedef UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, SymbolTableEntry, IdentifierRepHash, HashTraits<RefPtr<UniquedStringImpl>>, SymbolTableIndexHashTraits> Map;
+    typedef UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, GlobalVariableID, IdentifierRepHash> UniqueIDMap;
+    typedef UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, RefPtr<TypeSet>, IdentifierRepHash> UniqueTypeSetMap;
+    typedef UncheckedKeyHashMap<VarOffset, RefPtr<UniquedStringImpl>> OffsetToVariableMap;
     typedef Vector<SymbolTableEntry*> LocalToEntryVec;
     typedef WTF::IteratorRange<typename PrivateNameEnvironment::iterator> PrivateNameIteratorRange;
 
@@ -466,13 +466,10 @@ public:
         return symbolTable;
     }
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     static void destroy(JSCell*);
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(CellType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     // You must hold the lock until after you're done with the iterator.
     Map::iterator find(const ConcurrentJSLocker&, UniquedStringImpl* key)
@@ -692,7 +689,7 @@ public:
 
     bool trySetArgumentOffset(VM& vm, uint32_t i, ScopeOffset offset)
     {
-        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(m_arguments);
+        ASSERT_WITH_SECURITY_IMPLICATION(m_arguments);
         auto* maybeCloned = m_arguments->trySet(vm, i, offset);
         if (!maybeCloned)
             return false;
@@ -760,6 +757,10 @@ public:
     DECLARE_VISIT_CHILDREN;
 
     DECLARE_EXPORT_INFO;
+
+#if ASSERT_ENABLED
+    bool hasScopedWatchpointSet(WatchpointSet*);
+#endif
 
     void finalizeUnconditionally(VM&, CollectionScope);
     void dump(PrintStream&) const;

@@ -37,8 +37,9 @@ namespace WebCore {
 class StickyPositionViewportConstraints;
 
 class ScrollingStateStickyNode final : public ScrollingStateNode {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ScrollingStateStickyNode, WEBCORE_EXPORT);
 public:
-    static Ref<ScrollingStateStickyNode> create(ScrollingStateTree&, ScrollingNodeID);
+    template<typename... Args> static Ref<ScrollingStateStickyNode> create(Args&&... args) { return adoptRef(*new ScrollingStateStickyNode(std::forward<Args>(args)...)); }
 
     Ref<ScrollingStateNode> clone(ScrollingStateTree&) override;
 
@@ -48,6 +49,7 @@ public:
     const StickyPositionViewportConstraints& viewportConstraints() const { return m_constraints; }
 
 private:
+    WEBCORE_EXPORT ScrollingStateStickyNode(ScrollingNodeID, Vector<Ref<ScrollingStateNode>>&&, OptionSet<ScrollingStateNodeProperty>, std::optional<PlatformLayerIdentifier>, StickyPositionViewportConstraints&&);
     ScrollingStateStickyNode(ScrollingStateTree&, ScrollingNodeID);
     ScrollingStateStickyNode(const ScrollingStateStickyNode&, ScrollingStateTree&);
 

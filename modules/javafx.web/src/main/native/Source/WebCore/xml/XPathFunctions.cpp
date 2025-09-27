@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2005 Frerich Raabe <raabe@kde.org>
- * Copyright (C) 2006, 2009, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2019 Google Inc. All rights reserved.
  * Copyright (C) 2007 Alexey Proskuryakov <ap@webkit.org>
  *
@@ -39,10 +39,14 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/SetForScope.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 namespace XPath {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Function);
 
 static inline bool isWhitespace(UChar c)
 {
@@ -67,158 +71,185 @@ private:
 };
 
 class FunLast final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunLast);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NumberValue; }
+    Value::Type resultType() const override { return Value::Type::Number; }
 public:
     FunLast() { setIsContextSizeSensitive(true); }
 };
 
 class FunPosition final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunPosition);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NumberValue; }
+    Value::Type resultType() const override { return Value::Type::Number; }
 public:
     FunPosition() { setIsContextPositionSensitive(true); }
 };
 
 class FunCount final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunCount);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NumberValue; }
+    Value::Type resultType() const override { return Value::Type::Number; }
 };
 
 class FunId final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunId);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NodeSetValue; }
+    Value::Type resultType() const override { return Value::Type::NodeSet; }
 };
 
 class FunLocalName final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunLocalName);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 public:
     FunLocalName() { setIsContextNodeSensitive(true); } // local-name() with no arguments uses context node.
 };
 
 class FunNamespaceURI final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunNamespaceURI);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 public:
     FunNamespaceURI() { setIsContextNodeSensitive(true); } // namespace-uri() with no arguments uses context node.
 };
 
 class FunName final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunName);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 public:
     FunName() { setIsContextNodeSensitive(true); } // name() with no arguments uses context node.
 };
 
 class FunString final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunString);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 public:
     FunString() { setIsContextNodeSensitive(true); } // string() with no arguments uses context node.
 };
 
 class FunConcat final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunConcat);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 };
 
 class FunStartsWith final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunStartsWith);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::BooleanValue; }
+    Value::Type resultType() const override { return Value::Type::Boolean; }
 };
 
 class FunContains final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunContains);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::BooleanValue; }
+    Value::Type resultType() const override { return Value::Type::Boolean; }
 };
 
 class FunSubstringBefore final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunSubstringBefore);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 };
 
 class FunSubstringAfter final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunSubstringAfter);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 };
 
 class FunSubstring final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunSubstring);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 };
 
 class FunStringLength final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunStringLength);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NumberValue; }
+    Value::Type resultType() const override { return Value::Type::Number; }
 public:
     FunStringLength() { setIsContextNodeSensitive(true); } // string-length() with no arguments uses context node.
 };
 
 class FunNormalizeSpace final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunNormalizeSpace);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 public:
     FunNormalizeSpace() { setIsContextNodeSensitive(true); } // normalize-space() with no arguments uses context node.
 };
 
 class FunTranslate final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunTranslate);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::StringValue; }
+    Value::Type resultType() const override { return Value::Type::String; }
 };
 
 class FunBoolean final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunBoolean);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::BooleanValue; }
+    Value::Type resultType() const override { return Value::Type::Boolean; }
 };
 
 class FunNot : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunNot);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::BooleanValue; }
+    Value::Type resultType() const override { return Value::Type::Boolean; }
 };
 
 class FunTrue final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunTrue);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::BooleanValue; }
+    Value::Type resultType() const override { return Value::Type::Boolean; }
 };
 
 class FunFalse final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunFalse);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::BooleanValue; }
+    Value::Type resultType() const override { return Value::Type::Boolean; }
 };
 
 class FunLang final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunLang);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::BooleanValue; }
+    Value::Type resultType() const override { return Value::Type::Boolean; }
 public:
     FunLang() { setIsContextNodeSensitive(true); } // lang() always works on context node.
 };
 
 class FunNumber final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunNumber);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NumberValue; }
+    Value::Type resultType() const override { return Value::Type::Number; }
 public:
     FunNumber() { setIsContextNodeSensitive(true); } // number() with no arguments uses context node.
 };
 
 class FunSum final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunSum);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NumberValue; }
+    Value::Type resultType() const override { return Value::Type::Number; }
 };
 
 class FunFloor final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunFloor);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NumberValue; }
+    Value::Type resultType() const override { return Value::Type::Number; }
 };
 
 class FunCeiling final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunCeiling);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NumberValue; }
+    Value::Type resultType() const override { return Value::Type::Number; }
 };
 
 class FunRound final : public Function {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunRound);
     Value evaluate() const override;
-    Value::Type resultType() const override { return Value::NumberValue; }
+    Value::Type resultType() const override { return Value::Type::Number; }
 public:
     static double round(double);
 };
@@ -341,9 +372,9 @@ Value FunId::evaluate() const
 
         // If there are several nodes with the same id, id() should return the first one.
         // In WebKit, getElementById behaves so, too, although its behavior in this case is formally undefined.
-        Node* node = contextScope.getElementById(StringView(idList).substring(startPos, endPos - startPos));
+        RefPtr node = contextScope.getElementById(StringView(idList).substring(startPos, endPos - startPos));
         if (node && resultSet.add(*node).isNewEntry)
-            result.append(node);
+            result.append(WTFMove(node));
 
         startPos = endPos;
     }
@@ -353,17 +384,17 @@ Value FunId::evaluate() const
     return Value(WTFMove(result));
 }
 
-static inline String expandedNameLocalPart(Node* node)
+static inline String expandedNameLocalPart(Node& node)
 {
-    if (is<ProcessingInstruction>(*node))
-        return downcast<ProcessingInstruction>(*node).target();
-    return node->localName().string();
+    if (auto* pi = dynamicDowncast<ProcessingInstruction>(node))
+        return pi->target();
+    return node.localName().string();
 }
 
-static inline String expandedName(Node* node)
+static inline String expandedName(Node& node)
 {
-    const AtomString& prefix = node->prefix();
-    return prefix.isEmpty() ? expandedNameLocalPart(node) : prefix + ":" + expandedNameLocalPart(node);
+    auto& prefix = node.prefix();
+    return prefix.isEmpty() ? expandedNameLocalPart(node) : makeString(prefix, ':', expandedNameLocalPart(node));
 }
 
 Value FunLocalName::evaluate() const
@@ -373,11 +404,11 @@ Value FunLocalName::evaluate() const
         if (!a.isNodeSet())
             return emptyString();
 
-        Node* node = a.toNodeSet().firstNode();
-        return node ? expandedNameLocalPart(node) : emptyString();
+        auto* node = a.toNodeSet().firstNode();
+        return node ? expandedNameLocalPart(*node) : emptyString();
     }
 
-    return expandedNameLocalPart(evaluationContext().node.get());
+    return expandedNameLocalPart(*evaluationContext().node);
 }
 
 Value FunNamespaceURI::evaluate() const
@@ -401,11 +432,11 @@ Value FunName::evaluate() const
         if (!a.isNodeSet())
             return emptyString();
 
-        Node* node = a.toNodeSet().firstNode();
-        return node ? expandedName(node) : emptyString();
+        auto* node = a.toNodeSet().firstNode();
+        return node ? expandedName(*node) : emptyString();
     }
 
-    return expandedName(evaluationContext().node.get());
+    return expandedName(*evaluationContext().node);
 }
 
 Value FunCount::evaluate() const
@@ -512,48 +543,60 @@ Value FunSubstringAfter::evaluate() const
     return s1.substring(i + s2.length());
 }
 
+// Computes the 1-based start and end (exclusive) string indices for
+// substring. This is all the positions [1, maxLen (inclusive)] where
+// start <= position < start + len
+static std::pair<unsigned, unsigned> computeSubstringStartEnd(double start, double len, double maxLen)
+{
+    ASSERT(std::isfinite(maxLen));
+    const double end = start + len;
+    if (std::isnan(start) || std::isnan(end))
+        return std::make_pair(1, 1);
+
+    // Neither start nor end are NaN, but may still be +/- Inf
+    const double clampedStart = std::clamp<double>(start, 1, maxLen + 1);
+    const double clampedEnd = std::clamp<double>(end, clampedStart, maxLen + 1);
+    return std::make_pair(static_cast<unsigned>(clampedStart), static_cast<unsigned>(clampedEnd));
+}
+
+// substring(string, number pos, number? len)
+//
+// Characters in string are indexed from 1. Numbers are doubles and
+// substring is specified to work with IEEE-754 infinity, NaN, and
+// XPath's bespoke rounding function, round.
+//
+// <https://www.w3.org/TR/xpath/#function-substring>
 Value FunSubstring::evaluate() const
 {
     EvaluationContext clonedContext1(Expression::evaluationContext());
     EvaluationContext clonedContext2(Expression::evaluationContext());
+    EvaluationContext clonedContext3(Expression::evaluationContext());
 
-    String s;
-    double doublePos;
+    String sourceString;
+    double pos;
+    double len;
 
     {
         SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext1);
-        s = argument(0).evaluate().toString();
+        sourceString = argument(0).evaluate().toString();
     }
     {
         SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext2);
-        doublePos = argument(1).evaluate().toNumber();
+        pos = FunRound::round(argument(1).evaluate().toNumber());
     }
 
-    if (std::isnan(doublePos))
-        return emptyString();
-    long pos = static_cast<long>(FunRound::round(doublePos));
-    bool haveLength = argumentCount() == 3;
-    long len = -1;
-    if (haveLength) {
-        double doubleLen = argument(2).evaluate().toNumber();
-        if (std::isnan(doubleLen))
-            return emptyString();
-        len = static_cast<long>(FunRound::round(doubleLen));
+    if (argumentCount() == 3) {
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext3);
+        len = FunRound::round(argument(2).evaluate().toNumber());
+    } else {
+        len = std::numeric_limits<double>::infinity();
     }
 
-    if (pos > long(s.length()))
+    const auto bounds = computeSubstringStartEnd(pos, len, sourceString.length());
+    if (bounds.second <= bounds.first)
         return emptyString();
 
-    if (pos < 1) {
-        if (haveLength) {
-            len -= 1 - pos;
-            if (len < 1)
-                return emptyString();
-        }
-        pos = 1;
-    }
-
-    return s.substring(pos - 1, len);
+    return sourceString.substring(bounds.first - 1, bounds.second - bounds.first);
 }
 
 Value FunStringLength::evaluate() const
@@ -627,10 +670,9 @@ Value FunLang::evaluate() const
     const Attribute* languageAttribute = nullptr;
     Node* node = evaluationContext().node.get();
     while (node) {
-        if (is<Element>(*node)) {
-            Element& element = downcast<Element>(*node);
-            if (element.hasAttributes())
-                languageAttribute = element.findAttributeByName(XMLNames::langAttr);
+        if (RefPtr element = dynamicDowncast<Element>(*node)) {
+            if (element->hasAttributes())
+                languageAttribute = element->findAttributeByName(XMLNames::langAttr);
         }
         if (languageAttribute)
             break;
@@ -785,5 +827,5 @@ std::unique_ptr<Function> Function::create(const String& name, Vector<std::uniqu
     return function;
 }
 
-}
-}
+} // namespace XPath
+} // namespace WebCore

@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "Options.h"
 #include "SpeculatedType.h"
 #include <wtf/LockAlgorithm.h>
 #include <wtf/StdLibExtras.h>
@@ -207,6 +208,19 @@ inline unsigned arrayIndexFromIndexingType(IndexingType indexingType)
     if (isCopyOnWrite(indexingType))
         return ((indexingType & IndexingShapeMask) - UndecidedShape + SlowPutArrayStorageShape) >> IndexingShapeShift;
     return (indexingType & IndexingShapeMask) >> IndexingShapeShift;
+}
+
+inline bool isNewArrayWithConstantSizeIndexingType(IndexingType indexingType)
+{
+    switch (indexingType) {
+    case ALL_DOUBLE_INDEXING_TYPES:
+    case ALL_INT32_INDEXING_TYPES:
+    case ALL_CONTIGUOUS_INDEXING_TYPES: {
+        return true;
+    }
+    default:
+        return false;
+    }
 }
 
 inline IndexingType indexingTypeForValue(JSValue value)

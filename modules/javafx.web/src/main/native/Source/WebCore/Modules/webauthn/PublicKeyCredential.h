@@ -27,8 +27,12 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "AuthenticationResponseJSON.h"
 #include "BasicCredential.h"
+#include "ExceptionOr.h"
 #include "IDLTypes.h"
+#include "JSPublicKeyCredentialRequestOptions.h"
+#include "RegistrationResponseJSON.h"
 #include <wtf/Forward.h>
 
 namespace WebCore {
@@ -36,7 +40,13 @@ namespace WebCore {
 enum class AuthenticatorAttachment : uint8_t;
 class AuthenticatorResponse;
 class Document;
+typedef IDLRecord<IDLDOMString, IDLBoolean> PublicKeyCredentialClientCapabilities;
+typedef std::variant<RegistrationResponseJSON, AuthenticationResponseJSON> PublicKeyCredentialJSON;
 
+struct PublicKeyCredentialCreationOptions;
+struct PublicKeyCredentialCreationOptionsJSON;
+struct PublicKeyCredentialRequestOptions;
+struct PublicKeyCredentialRequestOptionsJSON;
 struct AuthenticationExtensionsClientOutputs;
 
 template<typename IDLType> class DOMPromiseDeferred;
@@ -49,8 +59,15 @@ public:
     AuthenticatorResponse* response() const { return m_response.ptr(); }
     AuthenticatorAttachment authenticatorAttachment() const;
     AuthenticationExtensionsClientOutputs getClientExtensionResults() const;
+    PublicKeyCredentialJSON toJSON();
 
     static void isUserVerifyingPlatformAuthenticatorAvailable(Document&, DOMPromiseDeferred<IDLBoolean>&&);
+
+    static void getClientCapabilities(Document&, DOMPromiseDeferred<PublicKeyCredentialClientCapabilities>&&);
+
+    static ExceptionOr<PublicKeyCredentialCreationOptions> parseCreationOptionsFromJSON(PublicKeyCredentialCreationOptionsJSON&&);
+
+    static ExceptionOr<PublicKeyCredentialRequestOptions> parseRequestOptionsFromJSON(PublicKeyCredentialRequestOptionsJSON&&);
 
 private:
     PublicKeyCredential(Ref<AuthenticatorResponse>&&);

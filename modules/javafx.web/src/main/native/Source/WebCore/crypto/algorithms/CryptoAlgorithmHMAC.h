@@ -28,7 +28,6 @@
 #include "CryptoAlgorithm.h"
 
 #if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoKeyHMAC;
@@ -52,9 +51,8 @@ private:
     void generateKey(const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsageBitmap, KeyOrKeyPairCallback&&, ExceptionCallback&&, ScriptExecutionContext&) final;
     void importKey(CryptoKeyFormat, KeyData&&, const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsageBitmap, KeyCallback&&, ExceptionCallback&&) final;
     void exportKey(CryptoKeyFormat, Ref<CryptoKey>&&, KeyDataCallback&&, ExceptionCallback&&) final;
-    ExceptionOr<size_t> getKeyLength(const CryptoAlgorithmParameters&) final;
+    ExceptionOr<std::optional<size_t>> getKeyLength(const CryptoAlgorithmParameters&) final;
 };
 
 } // namespace WebCore
-
 #endif // ENABLE(WEB_CRYPTO)

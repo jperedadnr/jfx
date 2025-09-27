@@ -30,6 +30,7 @@
 
 #include "AudioTrackPrivateClient.h"
 #include "TrackBase.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
 
 namespace WebCore {
@@ -39,6 +40,7 @@ class AudioTrackConfiguration;
 class AudioTrackList;
 
 class AudioTrack final : public MediaTrackBase, private AudioTrackPrivateClient {
+    WTF_MAKE_TZONE_ALLOCATED(AudioTrack);
 public:
     static Ref<AudioTrack> create(ScriptExecutionContext* context, AudioTrackPrivate& trackPrivate)
     {
@@ -66,7 +68,7 @@ public:
     AudioTrackConfiguration& configuration() const { return m_configuration; }
 
 #if !RELEASE_LOG_DISABLED
-    void setLogger(const Logger&, const void*) final;
+    void setLogger(const Logger&, uint64_t) final;
 #endif
 
 private:
@@ -79,7 +81,7 @@ private:
     void configurationChanged(const PlatformAudioTrackConfiguration&) final;
 
     // TrackPrivateBaseClient
-    void idChanged(const AtomString&) final;
+    void idChanged(TrackID) final;
     void labelChanged(const AtomString&) final;
     void languageChanged(const AtomString&) final;
     void willRemove() final;
@@ -88,7 +90,7 @@ private:
     void updateConfigurationFromPrivate();
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "AudioTrack"; }
+    ASCIILiteral logClassName() const final { return "AudioTrack"_s; }
 #endif
 
     WeakPtr<AudioTrackList> m_audioTrackList;

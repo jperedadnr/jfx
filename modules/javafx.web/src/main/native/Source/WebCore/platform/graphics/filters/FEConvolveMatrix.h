@@ -29,16 +29,18 @@
 
 namespace WebCore {
 
-enum class EdgeModeType {
+enum class EdgeModeType : uint8_t {
     Unknown,
     Duplicate,
     Wrap,
     None
 };
 
-class FEConvolveMatrix : public FilterEffect {
+class FEConvolveMatrix final : public FilterEffect {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEConvolveMatrix);
 public:
-    WEBCORE_EXPORT static Ref<FEConvolveMatrix> create(const IntSize& kernelSize, float divisor, float bias, const IntPoint& targetOffset, EdgeModeType, const FloatPoint& kernelUnitLength, bool preserveAlpha, const Vector<float>& kernelMatrix);
+    WEBCORE_EXPORT static Ref<FEConvolveMatrix> create(const IntSize& kernelSize, float divisor, float bias, const IntPoint& targetOffset, EdgeModeType, const FloatPoint& kernelUnitLength, bool preserveAlpha, const Vector<float>& kernelMatrix, DestinationColorSpace = DestinationColorSpace::SRGB());
 
     bool operator==(const FEConvolveMatrix&) const;
 
@@ -67,7 +69,7 @@ public:
     bool setPreserveAlpha(bool);
 
 private:
-    FEConvolveMatrix(const IntSize& kernelSize, float divisor, float bias, const IntPoint& targetOffset, EdgeModeType, const FloatPoint& kernelUnitLength, bool preserveAlpha, const Vector<float>& kernelMatrix);
+    FEConvolveMatrix(const IntSize& kernelSize, float divisor, float bias, const IntPoint& targetOffset, EdgeModeType, const FloatPoint& kernelUnitLength, bool preserveAlpha, const Vector<float>& kernelMatrix, DestinationColorSpace);
 
     bool operator==(const FilterEffect& other) const override { return areEqual<FEConvolveMatrix>(*this, other); }
 
@@ -89,19 +91,4 @@ private:
 
 } // namespace WebCore
 
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::EdgeModeType> {
-    using values = EnumValues<
-        WebCore::EdgeModeType,
-
-        WebCore::EdgeModeType::Unknown,
-        WebCore::EdgeModeType::Duplicate,
-        WebCore::EdgeModeType::Wrap,
-        WebCore::EdgeModeType::None
-    >;
-};
-
-} // namespace WTF
-
-SPECIALIZE_TYPE_TRAITS_FILTER_EFFECT(FEConvolveMatrix)
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEConvolveMatrix)

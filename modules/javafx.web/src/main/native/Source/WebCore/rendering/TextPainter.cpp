@@ -2,6 +2,7 @@
  * (C) 1999 Lars Knoll (knoll@kde.org)
  * (C) 2000 Dirk Mueller (mueller@kde.org)
  * Copyright (C) 2004-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,21 +24,25 @@
 #include "config.h"
 #include "TextPainter.h"
 
+#include "ControlFactory.h"
 #include "DisplayListRecorderImpl.h"
 #include "DisplayListReplayer.h"
 #include "FilterOperations.h"
+#include "FontCascade.h"
 #include "GraphicsContext.h"
 #include "InlineIteratorTextBox.h"
 #include "LayoutIntegrationInlineContent.h"
 #include "LegacyInlineTextBox.h"
 #include "RenderCombineText.h"
 #include "RenderLayer.h"
+#include "RenderStyle.h"
 #include "ShadowData.h"
+#include "TextBoxPainter.h"
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
-ShadowApplier::ShadowApplier(const RenderStyle& style, GraphicsContext& context, const ShadowData* shadow, const FilterOperations* colorFilter, const FloatRect& textRect, bool lastShadowIterationShouldDrawText, bool opaque, FontOrientation orientation)
+ShadowApplier::ShadowApplier(const RenderStyle& style, GraphicsContext& context, const ShadowData* shadow, const FilterOperations* colorFilter, const FloatRect& textRect, bool lastShadowIterationShouldDrawText, bool opaque, bool ignoreWritingMode)
     : m_context { context }
     , m_shadow { shadow }
     , m_onlyDrawsShadow { !isLastShadowIteration() || !lastShadowIterationShouldDrawText }
@@ -50,10 +55,8 @@ ShadowApplier::ShadowApplier(const RenderStyle& style, GraphicsContext& context,
         return;
     }
 
-    float shadowX = orientation == FontOrientation::Horizontal ? shadow->x().value() : shadow->y().value();
-    float shadowY = orientation == FontOrientation::Horizontal ? shadow->y().value() : -shadow->x().value();
-    FloatSize shadowOffset(shadowX, shadowY);
-    auto shadowRadius = shadow->radius();
+    auto shadowOffset = TextBoxPainter::rotateShadowOffset(shadow->location(), ignoreWritingMode ? WritingMode() : style.writingMode());
+    auto shadowRadius = shadow->radius().value;
     auto shadowColor = style.colorResolvingCurrentColor(shadow->color());
     if (colorFilter)
         colorFilter->transformColor(shadowColor);
@@ -69,12 +72,12 @@ ShadowApplier::ShadowApplier(const RenderStyle& style, GraphicsContext& context,
         context.clip(shadowRect);
 
         m_didSaveContext = true;
-        m_extraOffset = FloatSize(0, 2 * shadowRect.height() + std::max(0.0f, shadowOffset.height()) + shadowRadius.value());
+        m_extraOffset = FloatSize(0, 2 * shadowRect.height() + std::max(0.0f, shadowOffset.height()) + shadowRadius);
         shadowOffset -= m_extraOffset;
     }
 
     if (!m_avoidDrawingShadow)
-        context.setDropShadow({ shadowOffset, shadowRadius.value(), shadowColor, ShadowRadiusMode::Default });
+        context.setDropShadow({ shadowOffset, shadowRadius, shadowColor });
 }
 
 inline bool ShadowApplier::isLastShadowIteration()
@@ -84,7 +87,10 @@ inline bool ShadowApplier::isLastShadowIteration()
 
 inline bool ShadowApplier::shadowIsCompletelyCoveredByText(bool textIsOpaque)
 {
-    return textIsOpaque && m_shadow && m_shadow->location().isZero() && m_shadow->radius().isZero();
+    return textIsOpaque
+        && m_shadow
+        && Style::isZero(m_shadow->location())
+        && Style::isZero(m_shadow->radius());
 }
 
 ShadowApplier::~ShadowApplier()
@@ -94,13 +100,14 @@ ShadowApplier::~ShadowApplier()
     if (m_onlyDrawsShadow)
         m_context.restore();
     else if (!m_avoidDrawingShadow)
-        m_context.clearShadow();
+        m_context.clearDropShadow();
 }
 
 TextPainter::TextPainter(GraphicsContext& context, const FontCascade& font, const RenderStyle& renderStyle)
     : m_context(context)
     , m_font(font)
     , m_renderStyle(renderStyle)
+    , m_writingMode(renderStyle.writingMode())
 {
 }
 
@@ -122,7 +129,7 @@ void TextPainter::paintTextOrEmphasisMarks(const FontCascade& font, const TextRu
     else {
         // Replaying back a whole cached glyph run to the GraphicsContext.
         m_context.translate(textOrigin);
-        DisplayList::Replayer replayer(m_context, *m_glyphDisplayList);
+        DisplayList::Replayer replayer(m_context, m_glyphDisplayList->items(), m_glyphDisplayList->resourceHeap(), ControlFactory::shared());
         replayer.replay();
         m_context.translate(-textOrigin);
     }
@@ -142,7 +149,7 @@ void TextPainter::paintTextWithShadows(const ShadowData* shadow, const FilterOpe
     if (!opaque)
         m_context.setFillColor(Color::black);
     while (shadow) {
-        ShadowApplier shadowApplier(m_renderStyle, m_context, shadow, colorFilter, boxRect, lastShadowIterationShouldDrawText, opaque, (m_textBoxIsHorizontal || m_combinedText) ? FontOrientation::Horizontal : FontOrientation::Vertical);
+        ShadowApplier shadowApplier(m_renderStyle, m_context, shadow, colorFilter, boxRect, lastShadowIterationShouldDrawText, opaque, m_combinedText);
         if (!shadowApplier.nothingToDraw())
             paintTextOrEmphasisMarks(font, textRun, emphasisMark, emphasisMarkOffset, textOrigin + shadowApplier.extraOffset(), startOffset, endOffset);
         shadow = shadow->next();
@@ -197,9 +204,9 @@ void TextPainter::paintTextAndEmphasisMarksIfNeeded(const TextRun& textRun, cons
 
     FloatPoint boxOrigin = boxRect.location();
     updateGraphicsContext(m_context, paintStyle, UseEmphasisMarkColor);
-    static NeverDestroyed<TextRun> objectReplacementCharacterTextRun(StringView(&objectReplacementCharacter, 1));
+    static NeverDestroyed<TextRun> objectReplacementCharacterTextRun(StringView { span(objectReplacementCharacter) });
     const TextRun& emphasisMarkTextRun = m_combinedText ? objectReplacementCharacterTextRun.get() : textRun;
-    FloatPoint emphasisMarkTextOrigin = m_combinedText ? FloatPoint(boxOrigin.x() + boxRect.width() / 2, boxOrigin.y() + m_font.metricsOfPrimaryFont().ascent()) : textOrigin;
+    FloatPoint emphasisMarkTextOrigin = m_combinedText ? FloatPoint(boxOrigin.x() + boxRect.width() / 2, boxOrigin.y() + m_font.metricsOfPrimaryFont().intAscent()) : textOrigin;
     if (m_combinedText)
         m_context.concatCTM(rotation(boxRect, RotationDirection::Clockwise));
 
@@ -217,20 +224,14 @@ void TextPainter::paintRange(const TextRun& textRun, const FloatRect& boxRect, c
     paintTextAndEmphasisMarksIfNeeded(textRun, boxRect, textOrigin, start, end, m_style, m_shadow, m_shadowColorFilter);
 }
 
-static bool forceUseGlyphDisplayListForTesting = false;
-
-bool TextPainter::shouldUseGlyphDisplayList(const PaintInfo& paintInfo)
+bool TextPainter::shouldUseGlyphDisplayList(const PaintInfo& paintInfo, const RenderStyle& style)
 {
-#if USE(GLYPH_DISPLAY_LIST_CACHE)
-    return !paintInfo.context().paintingDisabled() && paintInfo.enclosingSelfPaintingLayer() && (paintInfo.enclosingSelfPaintingLayer()->paintingFrequently() || forceUseGlyphDisplayListForTesting);
-#else
-    return !paintInfo.context().paintingDisabled() && paintInfo.enclosingSelfPaintingLayer() && forceUseGlyphDisplayListForTesting;
-#endif
+    return !paintInfo.context().paintingDisabled() && paintInfo.enclosingSelfPaintingLayer() && FontCascade::canUseGlyphDisplayList(style);
 }
 
 void TextPainter::setForceUseGlyphDisplayListForTesting(bool enabled)
 {
-    forceUseGlyphDisplayListForTesting = enabled;
+    GlyphDisplayListCache::singleton().setForceUseGlyphDisplayListForTesting(enabled);
 }
 
 void TextPainter::clearGlyphDisplayListCacheForTesting()

@@ -36,8 +36,8 @@
 #include "ScrollingEffectsController.h"
 #include "Timer.h"
 #include "WheelEventTestMonitor.h"
-#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -54,7 +54,7 @@ struct ScrollExtents;
 class ScrollingEffectsControllerTimer;
 
 class ScrollAnimator : private ScrollingEffectsControllerClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ScrollAnimator);
 public:
     static std::unique_ptr<ScrollAnimator> create(ScrollableArea&);
 
@@ -76,8 +76,8 @@ public:
     // The base class implementation always scrolls immediately, never animates.
     bool singleAxisScroll(ScrollEventAxis, float delta, OptionSet<ScrollBehavior>);
 
-    bool scrollToPositionWithoutAnimation(const FloatPoint&, ScrollClamping = ScrollClamping::Clamped);
-    bool scrollToPositionWithAnimation(const FloatPoint&, ScrollClamping = ScrollClamping::Clamped);
+    WEBCORE_EXPORT bool scrollToPositionWithoutAnimation(const FloatPoint&, ScrollClamping = ScrollClamping::Clamped);
+    WEBCORE_EXPORT bool scrollToPositionWithAnimation(const FloatPoint&, ScrollClamping = ScrollClamping::Clamped);
 
     void retargetRunningAnimation(const FloatPoint& newPosition);
 
@@ -160,10 +160,11 @@ private:
     bool isPinnedOnSide(BoxSide) const final;
 #endif
 
-    void deferWheelEventTestCompletionForReason(WheelEventTestMonitor::ScrollableAreaIdentifier, WheelEventTestMonitor::DeferReason) const final;
-    void removeWheelEventTestCompletionDeferralForReason(WheelEventTestMonitor::ScrollableAreaIdentifier, WheelEventTestMonitor::DeferReason) const final;
+    void deferWheelEventTestCompletionForReason(ScrollingNodeID, WheelEventTestMonitor::DeferReason) const final;
+    void removeWheelEventTestCompletionDeferralForReason(ScrollingNodeID, WheelEventTestMonitor::DeferReason) const final;
+    ScrollingNodeID scrollingNodeIDForTesting() const final;
 
-#if PLATFORM(GTK) || USE(NICOSIA)
+#if USE(COORDINATED_GRAPHICS)
     bool scrollAnimationEnabled() const final;
 #endif
 

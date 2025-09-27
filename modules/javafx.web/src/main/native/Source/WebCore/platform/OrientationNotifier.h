@@ -26,21 +26,28 @@
 #pragma once
 
 #include "IntDegrees.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-class OrientationNotifier {
+enum class VideoFrameRotation : uint16_t;
+
+class OrientationNotifier final : public CanMakeCheckedPtr<OrientationNotifier> {
+    WTF_MAKE_TZONE_ALLOCATED(OrientationNotifier);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(OrientationNotifier);
 public:
     explicit OrientationNotifier(IntDegrees orientation) { m_orientation = orientation; }
     ~OrientationNotifier();
 
     void orientationChanged(IntDegrees orientation);
+    void rotationAngleForCaptureDeviceChanged(const String&, VideoFrameRotation);
 
     class Observer {
     public:
         virtual ~Observer();
         virtual void orientationChanged(IntDegrees orientation) = 0;
+        virtual void rotationAngleForHorizonLevelDisplayChanged(const String&, VideoFrameRotation) { }
         void setNotifier(OrientationNotifier*);
 
     private:
@@ -87,6 +94,12 @@ inline void OrientationNotifier::orientationChanged(IntDegrees orientation)
         observer.orientationChanged(orientation);
 }
 
+inline void OrientationNotifier::rotationAngleForCaptureDeviceChanged(const String& devicePersistentId, VideoFrameRotation orientation)
+{
+    for (Observer& observer : m_observers)
+        observer.rotationAngleForHorizonLevelDisplayChanged(devicePersistentId, orientation);
+}
+
 inline void OrientationNotifier::addObserver(Observer& observer)
 {
     m_observers.append(observer);
@@ -103,4 +116,4 @@ inline void OrientationNotifier::removeObserver(Observer& observer)
     });
 }
 
-}
+} // namespace WebCore

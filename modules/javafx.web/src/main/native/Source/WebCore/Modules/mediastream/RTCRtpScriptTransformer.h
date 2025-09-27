@@ -33,11 +33,13 @@
 #include "RTCRtpTransformBackend.h"
 #include <JavaScriptCore/JSCJSValue.h>
 #include <wtf/Deque.h>
+#include <wtf/ObjectIdentifier.h>
 #include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+class FrameRateMonitor;
 class MessagePort;
 class ReadableStream;
 class ScriptExecutionContext;
@@ -48,11 +50,17 @@ class WritableStream;
 
 struct MessageWithMessagePorts;
 
+enum class RTCRtpScriptTransformerIdentifierType { };
+using RTCRtpScriptTransformerIdentifier = AtomicObjectIdentifier<RTCRtpScriptTransformerIdentifierType>;
+
 class RTCRtpScriptTransformer
     : public RefCounted<RTCRtpScriptTransformer>
     , public ActiveDOMObject
     , public CanMakeWeakPtr<RTCRtpScriptTransformer> {
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static ExceptionOr<Ref<RTCRtpScriptTransformer>> create(ScriptExecutionContext&, MessageWithMessagePorts&&);
     ~RTCRtpScriptTransformer();
 
@@ -70,10 +78,9 @@ public:
     void clear(ClearCallback);
 
 private:
-    RTCRtpScriptTransformer(ScriptExecutionContext&, Ref<SerializedScriptValue>&&, Vector<RefPtr<MessagePort>>&&, Ref<ReadableStream>&&, Ref<SimpleReadableStreamSource>&&);
+    RTCRtpScriptTransformer(ScriptExecutionContext&, Ref<SerializedScriptValue>&&, Vector<Ref<MessagePort>>&&, Ref<ReadableStream>&&, Ref<SimpleReadableStreamSource>&&);
 
-    // ActiveDOMObject
-    const char* activeDOMObjectName() const final { return "RTCRtpScriptTransformer"; }
+    // ActiveDOMObject.
     void stop() final { stopPendingActivity(); }
 
     void stopPendingActivity() { auto pendingActivity = WTFMove(m_pendingActivity); }
@@ -81,7 +88,7 @@ private:
     void enqueueFrame(ScriptExecutionContext&, Ref<RTCRtpTransformableFrame>&&);
 
     Ref<SerializedScriptValue> m_options;
-    Vector<RefPtr<MessagePort>> m_ports;
+    Vector<Ref<MessagePort>> m_ports;
 
     Ref<SimpleReadableStreamSource> m_readableSource;
     Ref<ReadableStream> m_readable;
@@ -91,6 +98,13 @@ private:
     RefPtr<PendingActivity<RTCRtpScriptTransformer>> m_pendingActivity;
 
     Deque<Ref<DeferredPromise>> m_pendingKeyFramePromises;
+
+#if !RELEASE_LOG_DISABLED
+    bool m_enableAdditionalLogging { false };
+    RTCRtpScriptTransformerIdentifier m_identifier;
+    std::unique_ptr<FrameRateMonitor> m_readableFrameRateMonitor;
+    std::unique_ptr<FrameRateMonitor> m_writableFrameRateMonitor;
+#endif
 };
 
 } // namespace WebCore

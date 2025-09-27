@@ -31,7 +31,8 @@ namespace WebCore {
 class HTMLInputElement;
 
 class RenderSearchField final : public RenderTextControlSingleLine, private PopupMenuClient {
-    WTF_MAKE_ISO_ALLOCATED(RenderSearchField);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderSearchField);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSearchField);
 public:
     RenderSearchField(HTMLInputElement&, RenderStyle&&);
     virtual ~RenderSearchField();
@@ -39,16 +40,19 @@ public:
     void updateCancelButtonVisibility() const;
 
     void addSearchResult();
-    void stopSearchEventTimer();
 
     bool popupIsVisible() const { return m_searchPopupIsVisible; }
     void showPopup();
     void hidePopup();
     WEBCORE_EXPORT std::span<const RecentSearch> recentSearches();
 
-private:
-    bool isSearchField() const final { return true; }
+    // CheckedPtr interface.
+    uint32_t checkedPtrCount() const final { return RenderTextControlSingleLine::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return RenderTextControlSingleLine::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { RenderTextControlSingleLine::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { RenderTextControlSingleLine::decrementCheckedPtrCount(); }
 
+private:
     void willBeDestroyed() override;
     LayoutUnit computeControlLogicalHeight(LayoutUnit lineHeight, LayoutUnit nonContentHeight) const override;
     void updateFromElement() override;
@@ -78,11 +82,11 @@ private:
     bool itemIsLabel(unsigned listIndex) const override;
     bool itemIsSelected(unsigned listIndex) const override;
     bool shouldPopOver() const override { return false; }
-    bool valueShouldChangeOnHotTrack() const override { return false; }
     void setTextFromItem(unsigned listIndex) override;
     FontSelector* fontSelector() const override;
     HostWindow* hostWindow() const override;
     Ref<Scrollbar> createScrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarWidth) override;
+    RefPtr<SearchPopupMenu> protectedSearchPopup() const { return m_searchPopup; };
 
     HTMLElement* resultsButtonElement() const;
     HTMLElement* cancelButtonElement() const;
@@ -94,4 +98,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSearchField, isSearchField())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSearchField, isRenderSearchField())

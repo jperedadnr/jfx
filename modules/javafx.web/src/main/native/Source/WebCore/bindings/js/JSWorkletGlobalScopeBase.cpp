@@ -69,6 +69,9 @@ const GlobalObjectMethodTable* JSWorkletGlobalScopeBase::globalObjectMethodTable
     nullptr,
 #endif
     deriveShadowRealmGlobalObject,
+        codeForEval,
+        canCompileStrings,
+        trustedScriptStructure,
     };
     return &table;
 };
@@ -114,7 +117,7 @@ JSC::ScriptExecutionStatus JSWorkletGlobalScopeBase::scriptExecutionStatus(JSC::
     return jsCast<JSWorkletGlobalScopeBase*>(globalObject)->scriptExecutionContext()->jscScriptExecutionStatus();
 }
 
-void JSWorkletGlobalScopeBase::reportViolationForUnsafeEval(JSC::JSGlobalObject* globalObject, JSC::JSString* source)
+void JSWorkletGlobalScopeBase::reportViolationForUnsafeEval(JSC::JSGlobalObject* globalObject, const String& source)
 {
     return JSGlobalObject::reportViolationForUnsafeEval(globalObject, source);
 }

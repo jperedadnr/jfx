@@ -46,13 +46,16 @@ RefPtr<AuthenticatorResponse> AuthenticatorResponse::tryCreate(AuthenticatorResp
         auto response = AuthenticatorAttestationResponse::create(data.rawId.releaseNonNull(), data.attestationObject.releaseNonNull(), attachment, WTFMove(data.transports));
         if (data.extensionOutputs)
             response->setExtensions(WTFMove(*data.extensionOutputs));
+        response->setClientDataJSON(data.clientDataJSON.releaseNonNull());
         return WTFMove(response);
     }
 
     if (!data.authenticatorData || !data.signature)
         return nullptr;
 
-    return AuthenticatorAssertionResponse::create(data.rawId.releaseNonNull(), data.authenticatorData.releaseNonNull(), data.signature.releaseNonNull(), WTFMove(data.userHandle), WTFMove(data.extensionOutputs), attachment);
+    Ref response = AuthenticatorAssertionResponse::create(data.rawId.releaseNonNull(), data.authenticatorData.releaseNonNull(), data.signature.releaseNonNull(), WTFMove(data.userHandle), WTFMove(data.extensionOutputs), attachment);
+    response->setClientDataJSON(data.clientDataJSON.releaseNonNull());
+    return WTFMove(response);
 }
 
 AuthenticatorResponseData AuthenticatorResponse::data() const
@@ -60,6 +63,7 @@ AuthenticatorResponseData AuthenticatorResponse::data() const
     AuthenticatorResponseData data;
     data.rawId = m_rawId.copyRef();
     data.extensionOutputs = m_extensions;
+    data.clientDataJSON = m_clientDataJSON.copyRef();
     return data;
 }
 

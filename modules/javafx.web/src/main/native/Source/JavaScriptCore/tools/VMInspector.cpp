@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,17 +31,23 @@
 #include "HeapInlines.h"
 #include "HeapIterationScope.h"
 #include "JSCInlines.h"
+#include "JSWebAssemblyModule.h"
 #include "MarkedSpaceInlines.h"
 #include "StackVisitor.h"
 #include "VMEntryRecord.h"
 #include <mutex>
 #include <wtf/Expected.h>
+#include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(VMInspector);
+
 VM* VMInspector::m_recentVM { nullptr };
 
-VMInspector& VMInspector::instance()
+VMInspector& VMInspector::singleton()
 {
     static VMInspector* manager;
     static std::once_flag once;
@@ -105,7 +111,7 @@ void VMInspector::dumpVMs()
 
 void VMInspector::forEachVM(Function<IterationStatus(VM&)>&& func)
 {
-    VMInspector& inspector = instance();
+    VMInspector& inspector = singleton();
     Locker lock { inspector.getLock() };
     inspector.iterate(func);
 }
@@ -113,7 +119,7 @@ void VMInspector::forEachVM(Function<IterationStatus(VM&)>&& func)
 // Returns null if the callFrame doesn't actually correspond to any active VM.
 VM* VMInspector::vmForCallFrame(CallFrame* callFrame)
 {
-    VMInspector& inspector = instance();
+    VMInspector& inspector = singleton();
     Locker lock { inspector.getLock() };
 
     auto isOnVMStack = [] (VM& vm, CallFrame* callFrame) -> bool {
@@ -399,7 +405,7 @@ SUPPRESS_ASAN void VMInspector::dumpRegisters(CallFrame* callFrame)
     auto valueAsString = [&] (JSValue v) -> CString {
         if (!v.isCell() || VMInspector::isValidCell(&vm.heap, reinterpret_cast<JSCell*>(JSValue::encode(v))))
             return toCString(v);
-        return "";
+        return ""_s;
     };
 
     CallFrame* topCallFrame = vm.topCallFrame;
@@ -409,7 +415,7 @@ SUPPRESS_ASAN void VMInspector::dumpRegisters(CallFrame* callFrame)
     // Check if frame is an entryFrame.
     entryFrame = vm.topEntryFrame;
     while (entryFrame) {
-        if (entryFrame == bitwise_cast<EntryFrame*>(callFrame)) {
+        if (entryFrame == std::bit_cast<EntryFrame*>(callFrame)) {
             dataLogLn("CallFrame ", RawPointer(callFrame), " is an EntryFrame.");
             auto* entryRecord = vmEntryRecord(entryFrame);
             dataLogLn("    previous entryFrame: ", RawPointer(entryRecord->prevTopEntryFrame()));
@@ -433,10 +439,14 @@ SUPPRESS_ASAN void VMInspector::dumpRegisters(CallFrame* callFrame)
     }
 
     // Dumping from low memory to high memory.
-    bool isWasm = callFrame->isWasmFrame();
-    CodeBlock* codeBlock = isWasm ? nullptr : callFrame->codeBlock();
+    JSCell* owner = callFrame->codeOwnerCell();
+    CodeBlock* codeBlock = jsDynamicCast<CodeBlock*>(owner);
     unsigned numCalleeLocals = codeBlock ? codeBlock->numCalleeLocals() : 0;
     unsigned numVars = codeBlock ? codeBlock->numVars() : 0;
+    bool isWasm = false;
+#if ENABLE(WEBASSEMBLY)
+    isWasm = owner->inherits<JSWebAssemblyModule>();
+#endif
 
     const Register* it;
     const Register* callFrameTop = callFrame->registers();
@@ -492,21 +502,19 @@ SUPPRESS_ASAN void VMInspector::dumpRegisters(CallFrame* callFrame)
 
     dataLogF("% 4d  CallerFrame      : %10p  %p \n", registerNumber++, it++, callFrame->callerFrame());
     if constexpr (isARM64E())
-        dataLogF("% 4d  ReturnPC         : %10p  %p (pac signed %p) \n", registerNumber++, it++, callFrame->returnPCForInspection(), callFrame->rawReturnPCForInspection());
+        dataLogF("% 4d  ReturnPC         : %10p  %p (pac signed %p) \n", registerNumber++, it++, callFrame->returnPCForInspection(), callFrame->rawReturnPC());
     else
         dataLogF("% 4d  ReturnPC         : %10p  %p \n", registerNumber++, it++, callFrame->returnPCForInspection());
     dataLogF("% 4d  CodeBlock        : %10p  0x%llx ", registerNumber++, it++, (long long)codeBlock);
     dataLogLn(codeBlock);
     long long calleeBits = (long long)callFrame->callee().rawPtr();
-    auto calleeString = valueAsString(it->jsValue()).data();
-    dataLogF("% 4d  Callee           : %10p  0x%llx %s\n", registerNumber++, it++, calleeBits, calleeString);
+    auto calleeString = valueAsString(it->jsValue());
+    dataLogF("% 4d  Callee           : %10p  0x%llx %s\n", registerNumber++, it++, calleeBits, calleeString.data());
 
     StackVisitor::visit(callFrame, vm, [&] (StackVisitor& visitor) {
         if (visitor->callFrame() == callFrame) {
-            unsigned line = 0;
-            unsigned unusedColumn = 0;
-            visitor->computeLineAndColumn(line, unusedColumn);
-            dataLogF("% 2d.1  ReturnVPC        : %10p  %d (line %d)\n", registerNumber, it, visitor->bytecodeIndex().offset(), line);
+            auto lineColumn = visitor->computeLineAndColumn();
+            dataLogF("% 2d.1  ReturnVPC        : %10p  %d (line %d)\n", registerNumber, it, visitor->bytecodeIndex().offset(), lineColumn.line);
                 return IterationStatus::Done;
         }
             return IterationStatus::Continue;
@@ -575,7 +583,7 @@ void VMInspector::dumpCellMemoryToStream(JSCell* cell, PrintStream& out)
     size_t cellSize = cell->cellSize();
     size_t slotCount = cellSize / sizeof(EncodedJSValue);
 
-    EncodedJSValue* slots = bitwise_cast<EncodedJSValue*>(cell);
+    EncodedJSValue* slots = std::bit_cast<EncodedJSValue*>(cell);
     unsigned indentation = 0;
 
     auto indent = [&] {
@@ -697,12 +705,14 @@ void VMInspector::dumpSubspaceHashes(VM* vm)
     unsigned count = 0;
     vm->heap.objectSpace().forEachSubspace([&] (const Subspace& subspace) -> IterationStatus {
         const char* name = subspace.name();
-        unsigned hash = StringHasher::computeHash(name);
+        unsigned hash = SuperFastHash::computeHash(name);
         void* hashAsPtr = reinterpret_cast<void*>(static_cast<uintptr_t>(hash));
         dataLogLn("    [", count++, "] ", name, " Hash:", RawPointer(hashAsPtr));
         return IterationStatus::Continue;
     });
     dataLogLn();
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 } // namespace JSC

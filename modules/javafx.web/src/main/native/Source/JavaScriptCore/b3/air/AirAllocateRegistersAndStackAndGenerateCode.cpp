@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,12 +39,17 @@
 #include "DisallowMacroScratchRegisterUsage.h"
 #include "Reg.h"
 #include <wtf/ListDump.h>
+#include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace B3 { namespace Air {
 
 namespace GenerateAndAllocateRegistersInternal {
-static bool verbose = false;
+static constexpr bool verbose = false;
 }
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(GenerateAndAllocateRegisters);
 
 GenerateAndAllocateRegisters::GenerateAndAllocateRegisters(Code& code)
     : m_code(code)
@@ -114,7 +119,7 @@ void GenerateAndAllocateRegisters::insertBlocksForFlushAfterTerminalPatchpoints(
         if (inst.kind.opcode != Patch)
             continue;
 
-        HashMap<Tmp, Arg*> needToDef;
+        UncheckedKeyHashMap<Tmp, Arg*> needToDef;
 
         inst.forEachArg([&] (Arg& arg, Arg::Role role, Bank, Width) {
             if (!arg.isTmp())
@@ -502,8 +507,8 @@ void GenerateAndAllocateRegisters::prepareForGeneration()
         UnifiedTmpLiveness liveness(m_code);
         for (BasicBlock* block : m_code) {
             auto assertLivenessAreEqual = [&] (auto a, auto b) {
-                HashSet<Tmp> livenessA;
-                HashSet<Tmp> livenessB;
+                UncheckedKeyHashSet<Tmp> livenessA;
+                UncheckedKeyHashSet<Tmp> livenessB;
                 for (Tmp tmp : a) {
                     if (tmp.isReg() && isDisallowedRegister(tmp.reg()))
                         continue;
@@ -529,7 +534,7 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
 {
     m_jit = &jit;
 
-    CompilerTimingScope timingScope("Air", "GenerateAndAllocateRegisters::generate");
+    CompilerTimingScope timingScope("Air"_s, "GenerateAndAllocateRegisters::generate"_s);
 
     DisallowMacroScratchRegisterUsage disallowScratch(*m_jit);
 
@@ -738,7 +743,7 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
             checkConsistency();
 
             inst.forEachTmp([&] (const Tmp& tmp, Arg::Role role, Bank, Width width) {
-                ASSERT(width <= Width64 || Options::useWebAssemblySIMD());
+                ASSERT(width <= Width64 || Options::useWasmSIMD());
                 if (tmp.isReg() && isDisallowedRegister(tmp.reg()))
                     return;
 
@@ -751,7 +756,7 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
             });
 
             inst.forEachArg([&] (Arg& arg, Arg::Role role, Bank, Width width) {
-                ASSERT_UNUSED(width, width <= Width64 || Options::useWebAssemblySIMD());
+                ASSERT_UNUSED(width, width <= Width64 || Options::useWasmSIMD());
                 if (!arg.isTmp())
                     return;
 
@@ -997,7 +1002,7 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
 
     for (auto& entry : m_blocksAfterTerminalPatchForSpilling) {
         entry.value.jump.linkTo(m_jit->label(), m_jit);
-        const HashMap<Tmp, Arg*>& spills = entry.value.defdTmps;
+        const UncheckedKeyHashMap<Tmp, Arg*>& spills = entry.value.defdTmps;
         for (auto& entry : spills) {
             Arg* arg = entry.value;
             if (!arg->isTmp())
@@ -1030,5 +1035,7 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
 }
 
 } } } // namespace JSC::B3::Air
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

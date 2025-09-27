@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,6 @@
 package test.com.sun.javafx.util;
 
 import com.sun.javafx.util.Utils;
-import static org.junit.Assert.assertEquals;
 
 import java.util.Arrays;
 
@@ -36,10 +35,19 @@ import javafx.geometry.VPos;
 import javafx.scene.Group;
 import javafx.scene.Scene;
 import javafx.scene.SubScene;
+import javafx.scene.image.Image;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
+import javafx.scene.paint.CycleMethod;
+import javafx.scene.paint.ImagePattern;
+import javafx.scene.paint.LinearGradient;
+import javafx.scene.paint.RadialGradient;
+import javafx.scene.paint.Stop;
 import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class UtilsTest {
     @Test
@@ -47,14 +55,14 @@ public class UtilsTest {
         // normal use case
         String s = "VK_ENTER";
         String[] split = Utils.split(s, "_");
-        assertEquals("Array content: " + Arrays.toString(split),2, split.length);
+        assertEquals(2, split.length, "Array content: " + Arrays.toString(split));
         assertEquals("VK", split[0]);
         assertEquals("ENTER", split[1]);
 
         // normal use case
         s = "VK_LEFT_ARROW";
         split = Utils.split(s, "_");
-        assertEquals("Array content: " + Arrays.toString(split),3, split.length);
+        assertEquals(3, split.length, "Array content: " + Arrays.toString(split));
         assertEquals("VK", split[0]);
         assertEquals("LEFT", split[1]);
         assertEquals("ARROW", split[2]);
@@ -62,12 +70,12 @@ public class UtilsTest {
         // split with same string as separator - expect empty array
         s = "VK_LEFT_ARROW";
         split = Utils.split(s, "VK_LEFT_ARROW");
-        assertEquals("Array content: " + Arrays.toString(split),0, split.length);
+        assertEquals(0, split.length, "Array content: " + Arrays.toString(split));
 
         // split with longer string as separator - expect empty array
         s = "VK_LEFT_ARROW";
         split = Utils.split(s, "VK_LEFT_ARROW_EXT");
-        assertEquals("Array content: " + Arrays.toString(split),0, split.length);
+        assertEquals(0, split.length, "Array content: " + Arrays.toString(split));
     }
 
     @Test
@@ -126,8 +134,8 @@ public class UtilsTest {
         //assertEquals("\\", r);
 
         //Error case - no length
-        ///*String*/ s = "hi\\u";
-        ///*String*/ r = Utils.convertUnicode(s);
+        //*String*/ s = "hi\\u";
+        //*String*/ r = Utils.convertUnicode(s);
         //assertEquals("hi\\u", r);
     }
 
@@ -179,5 +187,46 @@ public class UtilsTest {
         assertEquals(70, res.getX(), 1e-1);
         assertEquals(70, res.getY(), 1e-1);
 
+    }
+
+    @Test
+    void testAveragePerceptualBrightness_LinearGradient() {
+        var gradient = new LinearGradient(
+            0, 0, 1, 1, true, CycleMethod.NO_CYCLE,
+            new Stop(0, Color.RED), new Stop(0.5, Color.GREEN), new Stop(1, Color.BLUE));
+
+        double actual = Utils.calculateAverageBrightness(gradient);
+        double expect = (Utils.calculateBrightness(Color.RED)
+            + Utils.calculateBrightness(Color.GREEN)
+            + Utils.calculateBrightness(Color.BLUE)) / 3;
+
+        assertEquals(expect, actual);
+    }
+
+    @Test
+    void testAveragePerceptualBrightness_RadialGradient() {
+        var gradient = new RadialGradient(
+            0, 0, 0, 0, 1, true, CycleMethod.NO_CYCLE,
+            new Stop(0, Color.RED), new Stop(0.5, Color.GREEN), new Stop(1, Color.BLUE));
+
+        double actual = Utils.calculateAverageBrightness(gradient);
+        double expect = (Utils.calculateBrightness(Color.RED)
+            + Utils.calculateBrightness(Color.GREEN)
+            + Utils.calculateBrightness(Color.BLUE)) / 3;
+
+        assertEquals(expect, actual);
+    }
+
+    @Test
+    void testAveragePerceptualBrightness_ImagePattern() {
+        var pattern = new ImagePattern(new Image("test"));
+        assertEquals(1, Utils.calculateAverageBrightness(pattern));
+    }
+
+    @Test
+    void testAveragePerceptualBrightness_Color() {
+        var actual = Utils.calculateAverageBrightness(Color.RED);
+        var expect = Utils.calculateBrightness(Color.RED);
+        assertEquals(expect, actual);
     }
 }

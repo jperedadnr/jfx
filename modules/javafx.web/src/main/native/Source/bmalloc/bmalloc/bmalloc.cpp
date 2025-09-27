@@ -33,6 +33,7 @@
 #if BENABLE(LIBPAS)
 #include "bmalloc_heap_config.h"
 #include "pas_page_sharing_pool.h"
+#include "pas_probabilistic_guard_malloc_allocator.h"
 #include "pas_scavenger.h"
 #include "pas_thread_local_cache.h"
 #endif
@@ -42,18 +43,16 @@ namespace bmalloc { namespace api {
 #if BUSE(LIBPAS)
 namespace {
 static const bmalloc_type primitiveGigacageType = BMALLOC_TYPE_INITIALIZER(1, 1, "Primitive Gigacage");
-static const bmalloc_type jsValueGigacageType = BMALLOC_TYPE_INITIALIZER(1, 1, "JSValue Gigacage");
 } // anonymous namespace
 
-pas_primitive_heap_ref gigacageHeaps[Gigacage::NumberOfKinds] = {
+pas_primitive_heap_ref gigacageHeaps[static_cast<size_t>(Gigacage::NumberOfKinds)] = {
     BMALLOC_AUXILIARY_HEAP_REF_INITIALIZER(&primitiveGigacageType),
-    BMALLOC_AUXILIARY_HEAP_REF_INITIALIZER(&jsValueGigacageType)
 };
 #endif
 
-void* mallocOutOfLine(size_t size, HeapKind kind)
+void* mallocOutOfLine(size_t size, CompactAllocationMode mode, HeapKind kind)
 {
-    return malloc(size, kind);
+    return malloc(size, mode, kind);
 }
 
 void freeOutOfLine(void* object, HeapKind kind)
@@ -61,7 +60,7 @@ void freeOutOfLine(void* object, HeapKind kind)
     free(object, kind);
 }
 
-void* tryLargeZeroedMemalignVirtual(size_t requiredAlignment, size_t requestedSize, HeapKind kind)
+void* tryLargeZeroedMemalignVirtual(size_t requiredAlignment, size_t requestedSize, CompactAllocationMode mode, HeapKind kind)
 {
     RELEASE_BASSERT(isPowerOfTwo(requiredAlignment));
 
@@ -76,8 +75,9 @@ void* tryLargeZeroedMemalignVirtual(size_t requiredAlignment, size_t requestedSi
         result = debugHeap->memalignLarge(alignment, size);
     else {
 #if BUSE(LIBPAS)
-        result = tryMemalign(alignment, size, kind);
+        result = tryMemalign(alignment, size, mode, kind);
 #else
+        BUNUSED(mode);
         kind = mapToActiveHeapKind(kind);
         Heap& heap = PerProcess<PerHeapKind<Heap>>::get()->at(kind);
 
@@ -196,10 +196,10 @@ void decommitAlignedPhysical(void* object, size_t size, HeapKind kind)
 #endif
 }
 
-void enableMiniMode()
+void enableMiniMode(bool forceMiniMode)
 {
 #if BENABLE(LIBPAS)
-    if (!shouldAllowMiniMode())
+    if (!forceMiniMode && !shouldAllowMiniMode())
         return;
 
     // Speed up the scavenger.
@@ -217,6 +217,7 @@ void enableMiniMode()
     bmalloc_primitive_runtime_config.base.max_bitfit_object_size = UINT_MAX;
 #endif
 #if !BUSE(LIBPAS)
+    BUNUSED(forceMiniMode);
     if (!DebugHeap::tryGet())
         Scavenger::get()->enableMiniMode();
 #endif
@@ -230,6 +231,15 @@ void disableScavenger()
 #if !BUSE(LIBPAS)
     if (!DebugHeap::tryGet())
         Scavenger::get()->disable();
+#endif
+}
+
+void forceEnablePGM(uint16_t guardMallocRate)
+{
+#if BUSE(LIBPAS)
+    pas_probabilistic_guard_malloc_initialize_pgm_as_enabled(guardMallocRate);
+#else
+    BUNUSED_PARAM(guardMallocRate);
 #endif
 }
 

@@ -30,7 +30,9 @@
 #include "config.h"
 #include "FontCascadeDescription.h"
 
+#include "Font.h"
 #include <wtf/text/StringHash.h>
+#include <wtf/text/TextStream.h>
 
 #if USE(CORE_TEXT)
 #include "FontCascade.h"
@@ -48,6 +50,8 @@ struct SameSizeAsFontCascadeDescription {
     AtomString string2;
     int16_t fontSelectionRequest[3];
     float size;
+    TextSpacingTrim textSpacingTrim;
+    TextAutospace textAutospace;
     unsigned bitfields1;
     unsigned bitfields2 : 22;
     void* array;
@@ -59,9 +63,9 @@ static_assert(sizeof(FontCascadeDescription) == sizeof(SameSizeAsFontCascadeDesc
 FontCascadeDescription::FontCascadeDescription()
     : m_families(RefCountedFixedVector<AtomString>::create(1))
     , m_isAbsoluteSize(false)
-    , m_kerning(static_cast<unsigned>(Kerning::Auto))
+    , m_kerning(enumToUnderlyingType(Kerning::Auto))
     , m_keywordSize(0)
-    , m_fontSmoothing(static_cast<unsigned>(FontSmoothingMode::AutoSmoothing))
+    , m_fontSmoothing(enumToUnderlyingType(FontSmoothingMode::AutoSmoothing))
     , m_isSpecifiedFont(false)
 {
 }
@@ -143,6 +147,41 @@ FontSmoothingMode FontCascadeDescription::usedFontSmoothing() const
         return FontSmoothingMode::Antialiased;
 #endif
     return fontSmoothingMode;
+}
+
+void FontCascadeDescription::resolveFontSizeAdjustFromFontIfNeeded(const Font& font)
+{
+    const auto& fontSizeAdjust = this->fontSizeAdjust();
+    if (!fontSizeAdjust.shouldResolveFromFont())
+        return;
+
+    auto aspectValue = fontSizeAdjust.resolve(computedSize(), font.fontMetrics());
+    setFontSizeAdjust({ fontSizeAdjust.metric, FontSizeAdjust::ValueType::FromFont, aspectValue });
+}
+
+TextStream& operator<<(TextStream& ts, const FontCascadeDescription& fontCascadeDescription)
+{
+    bool first = true;
+    for (auto& family : fontCascadeDescription.families()) {
+        if (!first)
+            ts << ", ";
+        ts << family;
+        first = false;
+    }
+
+    ts << ", specified size " << fontCascadeDescription.specifiedSize();
+    ts << ", computed size " << fontCascadeDescription.computedSize();
+    ts << ", is absolute size " << fontCascadeDescription.isAbsoluteSize();
+    if (fontCascadeDescription.kerning() != Kerning::Auto)
+        ts << ", kerning " << fontCascadeDescription.kerning();
+
+    if (fontCascadeDescription.fontSmoothing() != FontSmoothingMode::AutoSmoothing)
+        ts << ", font smoothing " << fontCascadeDescription.fontSmoothing();
+
+    ts << ", keyword size " << fontCascadeDescription.keywordSize();
+    ts << ", is specified font " << fontCascadeDescription.isSpecifiedFont();
+
+    return ts;
 }
 
 } // namespace WebCore

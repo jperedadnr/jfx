@@ -28,6 +28,8 @@
 #include "JSCInlines.h"
 #include "JSDateMath.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 static JSC_DECLARE_HOST_FUNCTION(dateParse);
@@ -153,7 +155,7 @@ JSObject* constructDate(JSGlobalObject* globalObject, JSValue newTarget, const A
             JSValue primitive = arg0.toPrimitive(globalObject);
             RETURN_IF_EXCEPTION(scope, nullptr);
             if (primitive.isString()) {
-                String primitiveString = asString(primitive)->value(globalObject);
+                auto primitiveString = asString(primitive)->value(globalObject);
                 RETURN_IF_EXCEPTION(scope, nullptr);
                 value = vm.dateCache.parseDate(globalObject, vm, primitiveString);
                 RETURN_IF_EXCEPTION(scope, nullptr);
@@ -219,3 +221,5 @@ JSC_DEFINE_HOST_FUNCTION(dateUTC, (JSGlobalObject* globalObject, CallFrame* call
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

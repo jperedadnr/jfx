@@ -22,6 +22,7 @@
 #pragma once
 
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
@@ -35,7 +36,7 @@ class EventLoop;
 class EventLoopTask;
 
 class MicrotaskQueue final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(MicrotaskQueue, WEBCORE_EXPORT);
 public:
     WEBCORE_EXPORT MicrotaskQueue(JSC::VM&, EventLoop&);
     WEBCORE_EXPORT ~MicrotaskQueue();
@@ -46,6 +47,7 @@ public:
     WEBCORE_EXPORT void addCheckpointTask(std::unique_ptr<EventLoopTask>&&);
 
     bool isEmpty() const { return m_microtaskQueue.isEmpty(); }
+    bool hasMicrotasksForFullyActiveDocument() const;
 
 private:
     JSC::VM& vm() const { return m_vm.get(); }

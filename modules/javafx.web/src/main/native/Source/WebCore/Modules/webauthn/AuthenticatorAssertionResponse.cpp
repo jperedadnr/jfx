@@ -29,6 +29,7 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "AuthenticatorResponseData.h"
+#include <wtf/text/Base64.h>
 
 namespace WebCore {
 
@@ -44,8 +45,8 @@ Ref<AuthenticatorAssertionResponse> AuthenticatorAssertionResponse::create(const
 {
     RefPtr<ArrayBuffer> userhandleBuffer;
     if (!userHandle.isEmpty())
-        userhandleBuffer = ArrayBuffer::create(userHandle.data(), userHandle.size());
-    return create(ArrayBuffer::create(rawId.data(), rawId.size()), ArrayBuffer::create(authenticatorData.data(), authenticatorData.size()), ArrayBuffer::create(signature.data(), signature.size()), WTFMove(userhandleBuffer), std::nullopt, attachment);
+        userhandleBuffer = ArrayBuffer::create(userHandle);
+    return create(ArrayBuffer::create(rawId), ArrayBuffer::create(authenticatorData), ArrayBuffer::create(signature), WTFMove(userhandleBuffer), std::nullopt, attachment);
 }
 
 Ref<AuthenticatorAssertionResponse> AuthenticatorAssertionResponse::create(Ref<ArrayBuffer>&& rawId, RefPtr<ArrayBuffer>&& userHandle, String&& name, SecAccessControlRef accessControl, AuthenticatorAttachment attachment)
@@ -55,7 +56,7 @@ Ref<AuthenticatorAssertionResponse> AuthenticatorAssertionResponse::create(Ref<A
 
 void AuthenticatorAssertionResponse::setAuthenticatorData(Vector<uint8_t>&& authenticatorData)
 {
-    m_authenticatorData = ArrayBuffer::create(authenticatorData.data(), authenticatorData.size());
+    m_authenticatorData = ArrayBuffer::create(authenticatorData);
 }
 
 AuthenticatorAssertionResponse::AuthenticatorAssertionResponse(Ref<ArrayBuffer>&& rawId, Ref<ArrayBuffer>&& authenticatorData, Ref<ArrayBuffer>&& signature, RefPtr<ArrayBuffer>&& userHandle, AuthenticatorAttachment attachment)
@@ -82,6 +83,20 @@ AuthenticatorResponseData AuthenticatorAssertionResponse::data() const
     data.signature = m_signature.copyRef();
     data.userHandle = m_userHandle;
     return data;
+}
+
+AuthenticationResponseJSON::AuthenticatorAssertionResponseJSON AuthenticatorAssertionResponse::toJSON()
+{
+    AuthenticationResponseJSON::AuthenticatorAssertionResponseJSON value;
+    if (auto authData = authenticatorData())
+        value.authenticatorData = base64URLEncodeToString(authData->span());
+    if (auto sig = signature())
+        value.signature = base64URLEncodeToString(sig->span());
+    if (auto handle = userHandle())
+        value.userHandle = base64URLEncodeToString(handle->span());
+    if (auto clientData = clientDataJSON())
+        value.clientDataJSON = base64URLEncodeToString(clientData->span());
+    return value;
 }
 
 } // namespace WebCore

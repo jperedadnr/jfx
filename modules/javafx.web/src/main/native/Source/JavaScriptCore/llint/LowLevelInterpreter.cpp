@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,6 +45,8 @@
 
 using namespace JSC::LLInt;
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 // LLInt C Loop opcodes
 // ====================
 // In the implementation of the C loop, the LLint trampoline glue functions
@@ -88,9 +90,7 @@ using namespace JSC::LLInt;
 // Define the opcode dispatch mechanism when using the C loop:
 //
 
-#if ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
 using WebConfig::g_config;
-#endif
 
 // These are for building a C Loop interpreter:
 #define OFFLINE_ASM_BEGIN
@@ -146,33 +146,33 @@ public:
     ALWAYS_INLINE int8_t i8() const { return m_value; }
     ALWAYS_INLINE uint8_t u8() const { return m_value; }
 
-    ALWAYS_INLINE intptr_t* ip() const { return bitwise_cast<intptr_t*>(m_value); }
-    ALWAYS_INLINE int8_t* i8p() const { return bitwise_cast<int8_t*>(m_value); }
-    ALWAYS_INLINE void* vp() const { return bitwise_cast<void*>(m_value); }
-    ALWAYS_INLINE const void* cvp() const { return bitwise_cast<const void*>(m_value); }
-    ALWAYS_INLINE CallFrame* callFrame() const { return bitwise_cast<CallFrame*>(m_value); }
-    ALWAYS_INLINE const void* instruction() const { return bitwise_cast<const void*>(m_value); }
-    ALWAYS_INLINE VM* vm() const { return bitwise_cast<VM*>(m_value); }
-    ALWAYS_INLINE JSCell* cell() const { return bitwise_cast<JSCell*>(m_value); }
-    ALWAYS_INLINE ProtoCallFrame* protoCallFrame() const { return bitwise_cast<ProtoCallFrame*>(m_value); }
-    ALWAYS_INLINE NativeFunction nativeFunc() const { return bitwise_cast<NativeFunction>(m_value); }
+    ALWAYS_INLINE intptr_t* ip() const { return std::bit_cast<intptr_t*>(m_value); }
+    ALWAYS_INLINE int8_t* i8p() const { return std::bit_cast<int8_t*>(m_value); }
+    ALWAYS_INLINE void* vp() const { return std::bit_cast<void*>(m_value); }
+    ALWAYS_INLINE const void* cvp() const { return std::bit_cast<const void*>(m_value); }
+    ALWAYS_INLINE CallFrame* callFrame() const { return std::bit_cast<CallFrame*>(m_value); }
+    ALWAYS_INLINE const void* instruction() const { return std::bit_cast<const void*>(m_value); }
+    ALWAYS_INLINE VM* vm() const { return std::bit_cast<VM*>(m_value); }
+    ALWAYS_INLINE JSCell* cell() const { return std::bit_cast<JSCell*>(m_value); }
+    ALWAYS_INLINE ProtoCallFrame* protoCallFrame() const { return std::bit_cast<ProtoCallFrame*>(m_value); }
+    ALWAYS_INLINE NativeFunction nativeFunc() const { return std::bit_cast<NativeFunction>(m_value); }
 #if USE(JSVALUE64)
     ALWAYS_INLINE int64_t i64() const { return m_value; }
     ALWAYS_INLINE uint64_t u64() const { return m_value; }
-    ALWAYS_INLINE EncodedJSValue encodedJSValue() const { return bitwise_cast<EncodedJSValue>(m_value); }
+    ALWAYS_INLINE EncodedJSValue encodedJSValue() const { return std::bit_cast<EncodedJSValue>(m_value); }
 #endif
-    ALWAYS_INLINE Opcode opcode() const { return bitwise_cast<Opcode>(m_value); }
+    ALWAYS_INLINE Opcode opcode() const { return std::bit_cast<Opcode>(m_value); }
 
-    operator CallFrame*() { return bitwise_cast<CallFrame*>(m_value); }
-    operator const JSInstruction*() { return bitwise_cast<const JSInstruction*>(m_value); }
-    operator JSCell*() { return bitwise_cast<JSCell*>(m_value); }
-    operator ProtoCallFrame*() { return bitwise_cast<ProtoCallFrame*>(m_value); }
-    operator Register*() { return bitwise_cast<Register*>(m_value); }
-    operator VM*() { return bitwise_cast<VM*>(m_value); }
-    operator CallLinkInfo*() { return bitwise_cast<CallLinkInfo*>(m_value); }
+    operator CallFrame*() { return std::bit_cast<CallFrame*>(m_value); }
+    operator const JSInstruction*() { return std::bit_cast<const JSInstruction*>(m_value); }
+    operator JSCell*() { return std::bit_cast<JSCell*>(m_value); }
+    operator ProtoCallFrame*() { return std::bit_cast<ProtoCallFrame*>(m_value); }
+    operator Register*() { return std::bit_cast<Register*>(m_value); }
+    operator VM*() { return std::bit_cast<VM*>(m_value); }
+    operator CallLinkInfo*() { return std::bit_cast<CallLinkInfo*>(m_value); }
 
     template<typename T, typename = std::enable_if_t<sizeof(T) == sizeof(uintptr_t)>>
-    ALWAYS_INLINE void operator=(T value) { m_value = bitwise_cast<uintptr_t>(value); }
+    ALWAYS_INLINE void operator=(T value) { m_value = std::bit_cast<uintptr_t>(value); }
 #if USE(JSVALUE64)
     ALWAYS_INLINE void operator=(int32_t value) { m_value = static_cast<intptr_t>(value); }
     ALWAYS_INLINE void operator=(uint32_t value) { m_value = static_cast<uintptr_t>(value); }
@@ -184,8 +184,8 @@ public:
     ALWAYS_INLINE void operator=(bool value) { m_value = static_cast<uintptr_t>(value); }
 
 #if USE(JSVALUE64)
-    ALWAYS_INLINE double bitsAsDouble() const { return bitwise_cast<double>(m_value); }
-    ALWAYS_INLINE int64_t bitsAsInt64() const { return bitwise_cast<int64_t>(m_value); }
+    ALWAYS_INLINE double bitsAsDouble() const { return std::bit_cast<double>(m_value); }
+    ALWAYS_INLINE int64_t bitsAsInt64() const { return std::bit_cast<int64_t>(m_value); }
 #endif
 
 private:
@@ -195,15 +195,15 @@ private:
 class CLoopDoubleRegister {
 public:
     template<typename T>
-    explicit operator T() const { return bitwise_cast<T>(m_value); }
+    explicit operator T() const { return std::bit_cast<T>(m_value); }
 
     ALWAYS_INLINE double d() const { return m_value; }
-    ALWAYS_INLINE int64_t bitsAsInt64() const { return bitwise_cast<int64_t>(m_value); }
+    ALWAYS_INLINE int64_t bitsAsInt64() const { return std::bit_cast<int64_t>(m_value); }
 
     ALWAYS_INLINE void operator=(double value) { m_value = value; }
 
     template<typename T, typename = std::enable_if_t<sizeof(T) == sizeof(uintptr_t) && std::is_integral<T>::value>>
-    ALWAYS_INLINE void operator=(T value) { m_value = bitwise_cast<double>(value); }
+    ALWAYS_INLINE void operator=(T value) { m_value = std::bit_cast<double>(value); }
 
 private:
     double m_value;
@@ -219,12 +219,12 @@ namespace LLInt {
 static double ints2Double(uint32_t lo, uint32_t hi)
 {
     uint64_t value = (static_cast<uint64_t>(hi) << 32) | lo;
-    return bitwise_cast<double>(value);
+    return std::bit_cast<double>(value);
 }
 
 static void double2Ints(double val, CLoopRegister& lo, CLoopRegister& hi)
 {
-    uint64_t value = bitwise_cast<uint64_t>(val);
+    uint64_t value = std::bit_cast<uint64_t>(val);
     hi = static_cast<uint32_t>(value >> 32);
     lo = static_cast<uint32_t>(value);
 }
@@ -247,7 +247,7 @@ static void decodeResult(UGPRPair result, CLoopRegister& t0, CLoopRegister& t1)
 
 JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, ProtoCallFrame* protoCallFrame, bool isInitializationPass)
 {
-#define CAST bitwise_cast
+#define CAST std::bit_cast
 
     // One-time initialization of our address tables. We have to put this code
     // here because our labels are only in scope inside this function. The
@@ -261,12 +261,12 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
 
 #if ENABLE(COMPUTED_GOTO_OPCODES)
         #define OPCODE_ENTRY(__opcode, length) \
-            opcodeMap[__opcode] = bitwise_cast<void*>(&&__opcode); \
-            opcodeMapWide16[__opcode] = bitwise_cast<void*>(&&__opcode##_wide16); \
-            opcodeMapWide32[__opcode] = bitwise_cast<void*>(&&__opcode##_wide32);
+            opcodeMap[__opcode] = std::bit_cast<void*>(&&__opcode); \
+            opcodeMapWide16[__opcode] = std::bit_cast<void*>(&&__opcode##_wide16); \
+            opcodeMapWide32[__opcode] = std::bit_cast<void*>(&&__opcode##_wide32);
 
         #define LLINT_OPCODE_ENTRY(__opcode, length) \
-            opcodeMap[__opcode] = bitwise_cast<void*>(&&__opcode);
+            opcodeMap[__opcode] = std::bit_cast<void*>(&&__opcode);
 #else
         // FIXME: this mapping is unnecessarily expensive in the absence of COMPUTED_GOTO
         //   narrow opcodes don't need any mapping and wide opcodes just need to add numOpcodeIDs
@@ -323,7 +323,7 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
     // 2. 32 bit result values will be in the low 32-bit of t0.
     // 3. 64 bit result values will be in t0.
 
-    CLoopRegister t0, t1, t2, t3, t5, sp, cfr, lr, pc;
+    CLoopRegister t0, t1, t2, t3, t5, t6, t7, sp, cfr, lr, pc;
 #if USE(JSVALUE64)
     CLoopRegister numberTag, notCellMask;
 #endif
@@ -336,6 +336,8 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
     UNUSED_VARIABLE(t2);
     UNUSED_VARIABLE(t3);
     UNUSED_VARIABLE(t5);
+    UNUSED_VARIABLE(t6);
+    UNUSED_VARIABLE(t7);
 
     struct StackPointerScope {
         StackPointerScope(CLoopStack& stack)
@@ -481,16 +483,13 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
 
 } // namespace JSC
 
-#elif !COMPILER(MSVC)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
+#else // !ENABLE(C_LOOP)
 
 //============================================================================
 // Define the opcode dispatch mechanism when using an ASM loop:
 //
-
-// We're disabling this for now because of a suspected linker issue.
-#define OFFLINE_ASM_USE_ALT_ENTRY 0
-
-#if COMPILER(CLANG)
 
 // We need an OFFLINE_ASM_BEGIN_SPACER because we'll be declaring every OFFLINE_ASM_GLOBAL_LABEL
 // as an alt entry. However, Clang will error out if the first global label is also an alt entry.
@@ -505,28 +504,25 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
 #if CPU(ARM_THUMB2)
 #define OFFLINE_ASM_BEGIN_SPACER "bkpt #0\n"
 #elif CPU(ARM64)
-#define OFFLINE_ASM_BEGIN_SPACER "brk #0xc471\n"
+#define OFFLINE_ASM_BEGIN_SPACER "brk #" STRINGIZE_VALUE_OF(WTF_FATAL_CRASH_CODE) "\n"
 #elif CPU(X86_64)
 #define OFFLINE_ASM_BEGIN_SPACER "int3\n"
 #else
 #define OFFLINE_ASM_BEGIN_SPACER ".int 0xbadbeef0\n"
 #endif
 
-#else
-#define OFFLINE_ASM_BEGIN_SPACER
-#endif // COMPILER(CLANG)
-
 // These are for building an interpreter from generated assembly code:
+// the jsc_llint_begin and jsc_llint_end labels help lldb_webkit.py find the
+// start and end of the llint instruction range quickly.
 
-#if OFFLINE_ASM_USE_ALT_ENTRY
 #define OFFLINE_ASM_BEGIN   asm ( \
-    OFFLINE_ASM_GLOBAL_LABEL_IMPL(jsc_llint_begin, OFFLINE_ASM_NO_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_ALIGN4B) \
+    OFFLINE_ASM_GLOBAL_LABEL_IMPL(jsc_llint_begin, OFFLINE_ASM_NO_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_ALIGN4B, HIDE_SYMBOL) \
     OFFLINE_ASM_BEGIN_SPACER
-#else
-#define OFFLINE_ASM_BEGIN   asm (
-#endif
 
-#define OFFLINE_ASM_END     );
+#define OFFLINE_ASM_END \
+    OFFLINE_ASM_BEGIN_SPACER \
+    OFFLINE_ASM_GLOBAL_LABEL_IMPL(jsc_llint_end, OFFLINE_ASM_NO_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_ALIGN4B, HIDE_SYMBOL) \
+);
 
 #if ENABLE(LLINT_EMBEDDED_OPCODE_ID)
 #define EMBED_OPCODE_ID_IF_NEEDED(__opcode) ".int " __opcode##_value_string "\n"
@@ -545,56 +541,75 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
 
 #define OFFLINE_ASM_NO_ALT_ENTRY_DIRECTIVE(label)
 
-#if COMPILER(CLANG)
+#if COMPILER(CLANG) && ENABLE(OFFLINE_ASM_ALT_ENTRY)
 #define OFFLINE_ASM_ALT_ENTRY_DIRECTIVE(label) \
     ".alt_entry " SYMBOL_STRING(label) "\n"
 #else
 #define OFFLINE_ASM_ALT_ENTRY_DIRECTIVE(label)
 #endif
 
+#if OS(DARWIN)
+#define OFFLINE_ASM_TEXT_SECTION ".section __TEXT,__jsc_int,regular,pure_instructions\n"
+#else
+#define OFFLINE_ASM_TEXT_SECTION ".text\n"
+#endif
+
 #if CPU(ARM_THUMB2)
-#define OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, ALT_ENTRY, ALIGNMENT) \
-    ".text\n"                                    \
+#define OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, ALT_ENTRY, ALIGNMENT, VISIBILITY) \
+    OFFLINE_ASM_TEXT_SECTION                     \
     ALIGNMENT                                    \
     ALT_ENTRY(label)                             \
     ".globl " SYMBOL_STRING(label) "\n"          \
-    HIDE_SYMBOL(label) "\n"                      \
+    VISIBILITY(label) "\n"                       \
     ".thumb\n"                                   \
     ".thumb_func " THUMB_FUNC_PARAM(label) "\n"  \
     SYMBOL_STRING(label) ":\n"
-#elif CPU(ARM64)
-#define OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, ALT_ENTRY, ALIGNMENT) \
-    ".text\n"                                   \
+#elif CPU(RISCV64)
+#define OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, ALT_ENTRY, ALIGNMENT, VISIBILITY) \
+    OFFLINE_ASM_TEXT_SECTION                    \
     ALIGNMENT                                   \
     ALT_ENTRY(label)                            \
     ".globl " SYMBOL_STRING(label) "\n"         \
-    HIDE_SYMBOL(label) "\n"                     \
+    ".attribute arch, \"rv64gc\"" "\n"          \
+    VISIBILITY(label) "\n"                      \
     SYMBOL_STRING(label) ":\n"
 #else
-#define OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, ALT_ENTRY, ALIGNMENT) \
-    ".text\n"                                   \
+#define OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, ALT_ENTRY, ALIGNMENT, VISIBILITY) \
+    OFFLINE_ASM_TEXT_SECTION                    \
+    ALIGNMENT                                   \
     ALT_ENTRY(label)                            \
     ".globl " SYMBOL_STRING(label) "\n"         \
-    HIDE_SYMBOL(label) "\n"                     \
+    VISIBILITY(label) "\n"                      \
     SYMBOL_STRING(label) ":\n"
 #endif
 
 #define OFFLINE_ASM_ALIGN4B ".balign 4\n"
 #define OFFLINE_ASM_NOALIGN ""
 
-#if OFFLINE_ASM_USE_ALT_ENTRY
-#define OFFLINE_ASM_GLOBAL_LABEL(label) \
-    OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, OFFLINE_ASM_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_ALIGN4B)
-#define OFFLINE_ASM_UNALIGNED_GLOBAL_LABEL(label) \
-    OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, OFFLINE_ASM_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_NOALIGN)
-#else
-#define OFFLINE_ASM_GLOBAL_LABEL(label) \
-    OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, OFFLINE_ASM_NO_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_ALIGN4B)
-#define OFFLINE_ASM_UNALIGNED_GLOBAL_LABEL(label) \
-    OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, OFFLINE_ASM_NO_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_NOALIGN)
-#endif // USE_ALT_ENTRY
+#if CPU(ARM64) || CPU(ARM64E)
+#define OFFLINE_ASM_ALIGN_TRAP(align) OFFLINE_ASM_BEGIN_SPACER "\n .balignl " #align ", 0xd4388e20\n" // pad with brk instructions
+#elif CPU(X86_64)
+#define OFFLINE_ASM_ALIGN_TRAP(align) OFFLINE_ASM_BEGIN_SPACER "\n .balign " #align ", 0xcc\n" // pad with int 3 instructions
+#elif CPU(ARM)
+#define OFFLINE_ASM_ALIGN_TRAP(align) OFFLINE_ASM_BEGIN_SPACER "\n .balignw " #align ", 0xde00\n" // pad with udf instructions
+#elif CPU(RISCV64)
+#define OFFLINE_ASM_ALIGN_TRAP(align) OFFLINE_ASM_BEGIN_SPACER "\n .balignw " #align ", 0x9002\n" // pad with c.ebreak instructions
+#endif
 
-#if COMPILER(CLANG) && OFFLINE_ASM_USE_ALT_ENTRY
+#define OFFLINE_ASM_EXPORT_SYMBOL(symbol)
+
+#define OFFLINE_ASM_GLOBAL_LABEL(label) \
+    OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, OFFLINE_ASM_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_ALIGN4B, HIDE_SYMBOL)
+#define OFFLINE_ASM_UNALIGNED_GLOBAL_LABEL(label) \
+    OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, OFFLINE_ASM_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_NOALIGN, HIDE_SYMBOL)
+#define OFFLINE_ASM_ALIGNED_GLOBAL_LABEL(label, align) \
+    OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, OFFLINE_ASM_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_ALIGN_TRAP(align), HIDE_SYMBOL)
+#define OFFLINE_ASM_GLOBAL_EXPORT_LABEL(label) \
+    OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, OFFLINE_ASM_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_ALIGN4B, OFFLINE_ASM_EXPORT_SYMBOL)
+#define OFFLINE_ASM_UNALIGNED_GLOBAL_EXPORT_LABEL(label) \
+    OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, OFFLINE_ASM_ALT_ENTRY_DIRECTIVE, OFFLINE_ASM_NOALIGN, OFFLINE_ASM_EXPORT_SYMBOL)
+
+#if COMPILER(CLANG) && ENABLE(OFFLINE_ASM_ALT_ENTRY)
 #define OFFLINE_ASM_ALT_GLOBAL_LABEL(label) OFFLINE_ASM_GLOBAL_LABEL(label)
 #else
 #define OFFLINE_ASM_ALT_GLOBAL_LABEL(label)
@@ -609,6 +624,8 @@ JSValue CLoop::execute(OpcodeID entryOpcodeID, void* executableAddress, VM* vm, 
 #else
 #define OFFLINE_ASM_OPCODE_DEBUG_LABEL(label)
 #endif
+
+#include "WasmCallee.h"
 
 // This works around a bug in GDB where, if the compilation unit
 // doesn't have any address range information, its line table won't

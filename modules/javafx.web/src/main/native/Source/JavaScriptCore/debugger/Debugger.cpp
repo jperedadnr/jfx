@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2008-2022 Apple Inc. All rights reserved.
+ *  Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
  *
@@ -31,15 +31,20 @@
 #include "Microtask.h"
 #include "VMEntryScopeInlines.h"
 #include "VMTrapsInlines.h"
+#include <wtf/ForbidHeapAllocation.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 #include <wtf/text/TextPosition.h>
 
 namespace JSC {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Debugger);
+
 class DebuggerPausedScope {
+    WTF_FORBID_HEAP_ALLOCATION;
 public:
     DebuggerPausedScope(Debugger& debugger)
         : m_debugger(debugger)
@@ -108,9 +113,7 @@ void Debugger::TemporarilyDisableExceptionBreakpoints::restore()
 }
 
 
-Debugger::ProfilingClient::~ProfilingClient()
-{
-}
+Debugger::ProfilingClient::~ProfilingClient() = default;
 
 Debugger::Debugger(VM& vm)
     : m_vm(vm)
@@ -134,9 +137,8 @@ Debugger::~Debugger()
 {
     m_vm.removeDebugger(*this);
 
-    HashSet<JSGlobalObject*>::iterator end = m_globalObjects.end();
-    for (HashSet<JSGlobalObject*>::iterator it = m_globalObjects.begin(); it != end; ++it)
-        (*it)->setDebugger(nullptr);
+    for (auto* globalObject : m_globalObjects)
+        globalObject->setDebugger(nullptr);
 }
 
 void Debugger::attach(JSGlobalObject* globalObject)
@@ -148,8 +150,9 @@ void Debugger::attach(JSGlobalObject* globalObject)
     m_vm.setShouldBuildPCToCodeOriginMapping();
 
     // Call `sourceParsed` after iterating because it will execute JavaScript in Web Inspector.
-    HashSet<RefPtr<SourceProvider>> sourceProviders;
+    UncheckedKeyHashSet<RefPtr<SourceProvider>> sourceProviders;
     {
+        JSLockHolder locker(m_vm);
         HeapIterationScope iterationScope(m_vm.heap);
         m_vm.heap.objectSpace().forEachLiveCell(iterationScope, [&] (HeapCell* heapCell, HeapCell::Kind kind) {
             if (isJSCellKind(kind)) {
@@ -243,7 +246,7 @@ void Debugger::registerCodeBlock(CodeBlock* codeBlock)
         codeBlock->setSteppingMode(CodeBlock::SteppingModeEnabled);
 }
 
-void Debugger::forEachRegisteredCodeBlock(const Function<void(CodeBlock*)>& callback)
+void Debugger::forEachRegisteredCodeBlock(NOESCAPE const Function<void(CodeBlock*)>& callback)
 {
     m_vm.heap.forEachCodeBlock([&] (CodeBlock* codeBlock) {
         if (codeBlock->globalObject()->debugger() == this)
@@ -946,12 +949,18 @@ void Debugger::pauseIfNeeded(JSGlobalObject* globalObject)
         return;
 
     SourceID sourceID = DebuggerCallFrame::sourceIDForCallFrame(m_currentCallFrame);
+    TextPosition position = DebuggerCallFrame::positionForCallFrame(vm, m_currentCallFrame);
 
-    auto blackboxTypeIterator = m_blackboxedScripts.find(sourceID);
-    if (blackboxTypeIterator != m_blackboxedScripts.end() && blackboxTypeIterator->value == BlackboxType::Ignored)
+    BlackboxFlags relevantBlackboxFlags;
+    if (const auto it = m_blackboxConfigurations.find(sourceID); it != m_blackboxConfigurations.end()) {
+        for (const auto& [blackboxRange, blackboxFlags] : it->value) {
+            if (position < blackboxRange.first || position >= blackboxRange.second)
+                continue;
+            relevantBlackboxFlags.add(blackboxFlags);
+            if (relevantBlackboxFlags.contains(BlackboxFlag::Ignore))
         return;
-
-    DebuggerPausedScope debuggerPausedScope(*this);
+        }
+    }
 
     bool afterBlackboxedScript = m_afterBlackboxedScript;
     bool pauseNow = false;
@@ -963,8 +972,6 @@ void Debugger::pauseIfNeeded(JSGlobalObject* globalObject)
         pauseNow = true;
         didPauseForStep = true;
     }
-
-    TextPosition position = DebuggerCallFrame::positionForCallFrame(vm, m_currentCallFrame);
 
     if (auto breakpoint = didHitBreakpoint(sourceID, position)) {
         pauseNow = true;
@@ -981,6 +988,8 @@ void Debugger::pauseIfNeeded(JSGlobalObject* globalObject)
     if (!pauseNow)
         return;
 
+    DebuggerPausedScope debuggerPausedScope(*this);
+
     resetImmediatePauseState();
 
     // Don't clear the `m_pauseOnCallFrame` if we've not hit it yet, as we may have encountered a breakpoint that won't pause.
@@ -993,10 +1002,7 @@ void Debugger::pauseIfNeeded(JSGlobalObject* globalObject)
     TemporaryPausedState pausedState(*this);
 
     auto shouldDeferPause = [&] () {
-        if (blackboxTypeIterator == m_blackboxedScripts.end())
-            return false;
-
-        if (blackboxTypeIterator->value != BlackboxType::Deferred)
+        if (!relevantBlackboxFlags.contains(BlackboxFlag::Defer))
             return false;
 
         m_afterBlackboxedScript = true;
@@ -1365,12 +1371,12 @@ DebuggerCallFrame& Debugger::currentDebuggerCallFrame()
     return *m_currentDebuggerCallFrame;
 }
 
-void Debugger::setBlackboxType(SourceID sourceID, std::optional<BlackboxType> type)
+void Debugger::setBlackboxConfiguration(SourceID sourceID, BlackboxConfiguration&& blackboxConfiguration)
 {
-    if (type)
-        m_blackboxedScripts.set(sourceID, type.value());
+    if (blackboxConfiguration.isEmpty())
+        m_blackboxConfigurations.remove(sourceID);
     else
-        m_blackboxedScripts.remove(sourceID);
+        m_blackboxConfigurations.set(sourceID, WTFMove(blackboxConfiguration));
 }
 
 void Debugger::setBlackboxBreakpointEvaluations(bool blackboxBreakpointEvaluations)
@@ -1380,7 +1386,7 @@ void Debugger::setBlackboxBreakpointEvaluations(bool blackboxBreakpointEvaluatio
 
 void Debugger::clearBlackbox()
 {
-    m_blackboxedScripts.clear();
+    m_blackboxConfigurations.clear();
 }
 
 } // namespace JSC

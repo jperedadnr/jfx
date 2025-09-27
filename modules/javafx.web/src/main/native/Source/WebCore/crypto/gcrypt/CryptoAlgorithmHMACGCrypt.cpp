@@ -42,8 +42,9 @@ static int getGCryptDigestAlgorithm(CryptoAlgorithmIdentifier hashFunction)
     switch (hashFunction) {
     case CryptoAlgorithmIdentifier::SHA_1:
         return GCRY_MAC_HMAC_SHA1;
-    case CryptoAlgorithmIdentifier::SHA_224:
-        return GCRY_MAC_HMAC_SHA224;
+    case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        return GCRY_MAC_HMAC_SHA256;
     case CryptoAlgorithmIdentifier::SHA_256:
         return GCRY_MAC_HMAC_SHA256;
     case CryptoAlgorithmIdentifier::SHA_384:
@@ -86,11 +87,11 @@ ExceptionOr<Vector<uint8_t>> CryptoAlgorithmHMAC::platformSign(const CryptoKeyHM
 {
     auto algorithm = getGCryptDigestAlgorithm(key.hashAlgorithmIdentifier());
     if (algorithm == GCRY_MAC_NONE)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
 
     auto result = calculateSignature(algorithm, key.key(), data.data(), data.size());
     if (!result)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(*result);
 }
 
@@ -98,13 +99,13 @@ ExceptionOr<bool> CryptoAlgorithmHMAC::platformVerify(const CryptoKeyHMAC& key, 
 {
     auto algorithm = getGCryptDigestAlgorithm(key.hashAlgorithmIdentifier());
     if (algorithm == GCRY_MAC_NONE)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
 
     auto expectedSignature = calculateSignature(algorithm, key.key(), data.data(), data.size());
     if (!expectedSignature)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     // Using a constant time comparison to prevent timing attacks.
-    return signature.size() == expectedSignature->size() && !constantTimeMemcmp(expectedSignature->data(), signature.data(), expectedSignature->size());
+    return signature.size() == expectedSignature->size() && !constantTimeMemcmp(expectedSignature->span(), signature.span());
 }
 
 }

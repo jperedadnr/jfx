@@ -35,7 +35,8 @@ namespace WebCore {
 class HTMLOptionsCollection;
 
 class HTMLSelectElement : public HTMLFormControlElement, private TypeAheadDataSource {
-    WTF_MAKE_ISO_ALLOCATED(HTMLSelectElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLSelectElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLSelectElement);
 public:
     static Ref<HTMLSelectElement> create(const QualifiedName&, Document&, HTMLFormElement*);
     static Ref<HTMLSelectElement> create(Document&);
@@ -86,6 +87,8 @@ public:
     ExceptionOr<void> setItem(unsigned index, HTMLOptionElement*);
     ExceptionOr<void> setLength(unsigned);
 
+    ExceptionOr<void> showPicker();
+
     WEBCORE_EXPORT HTMLOptionElement* namedItem(const AtomString& name);
     WEBCORE_EXPORT HTMLOptionElement* item(unsigned index);
     bool isSupportedPropertyIndex(unsigned index);
@@ -113,6 +116,8 @@ public:
 
     bool canContainRangeEndPoint() const override { return false; }
     bool shouldSaveAndRestoreFormControlState() const final { return true; }
+
+    bool isDevolvableWidget() const override { return true; }
 
 protected:
     HTMLSelectElement(const QualifiedName&, Document&, HTMLFormElement*);
@@ -156,7 +161,6 @@ private:
 
     void recalcListItems(bool updateSelectedStates = true, AllowStyleInvalidation = AllowStyleInvalidation::Yes) const;
 
-    void deselectItems(HTMLOptionElement* excludeElement = nullptr);
     void typeAheadFind(KeyboardEvent&);
     void saveLastSelection();
 

@@ -28,6 +28,7 @@
 #if ENABLE(ASSEMBLER) && CPU(RISCV64)
 
 #include "AssemblerBuffer.h"
+#include "AssemblerCommon.h"
 #include "RISCV64Registers.h"
 #include <tuple>
 
@@ -1489,10 +1490,10 @@ public:
     static constexpr FPRegisterID lastFPRegister() { return RISCV64Registers::f31; }
     static constexpr unsigned numberOfFPRegisters() { return lastFPRegister() - firstFPRegister() + 1; }
 
-    static const char* gprName(RegisterID id)
+    static ASCIILiteral gprName(RegisterID id)
     {
         ASSERT(id >= firstRegister() && id <= lastRegister());
-        static const char* const nameForRegister[numberOfRegisters()] = {
+        static constexpr ASCIILiteral nameForRegister[numberOfRegisters()] = {
 #define REGISTER_NAME(id, name, r, cs) name,
             FOR_EACH_GP_REGISTER(REGISTER_NAME)
 #undef REGISTER_NAME
@@ -1500,10 +1501,10 @@ public:
         return nameForRegister[id];
     }
 
-    static const char* sprName(SPRegisterID id)
+    static ASCIILiteral sprName(SPRegisterID id)
     {
         ASSERT(id >= firstSPRegister() && id <= lastSPRegister());
-        static const char* const nameForRegister[numberOfSPRegisters()] = {
+        static constexpr ASCIILiteral nameForRegister[numberOfSPRegisters()] = {
 #define REGISTER_NAME(id, name) name,
             FOR_EACH_SP_REGISTER(REGISTER_NAME)
 #undef REGISTER_NAME
@@ -1511,10 +1512,10 @@ public:
         return nameForRegister[id];
     }
 
-    static const char* fprName(FPRegisterID id)
+    static ASCIILiteral fprName(FPRegisterID id)
     {
         ASSERT(id >= firstFPRegister() && id <= lastFPRegister());
-        static const char* const nameForRegister[numberOfFPRegisters()] = {
+        static constexpr ASCIILiteral nameForRegister[numberOfFPRegisters()] = {
 #define REGISTER_NAME(id, name, r, cs) name,
             FOR_EACH_FP_REGISTER(REGISTER_NAME)
 #undef REGISTER_NAME
@@ -1611,7 +1612,7 @@ public:
         linkJump(m_buffer.data(), from, location);
     }
 
-    static ptrdiff_t maxJumpReplacementSize()
+    static constexpr ptrdiff_t maxJumpReplacementSize()
     {
         return sizeof(uint32_t) * 8;
     }
@@ -1623,21 +1624,21 @@ public:
 
     static void repatchPointer(void* where, void* valuePtr)
     {
-        uint32_t* location = reinterpret_cast<uint32_t*>(where);
+        uint32_t* location = static_cast<uint32_t*>(where);
         PatchPointerImpl::apply(location, valuePtr);
         cacheFlush(location, sizeof(uint32_t) * 8);
     }
 
     static void relinkJump(void* from, void* to)
     {
-        uint32_t* location = reinterpret_cast<uint32_t*>(from);
+        uint32_t* location = static_cast<uint32_t*>(from);
         LinkJumpImpl::apply(location, to);
         cacheFlush(location, sizeof(uint32_t) * 2);
     }
 
     static void relinkCall(void* from, void* to)
     {
-        uint32_t* location = reinterpret_cast<uint32_t*>(from);
+        uint32_t* location = static_cast<uint32_t*>(from);
         LinkCallImpl::apply(location, to);
         cacheFlush(location, sizeof(uint32_t) * 2);
     }
@@ -1649,14 +1650,14 @@ public:
 
     static void replaceWithVMHalt(void* where)
     {
-        uint32_t* location = reinterpret_cast<uint32_t*>(where);
+        uint32_t* location = static_cast<uint32_t*>(where);
         location[0] = RISCV64Instructions::SD::construct(RISCV64Registers::zero, RISCV64Registers::zero, SImmediate::v<SImmediate, 0>());
         cacheFlush(location, sizeof(uint32_t));
     }
 
     static void replaceWithJump(void* from, void* to)
     {
-        uint32_t* location = reinterpret_cast<uint32_t*>(from);
+        uint32_t* location = static_cast<uint32_t*>(from);
         intptr_t offset = uintptr_t(to) - uintptr_t(from);
 
         if (JImmediate::isValid(offset)) {
@@ -1673,16 +1674,22 @@ public:
         cacheFlush(from, sizeof(uint32_t) * 2);
     }
 
+    static void replaceWithNops(void* from, size_t memoryToFillWithNopsInBytes)
+    {
+        fillNops<MachineCodeCopyMode::Memcpy>(from, memoryToFillWithNopsInBytes);
+        cacheFlush(from, memoryToFillWithNopsInBytes);
+    }
+
     static void revertJumpReplacementToPatch(void* from, void* valuePtr)
     {
-        uint32_t* location = reinterpret_cast<uint32_t*>(from);
+        uint32_t* location = static_cast<uint32_t*>(from);
         PatchPointerImpl::apply(location, RISCV64Registers::x30, valuePtr);
         cacheFlush(location, sizeof(uint32_t) * 8);
     }
 
     static void* readCallTarget(void* from)
     {
-        uint32_t* location = reinterpret_cast<uint32_t*>(from);
+        uint32_t* location = static_cast<uint32_t*>(from);
         return PatchPointerImpl::read(location);
     }
 
@@ -1691,20 +1698,19 @@ public:
     static void cacheFlush(void* code, size_t size)
     {
         intptr_t end = reinterpret_cast<intptr_t>(code) + size;
-        __builtin___clear_cache(reinterpret_cast<char*>(code), reinterpret_cast<char*>(end));
+        __builtin___clear_cache(static_cast<char*>(code), reinterpret_cast<char*>(end));
     }
 
-    using CopyFunction = void*(&)(void*, const void*, size_t);
-    template <CopyFunction copy>
+    template<MachineCodeCopyMode copy>
     static void fillNops(void* base, size_t size)
     {
-        uint32_t* ptr = reinterpret_cast<uint32_t*>(base);
+        uint32_t* ptr = static_cast<uint32_t*>(base);
         RELEASE_ASSERT(roundUpToMultipleOf<sizeof(uint32_t)>(ptr) == ptr);
         RELEASE_ASSERT(!(size % sizeof(uint32_t)));
 
         uint32_t nop = RISCV64Instructions::ADDI::construct(RISCV64Registers::zero, RISCV64Registers::zero, IImmediate::v<IImmediate, 0>());
         for (size_t i = 0, n = size / sizeof(uint32_t); i < n; ++i)
-            copy(&ptr[i], &nop, sizeof(uint32_t));
+            machineCodeCopy<copy>(&ptr[i], &nop, sizeof(uint32_t));
     }
 
     typedef enum {

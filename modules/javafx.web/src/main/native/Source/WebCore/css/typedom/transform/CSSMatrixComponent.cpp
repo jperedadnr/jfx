@@ -38,11 +38,12 @@
 #include "DOMMatrix.h"
 #include "DOMMatrixInit.h"
 #include "ExceptionOr.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(CSSMatrixComponent);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(CSSMatrixComponent);
 
 Ref<CSSTransformComponent> CSSMatrixComponent::create(Ref<DOMMatrixReadOnly>&& matrix, CSSMatrixComponentOptions&& options)
 {
@@ -51,26 +52,27 @@ Ref<CSSTransformComponent> CSSMatrixComponent::create(Ref<DOMMatrixReadOnly>&& m
     return adoptRef(*new CSSMatrixComponent(WTFMove(matrix), is2D ? Is2D::Yes : Is2D::No));
 }
 
-ExceptionOr<Ref<CSSTransformComponent>> CSSMatrixComponent::create(CSSFunctionValue& cssFunctionValue)
+ExceptionOr<Ref<CSSTransformComponent>> CSSMatrixComponent::create(Ref<const CSSFunctionValue> cssFunctionValue)
 {
-    auto makeMatrix = [&](const Function<Ref<CSSTransformComponent>(Vector<double>&&)>& create, size_t expectedNumberOfComponents) -> ExceptionOr<Ref<CSSTransformComponent>> {
+    auto makeMatrix = [&](NOESCAPE const Function<Ref<CSSTransformComponent>(Vector<double>&&)>& create, size_t expectedNumberOfComponents) -> ExceptionOr<Ref<CSSTransformComponent>> {
         Vector<double> components;
-        for (auto& componentCSSValue : cssFunctionValue) {
+        for (auto& componentCSSValue : cssFunctionValue.get()) {
             auto valueOrException = CSSStyleValueFactory::reifyValue(componentCSSValue, std::nullopt);
             if (valueOrException.hasException())
                 return valueOrException.releaseException();
-            if (!is<CSSUnitValue>(valueOrException.returnValue()))
-                return Exception { TypeError, "Expected a CSSUnitValue."_s };
-            components.append(downcast<CSSUnitValue>(valueOrException.releaseReturnValue().get()).value());
+            RefPtr unitValue = dynamicDowncast<CSSUnitValue>(valueOrException.releaseReturnValue());
+            if (!unitValue)
+                return Exception { ExceptionCode::TypeError, "Expected a CSSUnitValue."_s };
+            components.append(unitValue->value());
         }
         if (components.size() != expectedNumberOfComponents) {
             ASSERT_NOT_REACHED();
-            return Exception { TypeError, "Unexpected number of values."_s };
+            return Exception { ExceptionCode::TypeError, "Unexpected number of values."_s };
         }
         return create(WTFMove(components));
     };
 
-    switch (cssFunctionValue.name()) {
+    switch (cssFunctionValue->name()) {
     case CSSValueMatrix:
         return makeMatrix([](Vector<double>&& components) {
             auto domMatrix = DOMMatrixReadOnly::create({ components[0], components[1], components[2], components[3], components[4], components[5] }, DOMMatrixReadOnly::Is2D::Yes);
@@ -102,53 +104,20 @@ CSSMatrixComponent::CSSMatrixComponent(Ref<DOMMatrixReadOnly>&& matrix, Is2D is2
 void CSSMatrixComponent::serialize(StringBuilder& builder) const
 {
     if (is2D()) {
-        builder.append("matrix(");
-        builder.append(String::number(m_matrix->a()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->b()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->c()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->d()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->e()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->f()));
-        builder.append(")");
+        builder.append("matrix("_s, m_matrix->a(), ", "_s,
+        m_matrix->b(), ", "_s, m_matrix->c(), ", "_s,
+        m_matrix->d(), ", "_s, m_matrix->e(), ", "_s,
+        m_matrix->f(), ')');
     } else {
-        builder.append("matrix3d(");
-        builder.append(String::number(m_matrix->m11()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m12()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m13()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m14()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m21()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m22()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m23()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m24()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m31()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m32()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m33()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m34()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m41()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m42()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m43()));
-        builder.append(", ");
-        builder.append(String::number(m_matrix->m44()));
-        builder.append(")");
+        builder.append("matrix3d("_s, m_matrix->m11(), ", "_s,
+        m_matrix->m12(), ", "_s, m_matrix->m13(), ", "_s,
+        m_matrix->m14(), ", "_s, m_matrix->m21(), ", "_s,
+        m_matrix->m22(), ", "_s, m_matrix->m23(), ", "_s,
+        m_matrix->m24(), ", "_s, m_matrix->m31(), ", "_s,
+        m_matrix->m32(), ", "_s, m_matrix->m33(), ", "_s,
+        m_matrix->m34(), ", "_s, m_matrix->m41(), ", "_s,
+        m_matrix->m42(), ", "_s, m_matrix->m43(), ", "_s,
+        m_matrix->m44(), ')');
     }
 }
 

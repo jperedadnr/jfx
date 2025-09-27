@@ -47,7 +47,7 @@ namespace WebCore {
 
 static WorkletParameters generateWorkletParameters(AudioWorklet& worklet)
 {
-    auto* document = worklet.document();
+    RefPtr document = worklet.document();
     auto jsRuntimeFlags = document->settings().javaScriptRuntimeFlags();
     RELEASE_ASSERT(document->sessionID());
 
@@ -60,6 +60,7 @@ static WorkletParameters generateWorkletParameters(AudioWorklet& worklet)
         document->settingsValues(),
         document->referrerPolicy(),
         worklet.audioContext() ? !worklet.audioContext()->isOfflineContext() : false,
+        document->advancedPrivacyProtections(),
         document->noiseInjectionHashSalt()
     };
 }
@@ -112,9 +113,9 @@ void AudioWorkletMessagingProxy::postTaskToLoader(ScriptExecutionContext::Task&&
 
 void AudioWorkletMessagingProxy::postTaskToAudioWorklet(Function<void(AudioWorklet&)>&& task)
 {
-    m_document->postTask([this, protectedThis = Ref { *this }, task = WTFMove(task)](ScriptExecutionContext&) {
-        if (m_worklet)
-            task(*m_worklet);
+    m_document->postTask([protectedThis = Ref { *this }, task = WTFMove(task)](ScriptExecutionContext&) {
+        if (protectedThis->m_worklet)
+            task(*protectedThis->m_worklet);
     });
 }
 

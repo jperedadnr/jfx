@@ -43,6 +43,7 @@
 #include "PaymentSession.h"
 #include "UserContentProvider.h"
 #include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
 #define PAYMENT_COORDINATOR_RELEASE_LOG_ERROR(fmt, ...) RELEASE_LOG_ERROR(ApplePay, "%p - PaymentCoordinator::" fmt, this, ##__VA_ARGS__)
@@ -50,7 +51,14 @@
 
 namespace WebCore {
 
-PaymentCoordinator::PaymentCoordinator(UniqueRef<PaymentCoordinatorClient>&& client)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PaymentCoordinator);
+
+Ref<PaymentCoordinator> PaymentCoordinator::create(Ref<PaymentCoordinatorClient>&& client)
+{
+    return adoptRef(*new PaymentCoordinator(WTFMove(client)));
+}
+
+PaymentCoordinator::PaymentCoordinator(Ref<PaymentCoordinatorClient>&& client)
     : m_client(WTFMove(client))
 {
 }
@@ -99,10 +107,14 @@ bool PaymentCoordinator::beginPaymentSession(Document& document, PaymentSession&
 {
     ASSERT(!m_activeSession);
 
+    RefPtr page = document.page();
+    if (!page)
+        return false;
+
     auto linkIconURLs = LinkIconCollector { document }.iconsOfTypes({ LinkIconType::TouchIcon, LinkIconType::TouchPrecomposedIcon }).map([](auto& icon) {
         return icon.url;
     });
-    auto showPaymentUI = m_client->showPaymentUI(document.url(), WTFMove(linkIconURLs), paymentRequest);
+    auto showPaymentUI = m_client->showPaymentUI(page->mainFrameURL(), WTFMove(linkIconURLs), paymentRequest);
     PAYMENT_COORDINATOR_RELEASE_LOG("beginPaymentSession() -> %d", showPaymentUI);
     if (!showPaymentUI)
         return false;
@@ -288,7 +300,7 @@ void PaymentCoordinator::getSetupFeatures(const ApplePaySetupConfiguration& conf
     });
 }
 
-void PaymentCoordinator::beginApplePaySetup(const ApplePaySetupConfiguration& configuration, const URL& url, Vector<RefPtr<ApplePaySetupFeature>>&& features, CompletionHandler<void(bool)>&& completionHandler)
+void PaymentCoordinator::beginApplePaySetup(const ApplePaySetupConfiguration& configuration, const URL& url, Vector<Ref<ApplePaySetupFeature>>&& features, CompletionHandler<void(bool)>&& completionHandler)
 {
     PAYMENT_COORDINATOR_RELEASE_LOG("beginApplePaySetup()");
     m_client->beginApplePaySetup(configuration, url, WTFMove(features), [this, weakThis = WeakPtr { *this }, completionHandler = WTFMove(completionHandler)](bool success) mutable {

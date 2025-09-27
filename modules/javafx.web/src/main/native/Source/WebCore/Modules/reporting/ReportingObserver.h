@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "ContextDestructionObserver.h"
-#include <wtf/IsoMalloc.h>
+#include "ActiveDOMObject.h"
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -37,9 +37,12 @@ class ReportingObserverCallback;
 class ReportingScope;
 class ScriptExecutionContext;
 
-class ReportingObserver final : public RefCounted<ReportingObserver>, public ContextDestructionObserver  {
-    WTF_MAKE_ISO_ALLOCATED(ReportingObserver);
+class ReportingObserver final : public RefCounted<ReportingObserver>, public ActiveDOMObject  {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ReportingObserver);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     struct Options {
         std::optional<Vector<AtomString>> types;
         bool buffered { false };
@@ -55,12 +58,19 @@ public:
 
     void appendQueuedReportIfCorrectType(const Ref<Report>&);
 
+    ReportingObserverCallback& callbackConcurrently();
+
+    bool virtualHasPendingActivity() const final;
+
 private:
     explicit ReportingObserver(ScriptExecutionContext&, Ref<ReportingObserverCallback>&&, ReportingObserver::Options&&);
 
     WeakPtr<ReportingScope> m_reportingScope;
     Ref<ReportingObserverCallback> m_callback;
-    Options m_options;
+    // Instead of storing an Options struct we store the fields separately to save the space overhead of an optional<Vector<AtomString>>
+    // which is logically equivalent to an empty vector by the spec.
+    const Vector<AtomString> m_types;
+    bool m_buffered;
     Vector<Ref<Report>> m_queuedReports;
 };
 

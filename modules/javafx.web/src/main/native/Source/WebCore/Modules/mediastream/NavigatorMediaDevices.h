@@ -34,6 +34,7 @@
 
 #include "LocalDOMWindowProperty.h"
 #include "Supplementable.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -41,7 +42,7 @@ class MediaDevices;
 class Navigator;
 
 class NavigatorMediaDevices : public Supplement<Navigator>, public LocalDOMWindowProperty {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NavigatorMediaDevices);
 public:
     explicit NavigatorMediaDevices(LocalDOMWindow*);
     virtual ~NavigatorMediaDevices();
@@ -51,7 +52,7 @@ public:
     MediaDevices* mediaDevices() const;
 
 private:
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
     mutable RefPtr<MediaDevices> m_mediaDevices;
 };

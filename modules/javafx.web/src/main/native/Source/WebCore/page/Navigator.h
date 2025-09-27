@@ -24,7 +24,8 @@
 #include "ScriptWrappable.h"
 #include "ShareData.h"
 #include "Supplementable.h"
-#include <wtf/IsoMalloc.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -32,10 +33,17 @@ class Blob;
 class DeferredPromise;
 class DOMMimeTypeArray;
 class DOMPluginArray;
+class Page;
 class ShareDataReader;
 
-class Navigator final : public NavigatorBase, public ScriptWrappable, public LocalDOMWindowProperty, public Supplementable<Navigator> {
-    WTF_MAKE_ISO_ALLOCATED(Navigator);
+class Navigator final
+    : public NavigatorBase
+    , public ScriptWrappable
+    , public LocalDOMWindowProperty
+    , public Supplementable<Navigator>
+{
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(Navigator);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Navigator);
 public:
     static Ref<Navigator> create(ScriptExecutionContext* context, LocalDOMWindow& window) { return adoptRef(*new Navigator(context, window)); }
     virtual ~Navigator();
@@ -57,23 +65,22 @@ public:
     bool standalone() const;
 #endif
 
-#if ENABLE(IOS_TOUCH_EVENTS) && !PLATFORM(MACCATALYST)
-    int maxTouchPoints() const { return 5; }
-#else
-    int maxTouchPoints() const { return 0; }
-#endif
+    int maxTouchPoints() const;
 
     GPU* gpu();
 
-    Document* document();
+    Page* page();
+    RefPtr<Page> protectedPage();
 
-#if ENABLE(BADGING)
+    const Document* document() const;
+    Document* document();
+    RefPtr<Document> protectedDocument();
+
     void setAppBadge(std::optional<unsigned long long>, Ref<DeferredPromise>&&);
     void clearAppBadge(Ref<DeferredPromise>&&);
 
     void setClientBadge(std::optional<unsigned long long>, Ref<DeferredPromise>&&);
     void clearClientBadge(Ref<DeferredPromise>&&);
-#endif
 
 private:
     void showShareData(ExceptionOr<ShareDataWithParsedURL&>, Ref<DeferredPromise>&&);

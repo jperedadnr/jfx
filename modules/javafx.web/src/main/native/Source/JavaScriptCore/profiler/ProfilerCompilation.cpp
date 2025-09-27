@@ -41,11 +41,11 @@ Compilation::Compilation(Bytecodes* bytecodes, CompilationKind kind)
     , m_numInlinedPutByIds(0)
     , m_numInlinedCalls(0)
     , m_jettisonReason(NotJettisoned)
-    , m_uid(UID::create())
+    , m_uid(UID::generate())
 {
 }
 
-Compilation::~Compilation() { }
+Compilation::~Compilation() = default;
 
 void Compilation::addProfiledBytecodes(Database& database, CodeBlock* profiledBlock)
 {
@@ -53,7 +53,7 @@ void Compilation::addProfiledBytecodes(Database& database, CodeBlock* profiledBl
 
     // First make sure that we haven't already added profiled bytecodes for this code
     // block. We do this using an O(N) search because I suspect that this list will
-    // tend to be fairly small, and the additional space costs of having a HashMap/Set
+    // tend to be fairly small, and the additional space costs of having a UncheckedKeyHashMap/Set
     // would be greater than the time cost of occasionally doing this search.
 
     for (unsigned i = m_profiledBytecodes.size(); i--;) {
@@ -115,7 +115,7 @@ Ref<JSON::Value> Compilation::toJSON(Dumper& dumper) const
 {
     auto result = JSON::Object::create();
     result->setDouble(dumper.keys().m_bytecodesID, m_bytecodes->id());
-    result->setString(dumper.keys().m_compilationKind, String::fromUTF8(toCString(m_kind)));
+    result->setString(dumper.keys().m_compilationKind, String::fromUTF8(toCString(m_kind).span()));
 
     auto profiledBytecodes = JSON::Array::create();
     for (const auto& bytecode : m_profiledBytecodes)
@@ -149,11 +149,11 @@ Ref<JSON::Value> Compilation::toJSON(Dumper& dumper) const
     result->setDouble(dumper.keys().m_numInlinedGetByIds, m_numInlinedGetByIds);
     result->setDouble(dumper.keys().m_numInlinedPutByIds, m_numInlinedPutByIds);
     result->setDouble(dumper.keys().m_numInlinedCalls, m_numInlinedCalls);
-    result->setString(dumper.keys().m_jettisonReason, String::fromUTF8(toCString(m_jettisonReason)));
+    result->setString(dumper.keys().m_jettisonReason, String::fromUTF8(toCString(m_jettisonReason).span()));
     if (!m_additionalJettisonReason.isNull())
-        result->setString(dumper.keys().m_additionalJettisonReason, String::fromUTF8(m_additionalJettisonReason));
+        result->setString(dumper.keys().m_additionalJettisonReason, String::fromUTF8(m_additionalJettisonReason.span()));
 
-    result->setValue(dumper.keys().m_uid, m_uid.toJSON(dumper));
+    result->setString(dumper.keys().m_uid, makeString(m_uid));
 
     return result;
 }

@@ -35,6 +35,7 @@
 #include "CBORValue.h"
 #include "CBORWriter.h"
 #include "WebAuthenticationConstants.h"
+#include "WebAuthenticationUtils.h"
 
 namespace fido {
 
@@ -83,33 +84,18 @@ AuthenticatorGetInfoResponse& AuthenticatorGetInfoResponse::setTransports(Vector
     return *this;
 }
 
-static String toString(WebCore::AuthenticatorTransport transport)
+AuthenticatorGetInfoResponse& AuthenticatorGetInfoResponse::setRemainingDiscoverableCredentials(uint32_t remainingDiscoverableCredentials)
 {
-    switch (transport) {
-    case WebCore::AuthenticatorTransport::Usb:
-        return WebCore::authenticatorTransportUsb;
-        break;
-    case WebCore::AuthenticatorTransport::Nfc:
-        return WebCore::authenticatorTransportNfc;
-        break;
-    case WebCore::AuthenticatorTransport::Ble:
-        return WebCore::authenticatorTransportBle;
-        break;
-    case WebCore::AuthenticatorTransport::Internal:
-        return WebCore::authenticatorTransportInternal;
-        break;
-    case WebCore::AuthenticatorTransport::Cable:
-        return WebCore::authenticatorTransportCable;
-    case WebCore::AuthenticatorTransport::Hybrid:
-        return WebCore::authenticatorTransportHybrid;
-    case WebCore::AuthenticatorTransport::SmartCard:
-        return WebCore::authenticatorTransportSmartCard;
-    default:
-        break;
-    }
-    ASSERT_NOT_REACHED();
-    return nullString();
+    m_remainingDiscoverableCredentials = remainingDiscoverableCredentials;
+    return *this;
 }
+
+AuthenticatorGetInfoResponse& AuthenticatorGetInfoResponse::setMinPINLength(uint32_t minPINLength)
+{
+    m_minPINLength = minPINLength;
+    return *this;
+}
+
 
 Vector<uint8_t> encodeAsCBOR(const AuthenticatorGetInfoResponse& response)
 {
@@ -119,7 +105,7 @@ Vector<uint8_t> encodeAsCBOR(const AuthenticatorGetInfoResponse& response)
 
     CBORValue::ArrayValue versionArray;
     for (const auto& version : response.versions())
-        versionArray.append(version == ProtocolVersion::kCtap ? kCtap2Version : kU2fVersion);
+        versionArray.append(toString(version));
     deviceInfoMap.emplace(CBORValue(1), CBORValue(WTFMove(versionArray)));
 
     if (response.extensions())
@@ -136,8 +122,14 @@ Vector<uint8_t> encodeAsCBOR(const AuthenticatorGetInfoResponse& response)
 
     if (response.transports()) {
         auto transports = *response.transports();
-        deviceInfoMap.emplace(CBORValue(7), toArrayValue(transports.map(toString)));
+        deviceInfoMap.emplace(CBORValue(7), toArrayValue(transports.map(WebCore::toString)));
     }
+
+    if (response.remainingDiscoverableCredentials())
+        deviceInfoMap.emplace(CBORValue(8), CBORValue(static_cast<int64_t>(*response.remainingDiscoverableCredentials())));
+
+    if (auto minPINLength = response.minPINLength())
+        deviceInfoMap.emplace(CBORValue(13), CBORValue(static_cast<int64_t>(*minPINLength)));
 
     auto encodedBytes = CBORWriter::write(CBORValue(WTFMove(deviceInfoMap)));
     ASSERT(encodedBytes);

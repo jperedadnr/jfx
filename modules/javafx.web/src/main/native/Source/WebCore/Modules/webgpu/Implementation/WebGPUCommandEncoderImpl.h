@@ -30,13 +30,14 @@
 #include "WebGPUCommandEncoder.h"
 #include "WebGPUPtr.h"
 #include <WebGPU/WebGPU.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore::WebGPU {
 
 class ConvertToBackingContext;
 
 class CommandEncoderImpl final : public CommandEncoder {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CommandEncoderImpl);
 public:
     static Ref<CommandEncoderImpl> create(WebGPUPtr<WGPUCommandEncoder>&& commandEncoder, ConvertToBackingContext& convertToBackingContext)
     {
@@ -57,8 +58,10 @@ private:
 
     WGPUCommandEncoder backing() const { return m_backing.get(); }
 
-    Ref<RenderPassEncoder> beginRenderPass(const RenderPassDescriptor&) final;
-    Ref<ComputePassEncoder> beginComputePass(const std::optional<ComputePassDescriptor>&) final;
+    RefPtr<RenderPassEncoder> beginRenderPass(const RenderPassDescriptor&) final;
+    RefPtr<ComputePassEncoder> beginComputePass(const std::optional<ComputePassDescriptor>&) final;
+
+    Ref<ConvertToBackingContext> protectedConvertToBackingContext() const { return m_convertToBackingContext; }
 
     void copyBufferToBuffer(
         const Buffer& source,
@@ -100,7 +103,7 @@ private:
         const Buffer& destination,
         Size64 destinationOffset) final;
 
-    Ref<CommandBuffer> finish(const CommandBufferDescriptor&) final;
+    RefPtr<CommandBuffer> finish(const CommandBufferDescriptor&) final;
 
     void setLabelInternal(const String&) final;
 

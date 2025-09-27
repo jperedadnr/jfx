@@ -27,6 +27,7 @@
 
 #include "RenderStyleConstants.h"
 #include "TextSizeAdjustment.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/OptionSet.h>
 
 namespace WebCore {
@@ -46,11 +47,12 @@ class Update;
 
 class Adjuster {
 public:
-    Adjuster(const Document&, const RenderStyle& parentStyle, const RenderStyle* parentBoxStyle, const Element*);
+    Adjuster(const Document&, const RenderStyle& parentStyle, const RenderStyle* parentBoxStyle, Element*);
 
     void adjust(RenderStyle&, const RenderStyle* userAgentAppearanceStyle) const;
     void adjustAnimatedStyle(RenderStyle&, OptionSet<AnimationImpact>) const;
 
+    static void adjustVisibilityForPseudoElement(RenderStyle&, const Element& host);
     static void adjustSVGElementStyle(RenderStyle&, const SVGElement&);
     static bool adjustEventListenerRegionTypesForRootStyle(RenderStyle&, const Document&);
     static void propagateToDocumentElementAndInitialContainingBlock(Update&, const Document&);
@@ -64,7 +66,7 @@ public:
         explicit operator bool() const { return newFontSize || newLineHeight || newStatus; }
     };
     static AdjustmentForTextAutosizing adjustmentForTextAutosizing(const RenderStyle&, const Element&);
-    static bool adjustForTextAutosizing(RenderStyle&, const Element&, AdjustmentForTextAutosizing);
+    static bool adjustForTextAutosizing(RenderStyle&, AdjustmentForTextAutosizing);
     static bool adjustForTextAutosizing(RenderStyle&, const Element&);
 #endif
 
@@ -76,10 +78,10 @@ private:
 
     static OptionSet<EventListenerRegionType> computeEventListenerRegionTypes(const Document&, const RenderStyle&, const EventTarget&, OptionSet<EventListenerRegionType>);
 
-    const Document& m_document;
+    CheckedRef<const Document> m_document;
     const RenderStyle& m_parentStyle;
     const RenderStyle& m_parentBoxStyle;
-    const Element* m_element;
+    RefPtr<Element> m_element;
 };
 
 }

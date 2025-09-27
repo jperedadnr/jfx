@@ -33,6 +33,7 @@
 #include "FormState.h"
 #include "FrameLoaderTypes.h"
 #include "ReferrerPolicy.h"
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/URL.h>
 #include <wtf/WeakPtr.h>
 
@@ -43,16 +44,16 @@ class FormData;
 class FrameLoadRequest;
 class HTMLFormControlElement;
 
-class FormSubmission : public RefCounted<FormSubmission>, public CanMakeWeakPtr<FormSubmission> {
+class FormSubmission : public RefCountedAndCanMakeWeakPtr<FormSubmission> {
 public:
     enum class Method : uint8_t { Get, Post, Dialog };
 
     class Attributes {
     public:
         Method method() const { return m_method; }
-        static Method parseMethodType(const String&, bool);
-        void updateMethodType(const String&, bool);
-        static ASCIILiteral methodString(Method, bool);
+        static Method parseMethodType(const String&);
+        void updateMethodType(const String&);
+        static ASCIILiteral methodString(Method);
 
         const String& action() const { return m_action; }
         void parseAction(const String&);
@@ -92,6 +93,7 @@ public:
     const String boundary() const { return m_boundary; }
     LockHistory lockHistory() const { return m_lockHistory; }
     Event* event() const { return m_event.get(); }
+    RefPtr<Event> protectedEvent() const;
     const String& referrer() const { return m_referrer; }
     const String& origin() const { return m_origin; }
 

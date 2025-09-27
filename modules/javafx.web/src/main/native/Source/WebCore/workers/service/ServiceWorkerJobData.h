@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "ScriptExecutionContextIdentifier.h"
 #include "SecurityOriginData.h"
 #include "ServiceWorkerJobDataIdentifier.h"
@@ -66,11 +64,7 @@ struct ServiceWorkerJobData {
     ServiceWorkerJobData isolatedCopy() const;
 
 private:
-    ServiceWorkerJobData() = default;
-
     Identifier m_identifier;
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

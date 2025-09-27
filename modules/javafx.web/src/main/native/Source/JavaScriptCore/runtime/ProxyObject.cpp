@@ -32,9 +32,12 @@
 #include "ObjectConstructor.h"
 #include "VMInlines.h"
 #include <wtf/NoTailCalls.h>
+#include <wtf/text/MakeString.h>
 
 // Note that we use NO_TAIL_CALLS() throughout this file because we rely on the machine stack
 // growing larger for throwing OOM errors for when we have an effectively cyclic prototype chain.
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -97,7 +100,7 @@ JSObject* ProxyObject::getHandlerTrap(JSGlobalObject* globalObject, JSObject* ha
 
         callData = JSC::getCallData(value);
         if (callData.type == CallData::Type::None) {
-            throwTypeError(globalObject, scope, makeString("'", String(ident.impl()), "' property of a Proxy's handler should be callable"));
+            throwTypeError(globalObject, scope, makeString('\'', String(ident.impl()), "' property of a Proxy's handler should be callable"_s));
             return nullptr;
         }
 
@@ -187,7 +190,7 @@ static JSValue performProxyGet(JSGlobalObject* globalObject, ProxyObject* proxyO
     MarkedArgumentBuffer arguments;
     arguments.append(target);
     arguments.append(identifierToSafePublicJSValue(vm, Identifier::fromUid(vm, propertyName.uid())));
-    arguments.append(receiver);
+    arguments.append(receiver.toThis(globalObject, ECMAMode::strict()));
     ASSERT(!arguments.hasOverflowed());
     JSValue trapResult = call(globalObject, getHandler, callData, handler, arguments);
     RETURN_IF_EXCEPTION(scope, { });
@@ -517,7 +520,7 @@ bool ProxyObject::performPut(JSGlobalObject* globalObject, JSValue putValue, JSV
     arguments.append(target);
     arguments.append(identifierToSafePublicJSValue(vm, Identifier::fromUid(vm, propertyName.uid())));
     arguments.append(putValue);
-    arguments.append(thisValue);
+    arguments.append(thisValue.toThis(globalObject, ECMAMode::strict()));
     ASSERT(!arguments.hasOverflowed());
     JSValue trapResult = call(globalObject, setMethod, callData, handler, arguments);
     RETURN_IF_EXCEPTION(scope, false);
@@ -639,6 +642,7 @@ CallData ProxyObject::getCallData(JSCell* cell)
         callData.type = CallData::Type::Native;
         callData.native.function = performProxyCall;
         callData.native.isBoundFunction = false;
+        callData.native.isWasm = false;
     }
     return callData;
 }
@@ -691,6 +695,7 @@ CallData ProxyObject::getConstructData(JSCell* cell)
         constructData.type = CallData::Type::Native;
         constructData.native.function = performProxyConstruct;
         constructData.native.isBoundFunction = false;
+        constructData.native.isWasm = false;
     }
     return constructData;
 }
@@ -1057,7 +1062,7 @@ void ProxyObject::performGetOwnPropertyNames(JSGlobalObject* globalObject, Prope
         return;
     }
 
-    HashSet<UniquedStringImpl*> uncheckedResultKeys;
+    UncheckedKeyHashSet<UniquedStringImpl*> uncheckedResultKeys;
     forEachInArrayLike(globalObject, asObject(trapResult), [&] (JSValue value) -> bool {
         if (!value.isString() && !value.isSymbol()) {
             throwTypeError(globalObject, scope, "Proxy handler's 'ownKeys' method must return an array-like object containing only Strings and Symbols"_s);
@@ -1086,8 +1091,8 @@ void ProxyObject::performGetOwnPropertyNames(JSGlobalObject* globalObject, Prope
     PropertyNameArray targetKeys(vm, PropertyNameMode::StringsAndSymbols, PrivateSymbolMode::Exclude);
     target->methodTable()->getOwnPropertyNames(target, globalObject, targetKeys, DontEnumPropertiesMode::Include);
     RETURN_IF_EXCEPTION(scope, void());
-    HashSet<UniquedStringImpl*> targetNonConfigurableKeys;
-    HashSet<UniquedStringImpl*> targetConfigurableKeys;
+    UncheckedKeyHashSet<UniquedStringImpl*> targetNonConfigurableKeys;
+    UncheckedKeyHashSet<UniquedStringImpl*> targetConfigurableKeys;
     for (const Identifier& ident : targetKeys) {
         PropertyDescriptor descriptor;
         bool isPropertyDefined = target->getOwnPropertyDescriptor(globalObject, ident.impl(), descriptor);
@@ -1300,3 +1305,5 @@ void ProxyObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 DEFINE_VISIT_CHILDREN(ProxyObject);
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

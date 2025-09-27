@@ -46,9 +46,18 @@
 #include "PaymentSessionError.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMallocInlines.h>
+
 #include <wtf/URL.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MockPaymentCoordinator);
+
+Ref<MockPaymentCoordinator> MockPaymentCoordinator::create(Page& page)
+{
+    return adoptRef(*new MockPaymentCoordinator(page));
+}
 
 MockPaymentCoordinator::MockPaymentCoordinator(Page& page)
     : m_page { page }
@@ -79,41 +88,39 @@ bool MockPaymentCoordinator::canMakePayments()
 
 void MockPaymentCoordinator::canMakePaymentsWithActiveCard(const String&, const String&, CompletionHandler<void(bool)>&& completionHandler)
 {
-    RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler), canMakePaymentsWithActiveCard = m_canMakePaymentsWithActiveCard]() mutable {
+    RunLoop::protectedMain()->dispatch([completionHandler = WTFMove(completionHandler), canMakePaymentsWithActiveCard = m_canMakePaymentsWithActiveCard]() mutable {
         completionHandler(canMakePaymentsWithActiveCard);
     });
 }
 
 void MockPaymentCoordinator::openPaymentSetup(const String&, const String&, CompletionHandler<void(bool)>&& completionHandler)
 {
-    RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler)]() mutable {
+    RunLoop::protectedMain()->dispatch([completionHandler = WTFMove(completionHandler)]() mutable {
         completionHandler(true);
     });
 }
 
-static uint64_t showCount;
-static uint64_t hideCount;
-
 MockPaymentCoordinator::~MockPaymentCoordinator()
 {
-    ASSERT(showCount == hideCount);
+    ASSERT(m_showCount == m_hideCount);
 }
 
 void MockPaymentCoordinator::dispatchIfShowing(Function<void()>&& function)
 {
-    if (showCount <= hideCount)
+    if (m_showCount <= m_hideCount)
         return;
 
-    RunLoop::main().dispatch([currentShowCount = showCount, function = WTFMove(function)]() {
-        if (showCount > hideCount && showCount == currentShowCount)
+    RunLoop::protectedMain()->dispatch([protectedThis = Ref { *this }, currentShowCount = m_showCount, function = WTFMove(function)]() {
+        if (protectedThis->m_showCount > protectedThis->m_hideCount && protectedThis->m_showCount == currentShowCount)
             function();
     });
 }
 
 bool MockPaymentCoordinator::showPaymentUI(const URL&, const Vector<URL>&, const ApplePaySessionPaymentRequest& request)
 {
-    if (request.shippingContact().pkContact())
+    if (request.shippingContact().pkContact().get())
         m_shippingAddress = request.shippingContact().toApplePayPaymentContact(request.version());
+    m_supportedCountries = request.supportedCountries();
     m_shippingMethods = request.shippingMethods();
     m_requiredBillingContactFields = request.requiredBillingContactFields();
     m_requiredShippingContactFields = request.requiredShippingContactFields();
@@ -140,13 +147,23 @@ bool MockPaymentCoordinator::showPaymentUI(const URL&, const Vector<URL>&, const
 #if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
     m_deferredPaymentRequest = request.deferredPaymentRequest();
 #endif
+#if ENABLE(APPLE_PAY_DISBURSEMENTS)
+    m_disbursementRequest = request.disbursementRequest();
+#endif
 #if ENABLE(APPLE_PAY_LATER_AVAILABILITY)
     m_applePayLaterAvailability = request.applePayLaterAvailability();
 #endif
+#if ENABLE(APPLE_PAY_MERCHANT_CATEGORY_CODE)
+    m_merchantCategoryCode = request.merchantCategoryCode();
+#endif
 
-    ASSERT(showCount == hideCount);
-    ++showCount;
-    dispatchIfShowing([page = &m_page]() {
+    RefPtr page = m_page.get();
+    if (!page)
+        return false;
+
+    ASSERT(m_showCount == m_hideCount);
+    ++m_showCount;
+    dispatchIfShowing([page = WTFMove(page)]() {
         page->paymentCoordinator().validateMerchant(URL { "https://webkit.org/"_str });
     });
     return true;
@@ -154,7 +171,11 @@ bool MockPaymentCoordinator::showPaymentUI(const URL&, const Vector<URL>&, const
 
 void MockPaymentCoordinator::completeMerchantValidation(const PaymentMerchantSession&)
 {
-    dispatchIfShowing([page = &m_page, shippingAddress = m_shippingAddress]() mutable {
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    dispatchIfShowing([page = WTFMove(page), shippingAddress = m_shippingAddress]() mutable {
         page->paymentCoordinator().didSelectShippingContact(MockPaymentContact { WTFMove(shippingAddress) });
     });
 }
@@ -181,16 +202,16 @@ void MockPaymentCoordinator::completeShippingMethodSelection(std::optional<Apple
 #if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
     m_deferredPaymentRequest = WTFMove(shippingMethodUpdate->newDeferredPaymentRequest);
 #endif
+#if ENABLE(APPLE_PAY_DISBURSEMENTS)
+    m_disbursementRequest = WTFMove(shippingMethodUpdate->newDisbursementRequest);
+#endif
 }
 
-static Vector<MockPaymentError> convert(Vector<RefPtr<ApplePayError>>&& errors)
+static Vector<MockPaymentError> convert(Vector<Ref<ApplePayError>>&& errors)
 {
-    Vector<MockPaymentError> result;
-    for (auto& error : errors) {
-        if (error)
-            result.append({ error->code(), error->message(), error->contactField() });
-    }
-    return result;
+    return WTF::map(WTFMove(errors), [] (auto&& error) -> MockPaymentError {
+        return { error->code(), error->message(), error->contactField() };
+    });
 }
 
 void MockPaymentCoordinator::completeShippingContactSelection(std::optional<ApplePayShippingContactUpdate>&& shippingContactUpdate)
@@ -214,6 +235,10 @@ void MockPaymentCoordinator::completeShippingContactSelection(std::optional<Appl
 #if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
     m_deferredPaymentRequest = WTFMove(shippingContactUpdate->newDeferredPaymentRequest);
 #endif
+#if ENABLE(APPLE_PAY_DISBURSEMENTS)
+    m_disbursementRequest = WTFMove(shippingContactUpdate->newDisbursementRequest);
+#endif
+
 }
 
 void MockPaymentCoordinator::completePaymentMethodSelection(std::optional<ApplePayPaymentMethodUpdate>&& paymentMethodUpdate)
@@ -238,6 +263,9 @@ void MockPaymentCoordinator::completePaymentMethodSelection(std::optional<AppleP
 #endif
 #if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
     m_deferredPaymentRequest = WTFMove(paymentMethodUpdate->newDeferredPaymentRequest);
+#endif
+#if ENABLE(APPLE_PAY_DISBURSEMENTS)
+    m_disbursementRequest = WTFMove(paymentMethodUpdate->newDisbursementRequest);
 #endif
 }
 
@@ -270,7 +298,11 @@ void MockPaymentCoordinator::completeCouponCodeChange(std::optional<ApplePayCoup
 
 void MockPaymentCoordinator::changeShippingOption(String&& shippingOption)
 {
-    dispatchIfShowing([page = &m_page, shippingOption = WTFMove(shippingOption)]() mutable {
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    dispatchIfShowing([page = WTFMove(page), shippingOption = WTFMove(shippingOption)]() mutable {
         ApplePayShippingMethod shippingMethod;
         shippingMethod.identifier = WTFMove(shippingOption);
         page->paymentCoordinator().didSelectShippingMethod(shippingMethod);
@@ -279,7 +311,11 @@ void MockPaymentCoordinator::changeShippingOption(String&& shippingOption)
 
 void MockPaymentCoordinator::changePaymentMethod(ApplePayPaymentMethod&& paymentMethod)
 {
-    dispatchIfShowing([page = &m_page, paymentMethod = WTFMove(paymentMethod)]() mutable {
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    dispatchIfShowing([page = WTFMove(page), paymentMethod = WTFMove(paymentMethod)]() mutable {
         page->paymentCoordinator().didSelectPaymentMethod(MockPaymentMethod { WTFMove(paymentMethod) });
     });
 }
@@ -288,7 +324,11 @@ void MockPaymentCoordinator::changePaymentMethod(ApplePayPaymentMethod&& payment
 
 void MockPaymentCoordinator::changeCouponCode(String&& couponCode)
 {
-    dispatchIfShowing([page = &m_page, couponCode = WTFMove(couponCode)]() mutable {
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    dispatchIfShowing([page = WTFMove(page), couponCode = WTFMove(couponCode)]() mutable {
         page->paymentCoordinator().didChangeCouponCode(WTFMove(couponCode));
     });
 }
@@ -297,7 +337,11 @@ void MockPaymentCoordinator::changeCouponCode(String&& couponCode)
 
 void MockPaymentCoordinator::acceptPayment()
 {
-    dispatchIfShowing([page = &m_page, shippingAddress = m_shippingAddress]() mutable {
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    dispatchIfShowing([page = WTFMove(page), shippingAddress = m_shippingAddress]() mutable {
         ApplePayPayment payment;
         payment.shippingContact = WTFMove(shippingAddress);
         page->paymentCoordinator().didAuthorizePayment(MockPayment { WTFMove(payment) });
@@ -306,10 +350,14 @@ void MockPaymentCoordinator::acceptPayment()
 
 void MockPaymentCoordinator::cancelPayment()
 {
-    dispatchIfShowing([page = &m_page] {
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    dispatchIfShowing([protectedThis = Ref { *this }, page = WTFMove(page)] {
         page->paymentCoordinator().didCancelPaymentSession({ });
-        ++hideCount;
-        ASSERT(showCount == hideCount);
+        ++protectedThis->m_hideCount;
+        ASSERT(protectedThis->m_showCount == protectedThis->m_hideCount);
     });
 }
 
@@ -321,20 +369,20 @@ void MockPaymentCoordinator::completePaymentSession(ApplePayPaymentAuthorization
     if (!isFinalState)
         return;
 
-    ++hideCount;
-    ASSERT(showCount == hideCount);
+    ++m_hideCount;
+    ASSERT(m_showCount == m_hideCount);
 }
 
 void MockPaymentCoordinator::abortPaymentSession()
 {
-    ++hideCount;
-    ASSERT(showCount == hideCount);
+    ++m_hideCount;
+    ASSERT(m_showCount == m_hideCount);
 }
 
 void MockPaymentCoordinator::cancelPaymentSession()
 {
-    ++hideCount;
-    ASSERT(showCount == hideCount);
+    ++m_hideCount;
+    ASSERT(m_showCount == m_hideCount);
 }
 
 void MockPaymentCoordinator::addSetupFeature(ApplePaySetupFeatureState state, ApplePaySetupFeatureType type, bool supportsInstallments)
@@ -349,7 +397,7 @@ void MockPaymentCoordinator::getSetupFeatures(const ApplePaySetupConfiguration& 
     completionHandler(WTFMove(setupFeaturesCopy));
 }
 
-void MockPaymentCoordinator::beginApplePaySetup(const ApplePaySetupConfiguration& configuration, const URL&, Vector<RefPtr<ApplePaySetupFeature>>&&, CompletionHandler<void(bool)>&& completionHandler)
+void MockPaymentCoordinator::beginApplePaySetup(const ApplePaySetupConfiguration& configuration, const URL&, Vector<Ref<ApplePaySetupFeature>>&&, CompletionHandler<void(bool)>&& completionHandler)
 {
     m_setupConfiguration = configuration;
     completionHandler(true);

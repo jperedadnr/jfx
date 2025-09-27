@@ -36,6 +36,9 @@ struct MultiCacheQueryOptions;
 
 class DOMCacheStorage : public RefCounted<DOMCacheStorage>, public ActiveDOMObject {
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<DOMCacheStorage> create(ScriptExecutionContext&, Ref<CacheStorageConnection>&&);
     ~DOMCacheStorage();
 
@@ -52,13 +55,12 @@ private:
 
     // ActiveDOMObject
     void stop() final;
-    const char* activeDOMObjectName() const final;
 
     void doOpen(const String& name, DOMPromiseDeferred<IDLInterface<DOMCache>>&&);
     void doRemove(const String&, DOMPromiseDeferred<IDLBoolean>&&);
     void doSequentialMatch(DOMCache::RequestInfo&&, CacheQueryOptions&&, Ref<DeferredPromise>&&);
     void retrieveCaches(CompletionHandler<void(std::optional<Exception>&&)>&&);
-    Ref<DOMCache> findCacheOrCreate(DOMCacheEngine::CacheInfo&&);
+    Ref<DOMCache> findCacheOrCreate(DOMCacheEngine::CacheInfo&&, ScriptExecutionContext&);
     std::optional<ClientOrigin> origin() const;
 
     Vector<Ref<DOMCache>> m_caches;

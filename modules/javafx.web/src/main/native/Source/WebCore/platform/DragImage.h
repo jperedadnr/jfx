@@ -48,12 +48,10 @@ typedef struct HBITMAP__* HBITMAP;
 #include <wtf/RefPtr.h>
 #endif
 
-// We need to #define YOffset as it needs to be shared with WebKit
-#define DragLabelBorderYOffset 2
-
 namespace WebCore {
 
 class Element;
+class GraphicsClient;
 class Image;
 class IntRect;
 class LocalFrame;
@@ -87,9 +85,10 @@ DragImageRef scaleDragImage(DragImageRef, FloatSize scale);
 DragImageRef platformAdjustDragImageForDeviceScaleFactor(DragImageRef, float deviceScaleFactor);
 DragImageRef dissolveDragImageToFraction(DragImageRef, float delta);
 
-DragImageRef createDragImageFromImage(Image*, ImageOrientation);
+DragImageRef createDragImageFromImage(Image*, ImageOrientation, GraphicsClient* = nullptr, float deviceScaleFactor = 1);
 DragImageRef createDragImageIconForCachedImageFilename(const String&);
 
+// FIXME: These platform helpers should be refactored to avoid using `LocalFrame` and `Node`.
 WEBCORE_EXPORT DragImageRef createDragImageForNode(LocalFrame&, Node&);
 WEBCORE_EXPORT DragImageRef createDragImageForSelection(LocalFrame&, TextIndicatorData&, bool forceBlackText = false);
 WEBCORE_EXPORT DragImageRef createDragImageForRange(LocalFrame&, const SimpleRange&, bool forceBlackText = false);
@@ -108,15 +107,20 @@ public:
     WEBCORE_EXPORT DragImage(DragImage&&);
     WEBCORE_EXPORT ~DragImage();
 
+    DragImage(std::optional<TextIndicatorData>&& indicatorData, std::optional<Path>&& visiblePath)
+        : m_indicatorData(WTFMove(indicatorData))
+        , m_visiblePath(WTFMove(visiblePath))
+    { }
+
     WEBCORE_EXPORT DragImage& operator=(DragImage&&);
 
     void setIndicatorData(const TextIndicatorData& data) { m_indicatorData = data; }
     bool hasIndicatorData() const { return !!m_indicatorData; }
-    std::optional<TextIndicatorData> indicatorData() const { return m_indicatorData; }
+    const std::optional<TextIndicatorData>& indicatorData() const { return m_indicatorData; }
 
     void setVisiblePath(const Path& path) { m_visiblePath = path; }
     bool hasVisiblePath() const { return !!m_visiblePath; }
-    std::optional<Path> visiblePath() const { return m_visiblePath; }
+    const std::optional<Path>& visiblePath() const { return m_visiblePath; }
 
     explicit operator bool() const { return !!m_dragImageRef; }
     DragImageRef get() const { return m_dragImageRef; }

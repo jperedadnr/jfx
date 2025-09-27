@@ -34,6 +34,8 @@
 namespace WebCore {
 
 class StyleFilterImage final : public StyleGeneratedImage, private CachedImageClient {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(StyleFilterImage);
 public:
     static Ref<StyleFilterImage> create(RefPtr<StyleImage> image, FilterOperations filterOperations)
     {
@@ -56,7 +58,7 @@ private:
     Ref<CSSValue> computedStyleValue(const RenderStyle&) const final;
     bool isPending() const final;
     void load(CachedResourceLoader&, const ResourceLoaderOptions&) final;
-    RefPtr<Image> image(const RenderElement*, const FloatSize&) const final;
+    RefPtr<Image> image(const RenderElement*, const FloatSize&, bool isForFirstLine) const final;
     bool knownToBeOpaque(const RenderElement&) const final;
     FloatSize fixedSize(const RenderElement&) const final;
     void didAddClient(RenderElement&) final { }

@@ -27,6 +27,7 @@
 
 #include "ControlStyle.h"
 #include "FloatRect.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
@@ -36,7 +37,7 @@ class FloatRect;
 class FloatRoundedRect;
 
 class PlatformControl {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(PlatformControl);
 
 public:
     PlatformControl(ControlPart& owningPart)
@@ -50,7 +51,7 @@ public:
 
     virtual void updateCellStates(const FloatRect&, const ControlStyle&) { }
 
-    virtual FloatSize sizeForBounds(const FloatRect& bounds) const { return bounds.size(); }
+    virtual FloatSize sizeForBounds(const FloatRect& bounds, const ControlStyle&) const { return bounds.size(); }
 
     virtual FloatRect rectForBounds(const FloatRect& bounds, const ControlStyle&) const { return bounds; }
 

@@ -32,6 +32,7 @@
 
 #include "WebSocketIdentifier.h"
 #include <wtf/Forward.h>
+#include <wtf/Identified.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/ObjectIdentifier.h>
 #include <wtf/URL.h>
@@ -54,7 +55,7 @@ class WebSocketChannelClient;
 
 using WebSocketChannelIdentifier = AtomicObjectIdentifier<WebSocketChannel>;
 
-class ThreadableWebSocketChannel {
+class ThreadableWebSocketChannel : public Identified<WebSocketIdentifier> {
     WTF_MAKE_NONCOPYABLE(ThreadableWebSocketChannel);
 public:
     static RefPtr<ThreadableWebSocketChannel> create(Document&, WebSocketChannelClient&, SocketProvider&);
@@ -64,19 +65,15 @@ public:
     void ref() { refThreadableWebSocketChannel(); }
     void deref() { derefThreadableWebSocketChannel(); }
 
-    WebSocketIdentifier identifier() const { return m_identifier; };
-
     enum class ConnectStatus { KO, OK };
     virtual ConnectStatus connect(const URL&, const String& protocol) = 0;
     virtual String subprotocol() = 0; // Will be available after didConnect() callback is invoked.
     virtual String extensions() = 0; // Will be available after didConnect() callback is invoked.
 
-    enum SendResult { SendSuccess, SendFail };
-    virtual SendResult send(CString&&) = 0;
-    virtual SendResult send(const JSC::ArrayBuffer&, unsigned byteOffset, unsigned byteLength) = 0;
-    virtual SendResult send(Blob&) = 0;
+    virtual void send(CString&&) = 0;
+    virtual void send(const JSC::ArrayBuffer&, unsigned byteOffset, unsigned byteLength) = 0;
+    virtual void send(Blob&) = 0;
 
-    virtual unsigned bufferedAmount() const = 0;
     virtual void close(int code, const String& reason) = 0;
     // Log the reason text and close the connection. Will call didClose().
     virtual void fail(String&& reason) = 0;
@@ -123,8 +120,6 @@ protected:
     };
     WEBCORE_EXPORT static std::optional<ValidatedURL> validateURL(Document&, const URL&);
     WEBCORE_EXPORT static std::optional<ResourceRequest> webSocketConnectRequest(Document&, const URL&);
-
-    WebSocketIdentifier m_identifier;
 };
 
 } // namespace WebCore

@@ -29,6 +29,7 @@
 #include "DefaultAudioDestinationNode.h"
 #include "MediaCanStartListener.h"
 #include "MediaProducer.h"
+#include "MediaUniqueIdentifier.h"
 #include "PlatformMediaSession.h"
 #include <wtf/UniqueRef.h>
 
@@ -48,11 +49,14 @@ class AudioContext final
     , public MediaProducer
     , public MediaCanStartListener
     , private PlatformMediaSessionClient {
-    WTF_MAKE_ISO_ALLOCATED(AudioContext);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(AudioContext);
 public:
     // Create an AudioContext for rendering to the audio hardware.
     static ExceptionOr<Ref<AudioContext>> create(Document&, AudioContextOptions&&);
     ~AudioContext();
+
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
 
     WEBCORE_EXPORT static void setDefaultSampleRateForTesting(std::optional<float>);
 
@@ -62,6 +66,7 @@ public:
     const DefaultAudioDestinationNode& destination() const final { return m_destinationNode.get(); }
 
     double baseLatency();
+    double outputLatency();
 
     AudioTimestamp getOutputTimestamp();
 
@@ -103,6 +108,7 @@ private:
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final;
+    uint64_t logIdentifier() const final { return BaseAudioContext::logIdentifier(); }
 #endif
 
     void constructCommon();
@@ -124,27 +130,32 @@ private:
     PlatformMediaSession::MediaType presentationType() const final { return PlatformMediaSession::MediaType::WebAudio; }
     void mayResumePlayback(bool shouldResume) final;
     void suspendPlayback() final;
-    bool canReceiveRemoteControlCommands() const final { return false; }
-    void didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType, const PlatformMediaSession::RemoteCommandArgument&) final { }
+    bool canReceiveRemoteControlCommands() const final;
+    void didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType, const PlatformMediaSession::RemoteCommandArgument&) final;
     bool supportsSeeking() const final { return false; }
     bool shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSession::InterruptionType) const final;
     bool canProduceAudio() const final { return true; }
     bool isSuspended() const final;
     bool isPlaying() const final;
     bool isAudible() const final;
-    MediaSessionGroupIdentifier mediaSessionGroupIdentifier() const final;
+    std::optional<MediaSessionGroupIdentifier> mediaSessionGroupIdentifier() const final;
+    bool isNowPlayingEligible() const final;
+    std::optional<NowPlayingInfo> nowPlayingInfo() const final;
+    WeakPtr<PlatformMediaSession> selectBestMediaSession(const Vector<WeakPtr<PlatformMediaSession>>&, PlatformMediaSession::PlaybackControlsPurpose) final;
+    void isActiveNowPlayingSessionChanged() final;
+    ProcessID presentingApplicationPID() const final;
 
     // MediaCanStartListener.
     void mediaCanStart(Document&) final;
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
     void suspend(ReasonForSuspension) final;
     void resume() final;
     bool virtualHasPendingActivity() const final;
 
     UniqueRef<DefaultAudioDestinationNode> m_destinationNode;
     std::unique_ptr<PlatformMediaSession> m_mediaSession;
+    MediaUniqueIdentifier m_currentIdentifier;
 
     BehaviorRestrictions m_restrictions { NoRestrictions };
 

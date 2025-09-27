@@ -28,6 +28,8 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/StdLibExtras.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WTF {
 
 // We attempt to guess a value that is *AT LEAST* as large as the system's actual page size.
@@ -75,7 +77,7 @@ public:
     PageBlock(void*, size_t, bool hasGuardPages);
 
     void* base() const { return m_base; }
-    void* end() const { return reinterpret_cast<uint8_t*>(m_base) + size(); }
+    void* end() const { return static_cast<uint8_t*>(m_base) + size(); }
     size_t size() const { return m_size; }
 
     operator bool() const { return !!m_realBase; }
@@ -105,3 +107,5 @@ using WTF::CeilingOnPageSize;
 using WTF::pageSize;
 using WTF::isPageAligned;
 using WTF::isPowerOfTwo;
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

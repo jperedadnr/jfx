@@ -25,13 +25,13 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "SWServer.h"
 #include "ServiceWorkerJobData.h"
 #include "Timer.h"
 #include "WorkerFetchResult.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/Deque.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -39,8 +39,9 @@ class SWServerWorker;
 class ServiceWorkerJob;
 struct WorkerFetchResult;
 
-class SWServerJobQueue {
-    WTF_MAKE_FAST_ALLOCATED;
+class SWServerJobQueue final : public CanMakeCheckedPtr<SWServerJobQueue> {
+    WTF_MAKE_TZONE_ALLOCATED(SWServerJobQueue);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SWServerJobQueue);
 public:
     explicit SWServerJobQueue(SWServer&, const ServiceWorkerRegistrationKey&);
     SWServerJobQueue(const SWServerRegistration&) = delete;
@@ -76,17 +77,17 @@ private:
 
     void install(SWServerRegistration&, ServiceWorkerIdentifier);
 
-    void removeAllJobsMatching(const Function<bool(ServiceWorkerJobData&)>&);
+    void removeAllJobsMatching(NOESCAPE const Function<bool(ServiceWorkerJobData&)>&);
     void scriptAndImportedScriptsFetchFinished(const ServiceWorkerJobData&, SWServerRegistration&);
+
+    Ref<SWServer> protectedServer() const { return m_server.get(); }
 
     Deque<ServiceWorkerJobData> m_jobQueue;
 
     Timer m_jobTimer;
-    SWServer& m_server;
+    WeakRef<SWServer> m_server;
     ServiceWorkerRegistrationKey m_registrationKey;
     WorkerFetchResult m_workerFetchResult;
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,9 @@
 
 #include <atomic>
 #include <cstring>
+#include <functional>
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/StringView.h>
 
@@ -44,6 +46,13 @@ WTF_EXPORT_PRIVATE extern std::atomic<int> wtfStringCopyCount;
 
 namespace WTF {
 
+class StringBuilder;
+
+/// A type is `StringTypeAdaptable` if there is a specialization of `StringTypeAdapter` for that type.
+template<typename StringType> concept StringTypeAdaptable = requires {
+    typename StringTypeAdapter<StringType>;
+};
+
 template<> class StringTypeAdapter<char, void> {
 public:
     StringTypeAdapter(char character)
@@ -53,7 +62,7 @@ public:
 
     unsigned length() const { return 1; }
     bool is8Bit() const { return true; }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const { *destination = m_character; }
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const { destination[0] = m_character; }
 
 private:
     char m_character;
@@ -69,115 +78,125 @@ public:
     unsigned length() const { return 1; }
     bool is8Bit() const { return isLatin1(m_character); }
 
-    void writeTo(LChar* destination) const
+    void writeTo(std::span<LChar> destination) const
     {
         ASSERT(is8Bit());
-        *destination = m_character;
+        destination[0] = m_character;
     }
 
-    void writeTo(UChar* destination) const { *destination = m_character; }
+    void writeTo(std::span<UChar> destination) const { destination[0] = m_character; }
 
 private:
     UChar m_character;
 };
 
+template<> class StringTypeAdapter<char32_t, void> {
+public:
+    StringTypeAdapter(char32_t character)
+        : m_character { character }
+    {
+    }
+
+    unsigned length() const { return U16_LENGTH(m_character); }
+    bool is8Bit() const { return isLatin1(m_character); }
+
+    void writeTo(std::span<LChar> destination) const
+    {
+        ASSERT(is8Bit());
+        destination[0] = m_character;
+    }
+
+    void writeTo(std::span<UChar> destination) const
+    {
+        if (U_IS_BMP(m_character)) {
+            destination[0] = m_character;
+            return;
+        }
+        destination[0] = U16_LEAD(m_character);
+        destination[1] = U16_TRAIL(m_character);
+    }
+
+private:
+    char32_t m_character;
+};
+
 template<> class StringTypeAdapter<const LChar*, void> {
 public:
     StringTypeAdapter(const LChar* characters)
-        : m_characters { characters }
-        , m_length { computeLength(characters) }
+        : m_characters { unsafeSpan(characters) }
     {
+        RELEASE_ASSERT(m_characters.size() <= String::MaxLength);
     }
 
-    unsigned length() const { return m_length; }
+    unsigned length() const { return m_characters.size(); }
     bool is8Bit() const { return true; }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const { StringImpl::copyCharacters(destination, m_characters, m_length); }
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const { StringImpl::copyCharacters(destination, m_characters); }
 
 private:
-    static unsigned computeLength(const LChar* characters)
-    {
-        size_t length = std::strlen(reinterpret_cast<const char*>(characters));
-        RELEASE_ASSERT(length <= String::MaxLength);
-        return static_cast<unsigned>(length);
-    }
-
-    const LChar* m_characters;
-    unsigned m_length;
+    std::span<const LChar> m_characters;
 };
 
 template<> class StringTypeAdapter<const UChar*, void> {
 public:
     StringTypeAdapter(const UChar* characters)
-        : m_characters { characters }
-        , m_length { computeLength(characters) }
+        : m_characters { unsafeSpan(characters) }
     {
+        RELEASE_ASSERT(m_characters.size() <= String::MaxLength);
     }
 
-    unsigned length() const { return m_length; }
-    bool is8Bit() const { return !m_length; }
-    void writeTo(LChar*) const { ASSERT(!m_length); }
-    void writeTo(UChar* destination) const { StringImpl::copyCharacters(destination, m_characters, m_length); }
+    unsigned length() const { return m_characters.size(); }
+    bool is8Bit() const { return m_characters.empty(); }
+    void writeTo(std::span<LChar>) const { ASSERT(m_characters.empty()); }
+    void writeTo(std::span<UChar> destination) const { StringImpl::copyCharacters(destination, m_characters); }
 
 private:
-    static unsigned computeLength(const UChar* characters)
-    {
-        size_t length = 0;
-        while (characters[length])
-            ++length;
-        RELEASE_ASSERT(length <= String::MaxLength);
-        return static_cast<unsigned>(length);
-    }
-
-    const UChar* m_characters;
-    unsigned m_length;
+    std::span<const UChar> m_characters;
 };
 
-template<> class StringTypeAdapter<const char*, void> : public StringTypeAdapter<const LChar*, void> {
+template<typename CharacterType, size_t Extent> class StringTypeAdapter<std::span<CharacterType, Extent>, void> {
 public:
-    StringTypeAdapter(const char* characters)
-        : StringTypeAdapter<const LChar*, void> { reinterpret_cast<const LChar*>(characters) }
+    StringTypeAdapter(std::span<CharacterType, Extent> span)
+        : m_characters { span }
     {
+        RELEASE_ASSERT(m_characters.size() <= String::MaxLength);
     }
+
+    unsigned length() const { return m_characters.size(); }
+    static constexpr bool is8Bit() { return sizeof(CharacterType) == 1; }
+
+    template<typename DestinationCharacterType> void writeTo(std::span<DestinationCharacterType> destination) const
+    {
+        using CharacterTypeForString = std::conditional_t<sizeof(CharacterType) == sizeof(LChar), LChar, UChar>;
+        static_assert(sizeof(CharacterTypeForString) == sizeof(CharacterType));
+        StringImpl::copyCharacters(destination, spanReinterpretCast<const CharacterTypeForString>(m_characters));
+    }
+
+private:
+    std::span<const CharacterType> m_characters;
 };
 
-template<> class StringTypeAdapter<char*, void> : public StringTypeAdapter<const char*, void> {
+template<> class StringTypeAdapter<CString, void> : public StringTypeAdapter<std::span<const char>, void> {
 public:
-    StringTypeAdapter(const char* characters)
-        : StringTypeAdapter<const char*, void> { characters }
+    StringTypeAdapter(const CString& string)
+        : StringTypeAdapter<std::span<const char>, void> { spanReinterpretCast<const char>(string.span()) }
     {
     }
 };
 
-template<> class StringTypeAdapter<ASCIILiteral, void> : public StringTypeAdapter<const char*, void> {
+template<> class StringTypeAdapter<ASCIILiteral, void> : public StringTypeAdapter<std::span<const LChar>, void> {
 public:
     StringTypeAdapter(ASCIILiteral characters)
-        : StringTypeAdapter<const char*, void> { characters }
+        : StringTypeAdapter<std::span<const LChar>, void> { characters.span8() }
     {
     }
 };
 
-template<typename CharType, size_t N>
-class StringTypeAdapter<Vector<CharType, N>, void> {
+template<typename CharacterType, size_t InlineCapacity> class StringTypeAdapter<Vector<CharacterType, InlineCapacity>, void> : public StringTypeAdapter<std::span<const CharacterType>> {
 public:
-    using CharTypeForString = std::conditional_t<sizeof(CharType) == sizeof(LChar), LChar, UChar>;
-    static_assert(sizeof(CharTypeForString) == sizeof(CharType));
-
-    StringTypeAdapter(const Vector<CharType, N>& vector)
-        : m_vector { vector }
+    StringTypeAdapter(const Vector<CharacterType, InlineCapacity>& vector)
+        : StringTypeAdapter<std::span<const CharacterType>> { vector.span() }
     {
     }
-
-    size_t length() const { return m_vector.size(); }
-    bool is8Bit() const { return sizeof(CharType) == 1; }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const { StringImpl::copyCharacters(destination, characters(), length()); }
-
-private:
-    const CharTypeForString* characters() const
-    {
-        return reinterpret_cast<const CharTypeForString*>(m_vector.data());
-    }
-
-    const Vector<CharType, N>& m_vector;
 };
 
 template<> class StringTypeAdapter<StringImpl*, void> {
@@ -189,14 +208,14 @@ public:
 
     unsigned length() const { return m_string ? m_string->length() : 0; }
     bool is8Bit() const { return !m_string || m_string->is8Bit(); }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const
     {
         StringView { m_string }.getCharacters(destination);
         WTF_STRINGTYPEADAPTER_COPIED_WTF_STRING();
     }
 
 private:
-    StringImpl* const m_string;
+    SUPPRESS_UNCOUNTED_MEMBER StringImpl* const m_string;
 };
 
 template<> class StringTypeAdapter<AtomStringImpl*, void> : public StringTypeAdapter<StringImpl*, void> {
@@ -232,20 +251,48 @@ public:
 
     unsigned length() const { return m_string.length(); }
     bool is8Bit() const { return m_string.is8Bit(); }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const
     {
         StringView { m_string }.getCharacters(destination);
         WTF_STRINGTYPEADAPTER_COPIED_WTF_STRING();
     }
 
 private:
-    StringImpl& m_string;
+    SUPPRESS_UNCOUNTED_MEMBER StringImpl& m_string;
 };
 
 template<> class StringTypeAdapter<AtomStringImpl&, void> : public StringTypeAdapter<StringImpl&, void> {
 public:
     StringTypeAdapter(StringImpl& string)
         : StringTypeAdapter<StringImpl&, void> { string }
+    {
+    }
+};
+
+template<> class StringTypeAdapter<Unicode::CheckedUTF8, void> {
+public:
+    StringTypeAdapter(Unicode::CheckedUTF8 characters)
+        : m_characters { characters }
+    {
+        if (m_characters.lengthUTF16 > String::MaxLength)
+            m_characters.lengthUTF16 = 0;
+    }
+
+    unsigned length() const { return m_characters.lengthUTF16; }
+    bool is8Bit() const { return m_characters.isAllASCII; }
+    void writeTo(std::span<LChar> destination) const { memcpySpan(destination, unsafeMakeSpan(m_characters.characters.data(), m_characters.lengthUTF16)); }
+#ifndef __swift__ // FIXME: This fails to compile because of rdar://136156228
+    void writeTo(std::span<UChar> destination) const { Unicode::convert(m_characters.characters, destination.first(m_characters.lengthUTF16)); }
+#endif
+
+private:
+    Unicode::CheckedUTF8 m_characters;
+};
+
+template<size_t Extent> class StringTypeAdapter<std::span<const char8_t, Extent>, void> : public StringTypeAdapter<Unicode::CheckedUTF8, void> {
+public:
+    StringTypeAdapter(std::span<const char8_t, Extent> span)
+        : StringTypeAdapter<Unicode::CheckedUTF8, void> { Unicode::checkUTF8(span) }
     {
     }
 };
@@ -261,12 +308,12 @@ public:
 
     unsigned length() const { return m_length; }
     bool is8Bit() const { return m_is8Bit; }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const
     {
         std::apply([&](const StringTypes&... strings) {
             unsigned offset = 0;
             (..., (
-                StringTypeAdapter<StringTypes>(strings).writeTo(destination + offset),
+                StringTypeAdapter<StringTypes>(strings).writeTo(destination.subspan(offset)),
                 offset += StringTypeAdapter<StringTypes>(strings).length()
             ));
         }, m_tuple);
@@ -295,7 +342,7 @@ template<typename UnderlyingElementType> struct PaddingSpecification {
 
 template<typename UnderlyingElementType> PaddingSpecification<UnderlyingElementType> pad(char character, unsigned length, UnderlyingElementType element)
 {
-    return { static_cast<LChar>(character), length, element };
+    return { byteCast<LChar>(character), length, element };
 }
 
 template<typename UnderlyingElementType> class StringTypeAdapter<PaddingSpecification<UnderlyingElementType>> {
@@ -308,7 +355,7 @@ public:
 
     unsigned length() const { return std::max(m_padding.length, m_underlyingAdapter.length()); }
     bool is8Bit() const { return m_underlyingAdapter.is8Bit(); }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const
     {
         unsigned underlyingLength = m_underlyingAdapter.length();
         unsigned count = 0;
@@ -317,7 +364,7 @@ public:
             for (unsigned i = 0; i < count; ++i)
                 destination[i] = m_padding.character;
         }
-        m_underlyingAdapter.writeTo(destination + count);
+        m_underlyingAdapter.writeTo(destination.subspan(count));
     }
 
 private:
@@ -325,8 +372,7 @@ private:
     StringTypeAdapter<UnderlyingElementType> m_underlyingAdapter;
 };
 
-template<unsigned N>
-struct Indentation {
+template<unsigned N> struct Indentation {
     unsigned operator++() { return ++value; }
     unsigned operator++(int) { return value++; }
     unsigned operator--() { return --value; }
@@ -334,7 +380,6 @@ struct Indentation {
 
     unsigned value { 0 };
 };
-
 
 template<unsigned N>
 struct IndentationScope {
@@ -368,9 +413,9 @@ public:
         return true;
     }
 
-    template<typename CharacterType> void writeTo(CharacterType* destination) const
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const
     {
-        std::fill_n(destination, m_indentation.value * N, ' ');
+        std::fill_n(destination.data(), m_indentation.value * N, ' ');
     }
 
 private:
@@ -401,7 +446,7 @@ public:
 
     unsigned length() const { return m_converter.string.length(); }
     bool is8Bit() const { return m_converter.string.is8Bit(); }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const
     {
         m_converter.string.getCharactersWithASCIICase(m_converter.type, destination);
     }
@@ -410,148 +455,196 @@ private:
     const ASCIICaseConverter& m_converter;
 };
 
-template<typename Adapter>
-inline bool are8Bit(Adapter adapter)
-{
-    return adapter.is8Bit();
-}
-
-template<typename Adapter, typename... Adapters>
-inline bool are8Bit(Adapter adapter, Adapters ...adapters)
-{
-    return adapter.is8Bit() && are8Bit(adapters...);
-}
-
-template<typename ResultType, typename Adapter>
-inline void stringTypeAdapterAccumulator(ResultType* result, Adapter adapter)
-{
-    adapter.writeTo(result);
-}
-
-template<typename ResultType, typename Adapter, typename... Adapters>
-inline void stringTypeAdapterAccumulator(ResultType* result, Adapter adapter, Adapters ...adapters)
-{
-    adapter.writeTo(result);
-    stringTypeAdapterAccumulator(result + adapter.length(), adapters...);
-}
-
-template<typename StringTypeAdapter, typename... StringTypeAdapters>
-RefPtr<StringImpl> tryMakeStringImplFromAdaptersInternal(unsigned length, bool areAllAdapters8Bit, StringTypeAdapter adapter, StringTypeAdapters ...adapters)
-{
-    ASSERT(length <= String::MaxLength);
-    if (areAllAdapters8Bit) {
-        LChar* buffer;
-        RefPtr<StringImpl> resultImpl = StringImpl::tryCreateUninitialized(length, buffer);
-        if (!resultImpl)
-            return nullptr;
-
-        if (buffer)
-            stringTypeAdapterAccumulator(buffer, adapter, adapters...);
-
-        return resultImpl;
+template<typename C, typename E, typename B> class Interleave {
+public:
+    Interleave(const C& container, E each, const B& between)
+        : container { container }
+        , each { WTFMove(each) }
+        , between { between }
+    {
     }
 
-    UChar* buffer;
-    RefPtr<StringImpl> resultImpl = StringImpl::tryCreateUninitialized(length, buffer);
-    if (!resultImpl)
-        return nullptr;
+    Interleave(const Interleave&) = delete;
+    Interleave& operator=(const Interleave&) = delete;
 
-    if (buffer)
-        stringTypeAdapterAccumulator(buffer, adapter, adapters...);
+    Interleave(Interleave&&) = default;
+    Interleave& operator=(Interleave&&) = default;
 
-    return resultImpl;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    template<typename Accumulator> void writeUsing(Accumulator& accumulator) const
+    {
+        auto begin = std::begin(container);
+        auto end = std::end(container);
+        if (begin == end)
+            return;
+
+        constexpr bool eachTakesAccumulator = requires {
+            { std::invoke(each, accumulator, *begin) } -> std::same_as<void>;
+        };
+
+        if constexpr (eachTakesAccumulator) {
+            std::invoke(each, accumulator, *begin);
+
+            ++begin;
+            for (; begin != end; ++begin) {
+                accumulator.append(between);
+                std::invoke(each, accumulator, *begin);
+    }
+        } else {
+            accumulator.append(std::invoke(each, *begin));
+
+            ++begin;
+            for (; begin != end; ++begin)
+                accumulator.append(between, std::invoke(each, *begin));
+        }
+    }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
+private:
+    const C& container;
+    E each;
+    const B& between;
+};
+
+// The `interleave` function can be called in three different ways:
+//
+//  1. The most generic way provides an `each` functor taking two arguments,
+//     the `accumulator` and the `value`, and returns `void`.
+//
+//       Vector<Foo> container = { ... };
+//
+//       ... interleave(
+//              container,
+//              [](auto& accumulator, auto& value) {
+//                  accumulator.append(value.stringRepresentation(), '-', value.otherStringRepresentation());
+//              },
+//              ", "_s
+//           ), ...
+//
+//     This allows for containers of non-string values to provide complex mapped
+//     values without additional allocations.
+//
+//  2. If multiple mapped strings per-value are not required, an `each` functor
+//     taking just the `value` and returning a "string-type" (i.e. something you
+//     could pass to `StringBuilder::append(...)`).
+//
+//       Vector<Foo> container = { ... };
+//
+//       ... interleave(
+//              container,
+//              [](auto& value) {
+//                  return value.stringRepresentation();
+//              },
+//              ", "_s
+//           ), ...
+//
+//  3. Finally, if the container already contains "string-types", no `each` functor
+//     is required at all.
+//
+//       Vector<String> container = { ... };
+//
+//       ... interleave(
+//              container,
+//              ", "_s
+//           ), ...
+//
+
+template<typename C, typename E> concept EachTakingValue = requires(C&& container, E&& each) {
+    { each(*std::begin(container)) } -> StringTypeAdaptable;
+};
+
+template<typename C, typename E> concept EachTakingAccumulatorAndValue = requires(C&& container, E&& each) {
+    { each(std::declval<StringBuilder&>(), *std::begin(container)) } -> std::same_as<void>;
+};
+
+template<typename C> using EachTakingAccumulatorAndValueFunction = void(&)(StringBuilder&, const std::remove_reference_t<decltype(*std::begin(std::declval<C>()))>&);
+
+template<typename C, std::invocable<decltype(*std::begin(std::declval<C>()))> E, StringTypeAdaptable B>
+    requires EachTakingValue<C, E>
+decltype(auto) interleave(const C& container, E each, const B& between)
+{
+    return Interleave {
+        container,
+        WTFMove(each),
+        between
+    };
 }
 
-template<typename Func, typename... StringTypes>
+template<typename C, std::invocable<decltype(std::declval<StringBuilder&>()), decltype(*std::begin(std::declval<C>()))> E, StringTypeAdaptable B>
+    requires EachTakingAccumulatorAndValue<C, E>
+decltype(auto) interleave(const C& container, E each, const B& between)
+{
+    return Interleave {
+        container,
+        WTFMove(each),
+        between
+    };
+}
+
+template<typename C, StringTypeAdaptable B> decltype(auto) interleave(const C& container, EachTakingAccumulatorAndValueFunction<C> each, B&& between)
+{
+    return Interleave {
+        container,
+        each,
+        between
+    };
+}
+
+template<typename C, StringTypeAdaptable B> decltype(auto) interleave(const C& container, const B& between)
+{
+    return interleave(
+        container,
+        []<typename A, typename V>(A& accumulator, const V& value) { accumulator.append(value); },
+        between
+    );
+}
+
+template<typename C, typename E, typename B> class StringTypeAdapter<Interleave<C, E, B>, void> {
+public:
+    StringTypeAdapter(const Interleave<C, E, B>& interleave)
+        : m_interleave { interleave }
+    {
+        }
+
+    template<typename Accumulator>
+    void writeUsing(Accumulator& accumulator) const
+    {
+        m_interleave.writeUsing(accumulator);
+    }
+
+private:
+    const Interleave<C, E, B>& m_interleave;
+};
+
+template<typename... StringTypeAdapters> inline bool are8Bit(StringTypeAdapters&& ...adapters)
+{
+    return (... && adapters.is8Bit());
+}
+
+template<typename ResultType, typename StringTypeAdapters>
+inline void stringTypeAdapterAccumulator(std::span<ResultType> result, StringTypeAdapters adapter)
+{
+    adapter.writeTo(result);
+}
+
+template<typename ResultType, typename StringTypeAdapter, typename... StringTypeAdapters>
+inline void stringTypeAdapterAccumulator(std::span<ResultType> result, StringTypeAdapter adapter, StringTypeAdapters ...adapters)
+{
+    adapter.writeTo(result);
+    stringTypeAdapterAccumulator(result.subspan(adapter.length()), adapters...);
+}
+
+template<typename Func, StringTypeAdaptable... StringTypes>
 auto handleWithAdapters(Func&& func, StringTypes&& ...strings) -> decltype(auto)
 {
     return func(StringTypeAdapter<StringTypes>(std::forward<StringTypes>(strings))...);
-}
-
-template<typename StringTypeAdapter, typename... StringTypeAdapters>
-String tryMakeStringFromAdapters(StringTypeAdapter adapter, StringTypeAdapters ...adapters)
-{
-    static_assert(String::MaxLength == std::numeric_limits<int32_t>::max());
-    auto sum = checkedSum<int32_t>(adapter.length(), adapters.length()...);
-    if (sum.hasOverflowed())
-        return String();
-
-    bool areAllAdapters8Bit = are8Bit(adapter, adapters...);
-    return tryMakeStringImplFromAdaptersInternal(sum, areAllAdapters8Bit, adapter, adapters...);
-}
-
-template<typename... StringTypes>
-String tryMakeString(StringTypes ...strings)
-{
-    return tryMakeStringFromAdapters(StringTypeAdapter<StringTypes>(strings)...);
-}
-
-template<typename... StringTypes>
-String makeString(StringTypes... strings)
-{
-    String result = tryMakeString(strings...);
-    if (!result)
-        CRASH();
-    return result;
-}
-
-template<typename StringTypeAdapter, typename... StringTypeAdapters>
-AtomString tryMakeAtomStringFromAdapters(StringTypeAdapter adapter, StringTypeAdapters ...adapters)
-{
-    static_assert(String::MaxLength == std::numeric_limits<int32_t>::max());
-    auto sum = checkedSum<int32_t>(adapter.length(), adapters.length()...);
-    if (sum.hasOverflowed())
-        return AtomString();
-
-    unsigned length = sum;
-    ASSERT(length <= String::MaxLength);
-
-    bool areAllAdapters8Bit = are8Bit(adapter, adapters...);
-    constexpr size_t maxLengthToUseStackVariable = 64;
-    if (length < maxLengthToUseStackVariable) {
-        if (areAllAdapters8Bit) {
-            LChar buffer[maxLengthToUseStackVariable];
-            stringTypeAdapterAccumulator(buffer, adapter, adapters...);
-            return AtomString { buffer, length };
-        }
-        UChar buffer[maxLengthToUseStackVariable];
-        stringTypeAdapterAccumulator(buffer, adapter, adapters...);
-        return AtomString { buffer, length };
-    }
-    return tryMakeStringImplFromAdaptersInternal(length, areAllAdapters8Bit, adapter, adapters...).get();
-}
-
-template<typename... StringTypes>
-AtomString tryMakeAtomString(StringTypes ...strings)
-{
-    return tryMakeAtomStringFromAdapters(StringTypeAdapter<StringTypes>(strings)...);
-}
-
-template<typename... StringTypes>
-AtomString makeAtomString(StringTypes... strings)
-{
-    AtomString result = tryMakeAtomString(strings...);
-    if (result.isNull())
-        CRASH();
-    return result;
-}
-
-inline String WARN_UNUSED_RETURN makeStringByInserting(StringView originalString, StringView stringToInsert, unsigned position)
-{
-    return makeString(originalString.left(position), stringToInsert, originalString.substring(position));
 }
 
 } // namespace WTF
 
 using WTF::Indentation;
 using WTF::IndentationScope;
-using WTF::makeAtomString;
-using WTF::makeString;
-using WTF::makeStringByInserting;
-using WTF::pad;
 using WTF::asASCIILowercase;
 using WTF::asASCIIUppercase;
-using WTF::tryMakeString;
-using WTF::tryMakeAtomString;
-
-#include <wtf/text/StringOperators.h>
+using WTF::interleave;
+using WTF::pad;

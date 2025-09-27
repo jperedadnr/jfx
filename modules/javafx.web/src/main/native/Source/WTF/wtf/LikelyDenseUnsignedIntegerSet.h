@@ -48,7 +48,7 @@ class LikelyDenseUnsignedIntegerSet {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(LikelyDenseUnsignedIntegerSet);
     static_assert(std::is_unsigned<IndexType>::value);
-    using Set = HashSet<IndexType, WTF::IntHash<IndexType>, WTF::UnsignedWithZeroKeyHashTraits<IndexType> >;
+    using Set = UncheckedKeyHashSet<IndexType, WTF::IntHash<IndexType>, WTF::UnsignedWithZeroKeyHashTraits<IndexType> >;
 public:
     LikelyDenseUnsignedIntegerSet()
         : m_size(0)
@@ -210,10 +210,7 @@ public:
                 [](const typename Set::iterator& it) -> IndexType { return *it; });
         }
 
-        bool operator==(const iterator& other) const
-        {
-            return m_underlying == other.m_underlying && m_shift == other.m_shift;
-        }
+        friend bool operator==(const iterator&, const iterator&) = default;
 
     private:
         std::variant<BitVector::iterator, typename Set::iterator> m_underlying;

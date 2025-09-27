@@ -1,6 +1,6 @@
 /*
  * (C) 1999-2003 Lars Knoll (knoll@kde.org)
- * Copyright (C) 2004-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,6 +23,7 @@
 
 #include "CSSMarkup.h"
 #include "CSSPrimitiveValue.h"
+#include "CSSSerializationContext.h"
 #include "CSSValueKeywords.h"
 #include "CachedImage.h"
 #include "CachedResourceLoader.h"
@@ -37,13 +38,13 @@
 namespace WebCore {
 
 CSSImageValue::CSSImageValue()
-    : CSSValue(ImageClass)
+    : CSSValue(ClassType::Image)
     , m_isInvalid(true)
 {
 }
 
 CSSImageValue::CSSImageValue(ResolvedURL&& location, LoadedFromOpaqueSource loadedFromOpaqueSource, AtomString&& initiatorType)
-    : CSSValue(ImageClass)
+    : CSSValue(ClassType::Image)
     , m_location(WTFMove(location))
     , m_initiatorType(WTFMove(initiatorType))
     , m_loadedFromOpaqueSource(loadedFromOpaqueSource)
@@ -85,7 +86,7 @@ URL CSSImageValue::reresolvedURL(const Document& document) const
     return document.completeURL(m_location.resolvedURL.string());
 }
 
-RefPtr<StyleImage> CSSImageValue::createStyleImage(Style::BuilderState& state) const
+RefPtr<StyleImage> CSSImageValue::createStyleImage(const Style::BuilderState& state) const
 {
     auto location = makeResolvedURL(reresolvedURL(state.document()));
     if (m_location == location)
@@ -118,9 +119,14 @@ CachedImage* CSSImageValue::loadImage(CachedResourceLoader& loader, const Resour
     return m_cachedImage.value().get();
 }
 
-bool CSSImageValue::customTraverseSubresources(const Function<bool(const CachedResource&)>& handler) const
+bool CSSImageValue::customTraverseSubresources(NOESCAPE const Function<bool(const CachedResource&)>& handler) const
 {
     return m_cachedImage && *m_cachedImage && handler(**m_cachedImage);
+}
+
+bool CSSImageValue::customMayDependOnBaseURL() const
+{
+    return WebCore::mayDependOnBaseURL(m_location);
 }
 
 bool CSSImageValue::equals(const CSSImageValue& other) const
@@ -128,10 +134,17 @@ bool CSSImageValue::equals(const CSSImageValue& other) const
     return m_location == other.m_location;
 }
 
-String CSSImageValue::customCSSText() const
+String CSSImageValue::customCSSText(const CSS::SerializationContext& context) const
 {
     if (m_isInvalid)
         return ""_s;
+
+    if (auto replacementURLString = context.replacementURLStrings.get(m_location.resolvedURL.string()); !replacementURLString.isEmpty())
+        return serializeURL(replacementURLString);
+
+    if (context.shouldUseResolvedURLInCSSText)
+        return serializeURL(m_location.resolvedURL.string());
+
     return serializeURL(m_location.specifiedURLString);
 }
 

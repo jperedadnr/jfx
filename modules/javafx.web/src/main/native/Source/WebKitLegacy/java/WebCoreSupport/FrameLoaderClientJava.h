@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,12 +38,13 @@
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/Widget.h>
+#include <wtf/RefCounted.h>
 
 namespace WebCore {
 
 class FrameLoaderClientJava : public LocalFrameLoaderClient {
 public:
-    FrameLoaderClientJava(const JLObject &webPage);
+    FrameLoaderClientJava(FrameLoader& loader, const JLObject &webPage);
     ~FrameLoaderClientJava();
 
     void init();
@@ -60,13 +61,13 @@ public:
     void detachedFromParent2() override;
     void detachedFromParent3() override;
 
-    void assignIdentifierToInitialRequest(ResourceLoaderIdentifier, DocumentLoader*, const ResourceRequest&) override;
+    void assignIdentifierToInitialRequest(ResourceLoaderIdentifier, WebCore::IsMainResourceLoad, DocumentLoader*, const ResourceRequest&) override;
 
     void dispatchWillSendRequest(DocumentLoader*, ResourceLoaderIdentifier, ResourceRequest&, const ResourceResponse& redirectResponse) override;
     void dispatchDidReceiveResponse(DocumentLoader*, ResourceLoaderIdentifier, const ResourceResponse&) override;
     void dispatchDidReceiveContentLength(DocumentLoader*, ResourceLoaderIdentifier, int lengthReceived) override;
-    void dispatchDidFinishLoading(DocumentLoader*, ResourceLoaderIdentifier) override;
-    void dispatchDidFailLoading(DocumentLoader*, ResourceLoaderIdentifier, const ResourceError&) override;
+    void dispatchDidFinishLoading(DocumentLoader*, WebCore::IsMainResourceLoad, ResourceLoaderIdentifier) override;
+    void dispatchDidFailLoading(DocumentLoader*, WebCore::IsMainResourceLoad, ResourceLoaderIdentifier, const ResourceError&) override;
     bool dispatchDidLoadResourceFromMemoryCache(DocumentLoader*, const ResourceRequest&, const ResourceResponse&, int length) override;
 
     void dispatchDidDispatchOnloadEvents() override;
@@ -92,9 +93,9 @@ public:
     LocalFrame* dispatchCreatePage(const NavigationAction&, NewFrameOpenerPolicy) override;
     void dispatchShow() override;
 
-    void dispatchDecidePolicyForResponse(const ResourceResponse&, const ResourceRequest&, PolicyCheckIdentifier, const String& downloadAttribute, FramePolicyFunction&&) override;
-    void dispatchDecidePolicyForNewWindowAction(const NavigationAction&, const ResourceRequest&, FormState*, const String& frameName, PolicyCheckIdentifier, FramePolicyFunction&&) override;
-    void dispatchDecidePolicyForNavigationAction(const NavigationAction&, const ResourceRequest&, const ResourceResponse& redirectResponse, FormState*, PolicyDecisionMode, PolicyCheckIdentifier, FramePolicyFunction&&) override;
+    void dispatchDecidePolicyForResponse(const ResourceResponse&, const ResourceRequest&, const String& downloadAttribute, FramePolicyFunction&&) override;
+    void dispatchDecidePolicyForNewWindowAction(const NavigationAction&, const ResourceRequest&, FormState*, const String& frameName, std::optional<HitTestResult>&&, FramePolicyFunction&&) override;
+    virtual void dispatchDecidePolicyForNavigationAction(const NavigationAction&, const ResourceRequest&, const ResourceResponse& redirectResponse, FormState*, const String& clientRedirectSourceForHistory, std::optional<NavigationIdentifier>, std::optional<HitTestResult>&&, bool hasOpener, WebCore::IsPerformingHTTPFallback, SandboxFlags, PolicyDecisionMode, FramePolicyFunction&&) override;
     void cancelPolicyCheck() override;
 
     void dispatchUnableToImplementPolicy(const ResourceError&) override;
@@ -109,13 +110,13 @@ public:
 
     RefPtr<LocalFrame> createFrame(const AtomString& name, HTMLFrameOwnerElement& ownerElement) override;
     ObjectContentType objectContentType(const URL& url, const String& mimeTypeIn) override;
-    RefPtr<Widget> createPlugin(const IntSize&, HTMLPlugInElement& element, const URL& url, const Vector<AtomString>& paramNames, const Vector<AtomString>& paramValues, const String& mimeType, bool loadManually) override;
+    RefPtr<Widget> createPlugin(HTMLPlugInElement& element, const URL& url, const Vector<AtomString>& paramNames, const Vector<AtomString>& paramValues, const String& mimeType, bool loadManually) override;
     void redirectDataToPlugin(Widget&) override;
     AtomString overrideMediaType() const override;
 
     void setMainFrameDocumentReady(bool) override;
 
-    void startDownload(const ResourceRequest&, const String& suggestedName = String()) override;
+    void startDownload(const ResourceRequest&, const String& suggestedName = String(), FromDownloadAttribute = FromDownloadAttribute::No) override;
 
     void willChangeTitle(DocumentLoader*) override;
     void didChangeTitle(DocumentLoader*) override;
@@ -125,30 +126,23 @@ public:
 
     void updateGlobalHistory() override;
     void updateGlobalHistoryRedirectLinks() override;
+    void updateSandboxFlags(SandboxFlags) override;
+    void updateOpener(const Frame&) override;
 
-    bool shouldGoToHistoryItem(HistoryItem&) const override;
+    WebCore::ShouldGoToHistoryItem shouldGoToHistoryItem(HistoryItem&, WebCore::IsSameDocumentNavigation) const override;
+    void shouldGoToHistoryItemAsync(HistoryItem&, CompletionHandler<void(ShouldGoToHistoryItem)>&&) const override;
 
     // This frame has displayed inactive content (such as an image) from an
     // insecure source.  Inactive content cannot spread to other frames.
     void didDisplayInsecureContent() override;
-
+    bool supportsAsyncShouldGoToHistoryItem() const override;
     // The indicated security origin has run active content (such as a
     // script) from an insecure source.  Note that the insecure content can
     // spread to other frames in the same origin.
-    void didRunInsecureContent(SecurityOrigin&, const URL&) override;
-
-    ResourceError cancelledError(const ResourceRequest&) const override;
-    ResourceError blockedByContentBlockerError(const ResourceRequest& request) const override;
-    ResourceError blockedError(const ResourceRequest&) const override;
-    ResourceError cannotShowURLError(const ResourceRequest&) const override;
-    ResourceError interruptedForPolicyChangeError(const ResourceRequest&) const override;
-
-    ResourceError cannotShowMIMETypeError(const ResourceResponse&) const override;
-    ResourceError fileDoesNotExistError(const ResourceResponse&) const override;
-        ResourceError httpsUpgradeRedirectLoopError(const ResourceRequest&) const override;
-    ResourceError pluginWillHandleLoadError(const ResourceResponse&) const override;
+    void didRunInsecureContent(SecurityOrigin&) override;
 
     bool shouldFallBack(const ResourceError&) const override;
+    void loadStorageAccessQuirksIfNeeded() override;
 
     bool shouldUseCredentialStorage(DocumentLoader*, ResourceLoaderIdentifier) override;
     void dispatchDidReceiveAuthenticationChallenge(DocumentLoader*, ResourceLoaderIdentifier, const AuthenticationChallenge&) override;
@@ -177,7 +171,7 @@ public:
 
     void savePlatformDataToCachedFrame(CachedFrame*) override;
     void transitionToCommittedFromCachedFrame(CachedFrame*) override;
-    void transitionToCommittedForNewPage() override;
+    void transitionToCommittedForNewPage(InitializingIframe initializingIframe) override;
 
     void didRestoreFromBackForwardCache() override;
     bool canCachePage() const override;
@@ -192,12 +186,15 @@ public:
     bool isJavaFrameLoaderClient() override { return true; }
     void prefetchDNS(const String&) override;
     void sendH2Ping(const URL&, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&&) override;
-    void broadcastFrameRemovalToOtherProcesses() override;
+    void broadcastFrameRemovalToOtherProcesses();
+    void dispatchLoadEventToOwnerElementInAnotherProcess() override;
+    RefPtr<HistoryItem> createHistoryItemTree(bool clipAtTarget, BackForwardItemIdentifier) const override;
 private:
     Page* m_page;
     Frame* m_frame;
     ResourceResponse m_response;
     ResourceLoaderIdentifier m_mainResourceRequestID;
+    bool m_mainResourceRequestIDSet { false };
     bool m_isPageRedirected;
     bool m_hasRepresentation;
 

@@ -1,7 +1,7 @@
 /**
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003-2006, 2010, 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Andrew Wellington (proton@wiretapped.net)
  *
  * This library is free software; you can redistribute it and/or
@@ -30,10 +30,12 @@
 #include "RenderListMarker.h"
 #include "RenderMenuList.h"
 #include "RenderMultiColumnFlow.h"
-#include "RenderRuby.h"
 #include "RenderTable.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderTreeBuilder::List);
 
 // FIXME: This shouldn't need LegacyInlineIterator
 static bool generatesLineBoxesForInlineChild(RenderBlock& current, RenderObject* inlineObj)
@@ -57,10 +59,10 @@ static RenderBlock* getParentOfFirstLineBox(RenderBlock& current, RenderObject& 
         if (child.isFloating() || child.isOutOfFlowPositioned() || is<RenderMenuList>(child))
             continue;
 
-        if (!is<RenderBlock>(child) || is<RenderTable>(child) || is<RenderRubyAsBlock>(child))
+        if (!is<RenderBlock>(child) || is<RenderTable>(child))
             break;
 
-        if (is<RenderBox>(child) && downcast<RenderBox>(child).isWritingModeRoot())
+        if (auto* renderBox = dynamicDowncast<RenderBox>(child); renderBox && renderBox->isWritingModeRoot())
             break;
 
         if (is<RenderListItem>(current) && inQuirksMode && child.node() && isHTMLListElement(*child.node()))
@@ -127,7 +129,7 @@ void RenderTreeBuilder::List::updateItemMarker(RenderListItem& listItemRenderer)
         return;
 
     if (currentParent)
-        m_builder.attach(*newParent, m_builder.detach(*currentParent, *markerRenderer, RenderTreeBuilder::CanCollapseAnonymousBlock::No), firstNonMarkerChild(*newParent));
+        m_builder.attach(*newParent, m_builder.detach(*currentParent, *markerRenderer, WillBeDestroyed::No, RenderTreeBuilder::CanCollapseAnonymousBlock::No), firstNonMarkerChild(*newParent));
     else
         m_builder.attach(*newParent, WTFMove(newMarkerRenderer), firstNonMarkerChild(*newParent));
 

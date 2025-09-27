@@ -27,12 +27,13 @@
 #include "CSSContentDistributionValue.h"
 
 #include "CSSValueKeywords.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 CSSContentDistributionValue::CSSContentDistributionValue(CSSValueID distribution, CSSValueID position, CSSValueID overflow)
-    : CSSValue(ContentDistributionClass)
+    : CSSValue(ClassType::ContentDistribution)
     , m_distribution(distribution)
     , m_position(position)
     , m_overflow(overflow)
@@ -44,7 +45,7 @@ Ref<CSSContentDistributionValue> CSSContentDistributionValue::create(CSSValueID 
     return adoptRef(*new CSSContentDistributionValue(distribution, position, overflow));
 }
 
-String CSSContentDistributionValue::customCSSText() const
+String CSSContentDistributionValue::customCSSText(const CSS::SerializationContext&) const
 {
     auto word1 = m_distribution;
     CSSValueID word2;

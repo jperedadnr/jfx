@@ -31,8 +31,11 @@
 #include "WebGPUConvertToBackingContext.h"
 #include "WebGPUExternalTextureDescriptor.h"
 #include <WebGPU/WebGPUExt.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore::WebGPU {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ExternalTextureImpl);
 
 ExternalTextureImpl::ExternalTextureImpl(WebGPUPtr<WGPUExternalTexture>&& externalTexture, const ExternalTextureDescriptor& descriptor, ConvertToBackingContext& convertToBackingContext)
     : m_convertToBackingContext(convertToBackingContext)
@@ -47,6 +50,21 @@ ExternalTextureImpl::~ExternalTextureImpl() = default;
 void ExternalTextureImpl::setLabelInternal(const String&)
 {
     // FIXME: Implement this.
+}
+
+void ExternalTextureImpl::destroy()
+{
+    wgpuExternalTextureDestroy(m_backing.get());
+}
+
+void ExternalTextureImpl::undestroy()
+{
+    wgpuExternalTextureUndestroy(m_backing.get());
+}
+
+void ExternalTextureImpl::updateExternalTexture(CVPixelBufferRef pixelBuffer)
+{
+    wgpuExternalTextureUpdate(m_backing.get(), pixelBuffer);
 }
 
 } // namespace WebCore::WebGPU

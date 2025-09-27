@@ -24,10 +24,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BitmapTexturePool_h
-#define BitmapTexturePool_h
-
+#pragma once
+#if PLATFORM(JAVA)
 #include "BitmapTexture.h"
+#include <wtf/CheckedPtr.h>
 #include "TextureMapperContextAttributes.h"
 #include <wtf/RunLoop.h>
 
@@ -35,7 +35,7 @@ namespace WebCore {
 
 class IntSize;
 
-class BitmapTexturePool {
+class BitmapTexturePool: public RefCounted<BitmapTexturePool> {
     WTF_MAKE_NONCOPYABLE(BitmapTexturePool);
     WTF_MAKE_FAST_ALLOCATED;
 public:
@@ -73,5 +73,50 @@ private:
 };
 
 } // namespace WebCore
+#else
+#if USE(TEXTURE_MAPPER)
 
-#endif // BitmapTexturePool_h
+#include "BitmapTexture.h"
+#include <wtf/RunLoop.h>
+
+namespace WebCore {
+
+class IntSize;
+
+class BitmapTexturePool {
+    WTF_MAKE_NONCOPYABLE(BitmapTexturePool);
+public:
+    BitmapTexturePool();
+
+    RefPtr<BitmapTexture> acquireTexture(const IntSize&, OptionSet<BitmapTexture::Flags>);
+    void releaseUnusedTexturesTimerFired();
+
+private:
+    struct Entry {
+        explicit Entry(RefPtr<BitmapTexture>&& texture)
+            : m_texture(WTFMove(texture))
+        { }
+
+        void markIsInUse() { m_lastUsedTime = MonotonicTime::now(); }
+        bool canBeReleased (MonotonicTime minUsedTime) const { return m_lastUsedTime < minUsedTime && m_texture->refCount() == 1; }
+
+        RefPtr<BitmapTexture> m_texture;
+        MonotonicTime m_lastUsedTime;
+    };
+
+    void scheduleReleaseUnusedTextures();
+    void enterLimitExceededModeIfNeeded();
+    void exitLimitExceededModeIfNeeded();
+
+    Vector<Entry> m_textures;
+    RunLoop::Timer m_releaseUnusedTexturesTimer;
+    uint64_t m_poolSize { 0 };
+    bool m_onLimitExceededMode { false };
+    Seconds m_releaseUnusedSecondsTolerance;
+    Seconds m_releaseUnusedTexturesTimerInterval;
+};
+
+} // namespace WebCore
+
+#endif // USE(TEXTURE_MAPPER)
+#endif

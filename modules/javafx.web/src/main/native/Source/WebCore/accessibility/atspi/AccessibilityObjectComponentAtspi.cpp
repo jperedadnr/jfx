@@ -25,7 +25,7 @@
 #include "AccessibilityAtspi.h"
 #include "AccessibilityAtspiEnums.h"
 #include "AccessibilityObject.h"
-#include "AccessibilityObjectInterface.h"
+#include "AXCoreObject.h"
 #include "Document.h"
 #include "LocalFrameView.h"
 #include "RenderLayer.h"
@@ -112,7 +112,8 @@ AccessibilityObjectAtspi* AccessibilityObjectAtspi::hitTest(const IntPoint& poin
         }
     }
 
-    m_coreObject->updateChildrenIfNecessary();
+    if (auto* axObject = dynamicDowncast<AccessibilityObject>(m_coreObject.get()))
+        axObject->updateChildrenIfNecessary();
     if (auto* coreObject = m_coreObject->accessibilityHitTest(convertedPoint))
         return coreObject->wrapper();
 
@@ -164,7 +165,7 @@ float AccessibilityObjectAtspi::opacity() const
 
 void AccessibilityObjectAtspi::scrollToMakeVisible(Atspi::ScrollType scrollType) const
 {
-    auto* liveObject = dynamicDowncast<AccessibilityObject>(m_coreObject);
+    auto* liveObject = dynamicDowncast<AccessibilityObject>(m_coreObject.get());
     if (!liveObject)
         return;
 

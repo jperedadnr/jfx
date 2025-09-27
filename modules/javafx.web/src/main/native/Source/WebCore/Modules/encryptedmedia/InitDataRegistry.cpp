@@ -69,7 +69,7 @@ static std::optional<Vector<Ref<SharedBuffer>>> extractKeyIDsKeyids(const Shared
     // https://w3c.github.io/encrypted-media/format-registry/initdata/keyids.html#format
     if (buffer.size() > std::numeric_limits<unsigned>::max())
         return std::nullopt;
-    String json { buffer.data(), static_cast<unsigned>(buffer.size()) };
+    String json { buffer.span() };
 
     auto value = JSON::Value::parseJSON(json);
     if (!value)
@@ -113,11 +113,10 @@ static RefPtr<SharedBuffer> sanitizeKeyids(const SharedBuffer& buffer)
     auto object = JSON::Object::create();
     auto kidsArray = JSON::Array::create();
     for (auto& buffer : keyIDBuffer.value())
-        kidsArray->pushString(base64URLEncodeToString(buffer->data(), buffer->size()));
+        kidsArray->pushString(base64URLEncodeToString(buffer->span()));
     object->setArray("kids"_s, WTFMove(kidsArray));
 
-    CString jsonData = object->toJSONString().utf8();
-    return SharedBuffer::create(jsonData.data(), jsonData.length());
+    return SharedBuffer::create(object->toJSONString().utf8().span());
 }
 
 std::optional<Vector<std::unique_ptr<ISOProtectionSystemSpecificHeaderBox>>> InitDataRegistry::extractPsshBoxesFromCenc(const SharedBuffer& buffer)
@@ -174,14 +173,12 @@ std::optional<Vector<Ref<SharedBuffer>>> InitDataRegistry::extractKeyIDsCenc(con
             return std::nullopt;
 
 #if HAVE(FAIRPLAYSTREAMING_CENC_INITDATA)
-        if (is<ISOFairPlayStreamingPsshBox>(*psshBox)) {
-            ISOFairPlayStreamingPsshBox& fpsPssh = downcast<ISOFairPlayStreamingPsshBox>(*psshBox);
-
-            FourCC scheme = fpsPssh.initDataBox().info().scheme();
+        if (auto* fpsPssh = dynamicDowncast<ISOFairPlayStreamingPsshBox>(*psshBox)) {
+            FourCC scheme = fpsPssh->initDataBox().info().scheme();
             if (CDMPrivateFairPlayStreaming::validFairPlayStreamingSchemes().contains(scheme)) {
-                for (const auto& request : fpsPssh.initDataBox().requests()) {
+                for (const auto& request : fpsPssh->initDataBox().requests()) {
                     auto& keyID = request.requestInfo().keyID();
-                    keyIDs.append(SharedBuffer::create(keyID.data(), keyID.size()));
+                    keyIDs.append(SharedBuffer::create(keyID.span()));
                 }
             }
         }
@@ -197,20 +194,16 @@ std::optional<Vector<Ref<SharedBuffer>>> InitDataRegistry::extractKeyIDsCenc(con
 #if USE(GSTREAMER)
 bool isPlayReadySanitizedInitializationData(const SharedBuffer& buffer)
 {
-    const char* protectionData = buffer.dataAsCharPtr();
-    size_t protectionDataLength = buffer.size();
-
     // The protection data starts with a 10-byte PlayReady version
     // header that needs to be skipped over to avoid XML parsing
     // errors.
-    char* startTag = const_cast<char*>(protectionData);
-    while (startTag && *startTag != '<')
-        startTag++;
-    if (!startTag)
+    auto view = StringView::fromLatin1(byteCast<char>(buffer.span().data()));
+    auto startTag = view.find('<');
+    if (startTag == notFound)
         return false;
 
-    size_t protectionDataXMLLength = protectionDataLength - (startTag - protectionData);
-    xmlDocPtr protectionDataXML = xmlReadMemory(static_cast<const char*>(startTag), protectionDataXMLLength, "protectionData", "utf-16", 0);
+    auto xmlPayload = buffer.span().subspan(startTag);
+    xmlDocPtr protectionDataXML = xmlReadMemory(reinterpret_cast<const char*>(xmlPayload.data()), xmlPayload.size_bytes(), "protectionData", "utf-16", 0);
     if (!protectionDataXML)
         return false;
 
@@ -248,7 +241,8 @@ bool isPlayReadySanitizedInitializationData(const SharedBuffer& buffer)
         return false;
 
     xmlChar* encodedKeyID = xmlNodeGetContent(keyIDNode->nodeTab[0]);
-    std::optional<Vector<uint8_t>> decodedKeyID = base64Decode(encodedKeyID, xmlStrlen(encodedKeyID));
+    auto encodedKeyIDSpan = unsafeMakeSpan(reinterpret_cast<const uint8_t*>(encodedKeyID), static_cast<size_t>(xmlStrlen(encodedKeyID)));
+    std::optional<Vector<uint8_t>> decodedKeyID = base64Decode(encodedKeyIDSpan);
     xmlFree(encodedKeyID);
     if (!decodedKeyID)
         return false;

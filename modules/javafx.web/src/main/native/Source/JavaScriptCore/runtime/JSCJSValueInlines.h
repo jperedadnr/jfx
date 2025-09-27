@@ -25,6 +25,10 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 #include "CatchScope.h"
 #include "Error.h"
 #include "ExceptionHelpers.h"
@@ -38,7 +42,10 @@
 #include "JSObject.h"
 #include "JSStringInlines.h"
 #include "MathCommon.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringImpl.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 namespace JSC {
 
@@ -58,7 +65,7 @@ inline uint32_t JSValue::toUInt32(JSGlobalObject* globalObject) const
     return toInt32(globalObject);
 }
 
-inline uint32_t JSValue::toIndex(JSGlobalObject* globalObject, const char* errorName) const
+inline uint32_t JSValue::toIndex(JSGlobalObject* globalObject, ASCIILiteral errorName) const
 {
     VM& vm = getVM(globalObject);
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -112,19 +119,21 @@ inline size_t JSValue::toTypedArrayIndex(JSGlobalObject* globalObject, ASCIILite
     RELEASE_AND_RETURN(scope, outputOffset + static_cast<size_t>(static_cast<uint32_t>(JSC::toInt32(d - inputOffset))));
 }
 
-// https://tc39.es/proposal-temporal/#sec-temporal-tointegerwithoutrounding
-inline double JSValue::toIntegerWithoutRounding(JSGlobalObject* globalObject) const
+// https://tc39.es/proposal-temporal/#sec-tointegerwithtruncation
+inline double JSValue::toIntegerWithTruncation(JSGlobalObject* globalObject) const
 {
     if (isInt32())
         return asInt32();
-    double d = toNumber(globalObject);
-    return std::isnan(d) ? 0.0 : d + 0.0;
+    return trunc(toNumber(globalObject) + 0.0);
 }
 
 // https://tc39.es/ecma262/#sec-tointegerorinfinity
 inline double JSValue::toIntegerOrInfinity(JSGlobalObject* globalObject) const
 {
-    return trunc(toIntegerWithoutRounding(globalObject));
+    if (isInt32())
+        return asInt32();
+    double d = toNumber(globalObject);
+    return trunc(std::isnan(d) ? 0.0 : d + 0.0);
 }
 
 inline bool JSValue::isUInt32() const
@@ -561,11 +570,11 @@ inline bool JSValue::isInt32() const
 
 inline int64_t reinterpretDoubleToInt64(double value)
 {
-    return bitwise_cast<int64_t>(value);
+    return std::bit_cast<int64_t>(value);
 }
 inline double reinterpretInt64ToDouble(int64_t value)
 {
-    return bitwise_cast<double>(value);
+    return std::bit_cast<double>(value);
 }
 
 ALWAYS_INLINE JSValue::JSValue(EncodeAsDoubleTag, double d)
@@ -616,7 +625,7 @@ inline JSValue::JSValue(EncodeAsBigInt32Tag, int32_t value)
 #if ENABLE(WEBASSEMBLY) && USE(JSVALUE32_64)
 inline JSValue::JSValue(EncodeAsUnboxedFloatTag, float value)
 {
-    u.asBits.payload = bitwise_cast<int32_t>(value);
+    u.asBits.payload = std::bit_cast<int32_t>(value);
 }
 #endif
 
@@ -731,6 +740,28 @@ inline int32_t JSValue::bigInt32AsInt32() const
 }
 #endif // USE(BIGINT32)
 
+inline bool JSValue::isZeroBigInt() const
+{
+    ASSERT(isBigInt());
+#if USE(BIGINT32)
+    if (isBigInt32())
+        return !bigInt32AsInt32();
+#endif
+    ASSERT(isHeapBigInt());
+    return asHeapBigInt()->isZero();
+}
+
+inline bool JSValue::isNegativeBigInt() const
+{
+    ASSERT(isBigInt());
+#if USE(BIGINT32)
+    if (isBigInt32())
+        return bigInt32AsInt32() < 0;
+#endif
+    ASSERT(isHeapBigInt());
+    return asHeapBigInt()->sign();
+}
+
 inline bool JSValue::isSymbol() const
 {
     return isCell() && asCell()->isSymbol();
@@ -840,7 +871,7 @@ inline PreferredPrimitiveType toPreferredPrimitiveType(JSGlobalObject* globalObj
         return NoPreference;
     }
 
-    String hintString = asString(value)->value(globalObject);
+    auto hintString = asString(value)->view(globalObject);
     RETURN_IF_EXCEPTION(scope, NoPreference);
 
     if (WTF::equal(hintString, "default"_s))
@@ -1262,7 +1293,7 @@ ALWAYS_INLINE bool JSValue::equalSlowCaseInline(JSGlobalObject* globalObject, JS
         if (s1 || s2) {
             // We are guaranteed that the string is v2 (thanks to the swap above)
             if (v1.isBigInt()) {
-                String v2String = asString(v2)->value(globalObject);
+                auto v2String = asString(v2)->value(globalObject);
                 RETURN_IF_EXCEPTION(scope, false);
                 v2 = JSBigInt::stringToBigInt(globalObject, v2String);
                 RETURN_IF_EXCEPTION(scope, false);
@@ -1432,6 +1463,9 @@ ALWAYS_INLINE bool isThisValueAltered(const PutPropertySlot& slot, JSObject* bas
 // See section 7.2.9: https://tc39.github.io/ecma262/#sec-samevalue
 ALWAYS_INLINE bool sameValue(JSGlobalObject* globalObject, JSValue a, JSValue b)
 {
+    if (a == b)
+        return true;
+
     if (!a.isNumber())
         return JSValue::strictEqual(globalObject, a, b);
     if (!b.isNumber())
@@ -1442,7 +1476,29 @@ ALWAYS_INLINE bool sameValue(JSGlobalObject* globalObject, JSValue a, JSValue b)
     bool yIsNaN = std::isnan(y);
     if (xIsNaN || yIsNaN)
         return xIsNaN && yIsNaN;
-    return bitwise_cast<uint64_t>(x) == bitwise_cast<uint64_t>(y);
+    return std::bit_cast<uint64_t>(x) == std::bit_cast<uint64_t>(y);
+}
+
+ALWAYS_INLINE bool sameValueZero(JSGlobalObject* globalObject, JSValue a, JSValue b)
+{
+    if (a == b)
+        return true;
+
+    if (!a.isNumber())
+        return JSValue::strictEqual(globalObject, a, b);
+    if (!b.isNumber())
+        return false;
+    double x = a.asNumber();
+    double y = b.asNumber();
+    if (std::isnan(x))
+        return std::isnan(y);
+    if (std::isnan(y))
+        return std::isnan(x);
+    if (!x && y == -0)
+        return true;
+    if (x == -0 && !y)
+        return true;
+    return std::bit_cast<uint64_t>(x) == std::bit_cast<uint64_t>(y);
 }
 
 } // namespace JSC

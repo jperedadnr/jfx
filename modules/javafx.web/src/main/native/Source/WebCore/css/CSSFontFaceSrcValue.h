@@ -50,7 +50,7 @@ public:
     SVGFontFaceElement* svgFontFaceElement() const;
     void setSVGFontFaceElement(SVGFontFaceElement&);
 
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSFontFaceSrcLocalValue&) const;
 
 private:
@@ -108,14 +108,14 @@ inline ASCIILiteral cssTextFromFontTech(FontTechnology tech)
 
 class CSSFontFaceSrcResourceValue final : public CSSValue {
 public:
-
     static Ref<CSSFontFaceSrcResourceValue> create(ResolvedURL, String format, Vector<FontTechnology>&& technologies, LoadedFromOpaqueSource = LoadedFromOpaqueSource::No);
 
     bool isEmpty() const { return m_location.specifiedURLString.isEmpty(); }
     std::unique_ptr<FontLoadRequest> fontLoadRequest(ScriptExecutionContext&, bool isInitiatingElementInUserAgentShadowTree);
 
-    String customCSSText() const;
-    bool customTraverseSubresources(const Function<bool(const CachedResource&)>&) const;
+    String customCSSText(const CSS::SerializationContext&) const;
+    bool customTraverseSubresources(NOESCAPE const Function<bool(const CachedResource&)>&) const;
+    bool customMayDependOnBaseURL() const;
     bool equals(const CSSFontFaceSrcResourceValue&) const;
 
 private:

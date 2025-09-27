@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,12 +31,14 @@
 #include "AudioSession.h"
 #include "Document.h"
 #include "EventNames.h"
-#include "FeaturePolicy.h"
+#include "Page.h"
+#include "PermissionsPolicy.h"
 #include "PlatformMediaSessionManager.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DOMAudioSession);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(DOMAudioSession);
 
 static inline AudioSessionCategory fromDOMAudioSessionType(DOMAudioSession::Type type)
 {
@@ -70,27 +72,31 @@ Ref<DOMAudioSession> DOMAudioSession::create(ScriptExecutionContext* context)
 DOMAudioSession::DOMAudioSession(ScriptExecutionContext* context)
     : ActiveDOMObject(context)
 {
-    AudioSession::sharedSession().addInterruptionObserver(*this);
+    AudioSession::protectedSharedSession()->addInterruptionObserver(*this);
 }
 
 DOMAudioSession::~DOMAudioSession()
 {
-    AudioSession::sharedSession().removeInterruptionObserver(*this);
+    AudioSession::protectedSharedSession()->removeInterruptionObserver(*this);
 }
 
 ExceptionOr<void> DOMAudioSession::setType(Type type)
 {
-    auto* document = downcast<Document>(scriptExecutionContext());
+    RefPtr document = downcast<Document>(scriptExecutionContext());
     if (!document)
-        return Exception { InvalidStateError };
+        return Exception { ExceptionCode::InvalidStateError };
 
-    if (!isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::Microphone, *document, LogFeaturePolicyFailure::No))
+    RefPtr page = document->protectedPage();
+    if (!page)
+        return Exception { ExceptionCode::InvalidStateError };
+
+    if (!PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Microphone, *document, PermissionsPolicy::ShouldReportViolation::No))
         return { };
 
-    document->topDocument().setAudioSessionType(type);
+    page->setAudioSessionType(type);
 
     auto categoryOverride = fromDOMAudioSessionType(type);
-    AudioSession::sharedSession().setCategoryOverride(categoryOverride);
+    AudioSession::protectedSharedSession()->setCategoryOverride(categoryOverride);
 
     if (categoryOverride == AudioSessionCategory::None)
         PlatformMediaSessionManager::updateAudioSessionCategoryIfNecessary();
@@ -100,11 +106,17 @@ ExceptionOr<void> DOMAudioSession::setType(Type type)
 
 DOMAudioSession::Type DOMAudioSession::type() const
 {
-    auto* document = downcast<Document>(scriptExecutionContext());
-    if (document && !isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::Microphone, *document, LogFeaturePolicyFailure::No))
+    RefPtr document = downcast<Document>(scriptExecutionContext());
+    if (document && !PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Microphone, *document, PermissionsPolicy::ShouldReportViolation::No))
         return DOMAudioSession::Type::Auto;
 
-    return document ? document->topDocument().audioSessionType() : DOMAudioSession::Type::Auto;
+    if (!document)
+        return DOMAudioSession::Type::Auto;
+
+    if (RefPtr page = document->protectedPage())
+        return page->audioSessionType();
+
+    return DOMAudioSession::Type::Auto;
 }
 
 static DOMAudioSession::State computeAudioSessionState()
@@ -120,8 +132,8 @@ static DOMAudioSession::State computeAudioSessionState()
 
 DOMAudioSession::State DOMAudioSession::state() const
 {
-    auto* document = downcast<Document>(scriptExecutionContext());
-    if (!document || !isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::Microphone, *document, LogFeaturePolicyFailure::No))
+    RefPtr document = downcast<Document>(scriptExecutionContext());
+    if (!document || !PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Microphone, *document, PermissionsPolicy::ShouldReportViolation::No))
         return DOMAudioSession::State::Inactive;
 
     if (!m_state)
@@ -131,11 +143,6 @@ DOMAudioSession::State DOMAudioSession::state() const
 
 void DOMAudioSession::stop()
 {
-}
-
-const char* DOMAudioSession::activeDOMObjectName() const
-{
-    return "AudioSession";
 }
 
 bool DOMAudioSession::virtualHasPendingActivity() const
@@ -160,26 +167,30 @@ void DOMAudioSession::audioSessionActiveStateChanged()
 
 void DOMAudioSession::scheduleStateChangeEvent()
 {
-    auto* document = downcast<Document>(scriptExecutionContext());
-    if (document && !isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::Microphone, *document, LogFeaturePolicyFailure::No))
+    RefPtr document = downcast<Document>(scriptExecutionContext());
+    if (document && !PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Microphone, *document, PermissionsPolicy::ShouldReportViolation::No))
         return;
 
     if (m_hasScheduleStateChangeEvent)
         return;
 
     m_hasScheduleStateChangeEvent = true;
-    queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [this] {
-        if (isContextStopped())
+    queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [weakThis = WeakPtr { *this }] {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
             return;
 
-        m_hasScheduleStateChangeEvent = false;
+        if (protectedThis->isContextStopped())
+            return;
+
+        protectedThis->m_hasScheduleStateChangeEvent = false;
         auto newState = computeAudioSessionState();
 
-        if (m_state && *m_state == newState)
+        if (protectedThis->m_state && *protectedThis->m_state == newState)
             return;
 
-        m_state = newState;
-        dispatchEvent(Event::create(eventNames().statechangeEvent, Event::CanBubble::No, Event::IsCancelable::No));
+        protectedThis->m_state = newState;
+        protectedThis->dispatchEvent(Event::create(eventNames().statechangeEvent, Event::CanBubble::No, Event::IsCancelable::No));
     });
 }
 

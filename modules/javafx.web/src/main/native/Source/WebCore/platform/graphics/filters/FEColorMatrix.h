@@ -27,7 +27,7 @@
 
 namespace WebCore {
 
-enum ColorMatrixType {
+enum class ColorMatrixType : uint8_t {
     FECOLORMATRIX_TYPE_UNKNOWN          = 0,
     FECOLORMATRIX_TYPE_MATRIX           = 1,
     FECOLORMATRIX_TYPE_SATURATE         = 2,
@@ -35,9 +35,11 @@ enum ColorMatrixType {
     FECOLORMATRIX_TYPE_LUMINANCETOALPHA = 4
 };
 
-class FEColorMatrix : public FilterEffect {
+class FEColorMatrix final : public FilterEffect {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEColorMatrix);
 public:
-    WEBCORE_EXPORT static Ref<FEColorMatrix> create(ColorMatrixType, Vector<float>&&);
+    WEBCORE_EXPORT static Ref<FEColorMatrix> create(ColorMatrixType, Vector<float>&&, DestinationColorSpace = DestinationColorSpace::SRGB());
 
     bool operator==(const FEColorMatrix&) const;
 
@@ -47,12 +49,12 @@ public:
     const Vector<float>& values() const { return m_values; }
     bool setValues(const Vector<float>&);
 
-    static void calculateSaturateComponents(float* components, float value);
-    static void calculateHueRotateComponents(float* components, float value);
+    static void calculateSaturateComponents(std::span<float, 9> components, float value);
+    static void calculateHueRotateComponents(std::span<float, 9> components, float value);
     static Vector<float> normalizedFloats(const Vector<float>& values);
 
 private:
-    FEColorMatrix(ColorMatrixType, Vector<float>&&);
+    FEColorMatrix(ColorMatrixType, Vector<float>&&, DestinationColorSpace);
 
     bool operator==(const FilterEffect& other) const override { return areEqual<FEColorMatrix>(*this, other); }
 
@@ -62,7 +64,7 @@ private:
 
     std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
     std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
-    std::optional<GraphicsStyle> createGraphicsStyle(const Filter&) const override;
+    std::optional<GraphicsStyle> createGraphicsStyle(GraphicsContext&, const Filter&) const override;
 
     WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 
@@ -72,20 +74,4 @@ private:
 
 } // namespace WebCore
 
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::ColorMatrixType> {
-    using values = EnumValues<
-        WebCore::ColorMatrixType,
-
-        WebCore::FECOLORMATRIX_TYPE_UNKNOWN,
-        WebCore::FECOLORMATRIX_TYPE_MATRIX,
-        WebCore::FECOLORMATRIX_TYPE_SATURATE,
-        WebCore::FECOLORMATRIX_TYPE_HUEROTATE,
-        WebCore::FECOLORMATRIX_TYPE_LUMINANCETOALPHA
-    >;
-};
-
-} // namespace WTF
-
-SPECIALIZE_TYPE_TRAITS_FILTER_EFFECT(FEColorMatrix)
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEColorMatrix)

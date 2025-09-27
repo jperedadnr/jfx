@@ -30,7 +30,8 @@ namespace WebCore {
 class RenderButton;
 
 class HTMLButtonElement final : public HTMLFormControlElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLButtonElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLButtonElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLButtonElement);
 public:
     static Ref<HTMLButtonElement> create(const QualifiedName&, Document&, HTMLFormElement*);
     static Ref<HTMLButtonElement> create(Document&);
@@ -39,11 +40,15 @@ public:
 
     const AtomString& value() const;
 
+    RefPtr<Element> commandForElement() const;
+
     bool willRespondToMouseClickEventsWithEditability(Editability) const final;
 
     RenderButton* renderer() const;
 
     bool isExplicitlySetSubmitButton() const;
+
+    bool isDevolvableWidget() const override { return true; }
 
 private:
     HTMLButtonElement(const QualifiedName& tagName, Document&, HTMLFormElement*);
@@ -59,6 +64,9 @@ private:
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void defaultEventHandler(Event&) final;
+
+    CommandType commandType() const;
+    void handleCommand();
 
     bool appendFormData(DOMFormData&) final;
 

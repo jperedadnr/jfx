@@ -25,6 +25,10 @@
 
 #pragma once
 
+#include "BPlatform.h"
+
+#if !BUSE(TZONE)
+
 #include "IsoHeapImpl.h"
 #include "StaticPerProcess.h"
 #include "Vector.h"
@@ -47,8 +51,11 @@ public:
 private:
     IsoHeapImplBase* m_head { nullptr };
 };
+BALLOW_DEPRECATED_DECLARATIONS_BEGIN
 DECLARE_STATIC_PER_PROCESS_STORAGE(AllIsoHeaps);
+BALLOW_DEPRECATED_DECLARATIONS_END
 
 } // namespace bmalloc
 
 #endif
+#endif // !BUSE(TZONE)

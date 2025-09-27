@@ -84,9 +84,9 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
 
     def _generate_secondary_header_includes(self):
         header_includes = [
-            (["JavaScriptCore", "WebKit"], ("JavaScriptCore", "inspector/InspectorProtocolTypes.h")),
-            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/JSONValues.h")),
-            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/text/WTFString.h")),
+            (["JavaScriptCore", "WebKit", "WebDriverBidi"], ("JavaScriptCore", "inspector/InspectorProtocolTypes.h")),
+            (["JavaScriptCore", "WebKit", "WebDriverBidi"], ("WTF", "wtf/JSONValues.h")),
+            (["JavaScriptCore", "WebKit", "WebDriverBidi"], ("WTF", "wtf/text/WTFString.h")),
         ]
         return '\n'.join(self.generate_includes_from_entries(header_includes))
 
@@ -268,14 +268,6 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
         lines.append(Template(CppTemplates.ProtocolObjectBuilderDeclarationPostlude).substitute(None, **builder_args))
         for member in optional_members:
             lines.append(self._generate_unchecked_setter_for_member(member, domain))
-
-        if Generator.type_has_open_fields(type_declaration.type):
-            lines.append('')
-            lines.append('    // Property names for type generated as open.')
-            open_members = Generator.open_fields(type_declaration)
-            for type_member in open_members:
-                export_macro = self.model().framework.setting('export_macro', None)
-                lines.append('    %s static const ASCIILiteral %sKey;' % (export_macro, type_member.member_name))
 
         lines.append('};')
         return self.wrap_with_guard_for_condition(type_declaration.condition, '\n'.join(lines))

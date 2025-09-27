@@ -43,21 +43,24 @@ class SourceBuffer;
 class WebCoreOpaqueRoot;
 
 class SourceBufferList final : public RefCounted<SourceBufferList>, public EventTarget, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(SourceBufferList);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SourceBufferList);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<SourceBufferList> create(ScriptExecutionContext*);
     virtual ~SourceBufferList();
 
     bool isSupportedPropertyIndex(unsigned index) const { return index < length(); }
     unsigned length() const { return m_list.size(); }
 
-    SourceBuffer* item(unsigned index) const { return (index < m_list.size()) ? m_list[index].get() : nullptr; }
+    RefPtr<SourceBuffer> item(unsigned index) const;
 
     void add(Ref<SourceBuffer>&&);
     void remove(SourceBuffer&);
-    bool contains(SourceBuffer& buffer) { return m_list.find(&buffer) != notFound; }
+    bool contains(SourceBuffer&) const;
     void clear();
-    void swap(Vector<RefPtr<SourceBuffer>>&);
+    void replaceWith(Vector<Ref<SourceBuffer>>&&);
 
     auto begin() { return m_list.begin(); }
     auto end() { return m_list.end(); }
@@ -66,11 +69,8 @@ public:
     size_t size() const { return m_list.size(); }
 
     // EventTarget interface
-    EventTargetInterface eventTargetInterface() const final { return SourceBufferListEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::SourceBufferList; }
     ScriptExecutionContext* scriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
-
-    using RefCounted<SourceBufferList>::ref;
-    using RefCounted<SourceBufferList>::deref;
 
 private:
     explicit SourceBufferList(ScriptExecutionContext*);
@@ -80,9 +80,7 @@ private:
     void refEventTarget() override { ref(); }
     void derefEventTarget() override { deref(); }
 
-    const char* activeDOMObjectName() const final;
-
-    Vector<RefPtr<SourceBuffer>> m_list;
+    Vector<Ref<SourceBuffer>> m_list;
 };
 
 WebCoreOpaqueRoot root(SourceBufferList*);
