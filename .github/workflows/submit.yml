@@ -63,6 +63,7 @@ jobs:
 
 
   linux_x64_build:
+    if: ${{ false }}
     name: Linux x64
     needs: validation
     runs-on: "ubuntu-24.04"
@@ -148,6 +149,7 @@ jobs:
 
 
   macos_x64_build:
+    if: ${{ false }}
     name: macOS x64
     needs: validation
     runs-on: "macos-13"
@@ -235,6 +237,7 @@ jobs:
 
 
   macos_aarch64_build:
+    if: ${{ false }}
     name: macOS aarch64
     needs: validation
     runs-on: "macos-14"
@@ -321,6 +324,7 @@ jobs:
 
 
   windows_x64_build:
+    if: ${{ false }}
     name: Windows x64
     needs: validation
     runs-on: "windows-2022"
@@ -424,3 +428,86 @@ jobs:
           $env:Path = "$env:THE_PATH" ;
           echo "Path=$env:Path"
           .\gradlew.bat --info --continue -PTEST_ONLY=true test -x :web:test
+
+  windows_arm64_build:
+    name: Windows arm64
+    needs: validation
+    runs-on: "windows-11-arm"
+
+    env:
+      # FIXME: read this information from a property file
+      # BOOT_JDK_VERSION: "${{ fromJson(needs.prerequisites.outputs.dependencies).BOOT_JDK_VERSION }}"
+      # BOOT_JDK_FILENAME: "${{ fromJson(needs.prerequisites.outputs.dependencies).LINUX_X64_BOOT_JDK_FILENAME }}"
+      # BOOT_JDK_URL: "${{ fromJson(needs.prerequisites.outputs.dependencies).LINUX_X64_BOOT_JDK_URL }}"
+      # BOOT_JDK_SHA256: "${{ fromJson(needs.prerequisites.outputs.dependencies).LINUX_X64_BOOT_JDK_SHA256 }}"
+      BOOT_JDK_VERSION: "24.0.2"
+      BOOT_JDK_FILENAME: "bellsoft-jdk24.0.2+12-windows-aarch64.zip"
+      BOOT_JDK_URL: "https://download.bell-sw.com/java/24.0.2+12/bellsoft-jdk24.0.2+12-windows-aarch64.zip"
+      ANT_DIR: "apache-ant-1.10.5"
+      ANT_FILENAME: "apache-ant-1.10.5.tar.gz"
+      ANT_URL: "https://archive.apache.org/dist/ant/binaries/apache-ant-1.10.5-bin.tar.gz"
+
+    steps:
+      - name: Checkout the source
+        uses: actions/checkout@v4
+        with:
+          path: jfx
+
+      - uses: msys2/setup-msys2@v2
+
+      - name: Download boot JDK
+        run: |
+          mkdir -p "$HOME\bootjdk"
+          & curl -L "$env:BOOT_JDK_URL" -o "$HOME/bootjdk/$env:BOOT_JDK_FILENAME"
+          # FIXME: sha256sum
+          tar -xf "$HOME/bootjdk/$env:BOOT_JDK_FILENAME" -C "$HOME/bootjdk"
+          # FIXME: enable cache for boot JDK
+
+      - name: Install dependencies
+        run: |
+          mkdir -p "$HOME\build-tools"
+          & curl -L "$env:ANT_URL" -o "$HOME/build-tools/$env:ANT_FILENAME"
+          tar -zxf "$HOME/build-tools/$env:ANT_FILENAME" -C "$HOME/build-tools"
+
+      - name: Setup environment
+        run: |
+          echo "dir ...\VC\Tools\MSVC"
+          dir "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC"
+          # echo "dir ...\VC\Tools\MSVC"
+          # dir "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC"
+
+          # $env:Path = "$HOME\cygwin\cygwin64\bin;$HOME\cygwin\cygwin64\bin;$env:Path" ;
+          $env:JAVA_HOME = "$HOME\bootjdk\jdk-$env:BOOT_JDK_VERSION" ;
+          echo "JAVA_HOME=$env:JAVA_HOME"
+          $env:ANT_HOME = "${HOME}\build-tools\$env:ANT_DIR"
+          echo "ANT_HOME=$env:ANT_HOME"
+          $env:Path = "$env:JAVA_HOME\bin;$env:ANT_HOME\bin;$env:Path" ;
+          echo "Path=$env:Path"
+          which java
+          java -version
+          which ant
+          ant -version
+
+          # Save JAVA_HOME, ANT_HOME, and Path (renamed to THE_PATH) in env variables
+          echo "JAVA_HOME=$env:JAVA_HOME" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "ANT_HOME=$env:ANT_HOME" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "THE_PATH=$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build JavaFX artifacts
+        working-directory: jfx
+        run: |
+          echo "JAVA_HOME=$env:JAVA_HOME"
+          echo "ANT_HOME=$env:ANT_HOME"
+          $env:Path = "$env:THE_PATH" ;
+          echo "Path=$env:Path"
+          which java
+          java -version
+          .\gradlew.bat -version
+          .\gradlew.bat --info all -x apps
+
+      - name: Upload SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Package
+          path: jfx/build/artifacts/bundles
+
