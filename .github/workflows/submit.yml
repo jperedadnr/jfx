@@ -516,5 +516,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Package
-          path: jfx/build/sdk
+          path: jfx/build/artifacts/bundles
     
