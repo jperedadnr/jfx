@@ -480,6 +480,7 @@ jobs:
 
           # $env:Path = "$HOME\cygwin\cygwin64\bin;$HOME\cygwin\cygwin64\bin;$env:Path" ;
           # $env:JAVA_HOME = "$HOME\bootjdk\jdk-$env:BOOT_JDK_VERSION" ;
+          $env:JAVA_HOME = $JAVA_HOME_23_AARCH64 ;
           echo "JAVA_HOME=$env:JAVA_HOME"
           $env:ANT_HOME = "${HOME}\build-tools\$env:ANT_DIR"
           echo "ANT_HOME=$env:ANT_HOME"
