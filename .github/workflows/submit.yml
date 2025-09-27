@@ -503,7 +503,7 @@ jobs:
           which java
           java -version
           .\gradlew.bat -version
-          .\gradlew.bat --info all -x apps
+          .\gradlew.bat --info -PCONF=Release -PMILESTONE_FCS=true --info -PHUDSON_JOB_NAME=OpenJFX-build -PPROMOTED_BUILD_NUMBER=29 all -x apps
 
       - name: Upload SDK
         uses: actions/upload-artifact@v4
