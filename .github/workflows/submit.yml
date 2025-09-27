@@ -510,5 +510,11 @@ jobs:
           which java
           java -version
           .\gradlew.bat -version
-          # Skip "chmod" task for GHA builds. See JDK-8354337 for details.
-          .\gradlew.bat --info -PCHMOD_ARTIFACTS=false all -x apps
+          .\gradlew.bat --info all -x apps
+
+      - name: Upload SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Package
+          path: jfx/build/sdk
+    
