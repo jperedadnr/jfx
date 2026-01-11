@@ -1,0 +1,66 @@
+graph TD
+    Start([Start Build]) --> Setup[Environment Setup<br/>- Detect OS<br/>- Set path separators<br/>- Detect FXC Windows]
+    Setup --> BaseModule[Build javafx.base Module]
+
+    BaseModule --> VersionInfo[Process VersionInfo.java<br/>Copy to build/gensrc]
+    VersionInfo --> CompileBase[Compile Java Sources<br/>javac with --release 24]
+    CompileBase --> BaseComplete[javafx.base Complete]
+
+    BaseComplete --> GraphicsModule[Build javafx.graphics Module]
+
+    GraphicsModule --> CompileGraphics[Compile Main Graphics Sources<br/>Depends on javafx.base]
+    CompileGraphics --> DownloadANTLR{ANTLR Downloaded?}
+    DownloadANTLR -->|No| GetANTLR[Download ANTLR 4.13.2]
+    DownloadANTLR -->|Yes| GenGrammar[Generate Grammar Sources<br/>JSL.g4 → Parser/Lexer]
+    GetANTLR --> GenGrammar
+
+    GenGrammar --> CompileJSLC[Compile JSLC Compiler<br/>JSL language compiler]
+    CompileJSLC --> CompileDecora[Compile Decora Compilers<br/>Effect shader compilers]
+    CompileDecora --> GenDecoraShaders[Generate Decora Shaders<br/>JSL → GLSL/HLSL/Metal]
+
+    GenDecoraShaders --> PlatformDecora{Platform?}
+    PlatformDecora -->|macOS| CompileMetalDecora[Compile Metal Shaders<br/>.metal → .air<br/>xcrun metal]
+    PlatformDecora -->|Windows| CompileHLSLDecora{FXC Available?}
+    PlatformDecora -->|All| CopyFragDecora[Copy GLSL .frag Files]
+
+    CompileHLSLDecora -->|Yes| CompileHLSLDecoraYes[Compile HLSL Shaders<br/>.hlsl → .obj<br/>fxc.exe]
+    CompileHLSLDecora -->|No| SkipHLSLDecora[Skip HLSL Compilation]
+
+    CompileMetalDecora --> ProcessDecora[Process Decora Shaders]
+    CompileHLSLDecoraYes --> ProcessDecora
+    SkipHLSLDecora --> ProcessDecora
+    CopyFragDecora --> ProcessDecora
+
+    ProcessDecora --> CompilePrism[Compile Prism Compilers<br/>Rendering pipeline compilers]
+    CompilePrism --> GenPrismShaders[Generate Prism Shaders<br/>JSL → GLSL/HLSL/Metal]
+
+    GenPrismShaders --> PlatformPrism{Platform?}
+    PlatformPrism -->|macOS| CompileMetalPrism[Compile Metal Shaders<br/>.metal → .air<br/>xcrun metal]
+    PlatformPrism -->|Windows| CompileHLSLPrism{FXC Available?}
+    PlatformPrism -->|All| CopyFragPrism[Copy GLSL .frag Files]
+
+    CompileHLSLPrism -->|Yes| CompileHLSLPrismYes[Compile HLSL Shaders<br/>.hlsl → .obj<br/>fxc.exe]
+    CompileHLSLPrism -->|No| SkipHLSLPrism[Skip HLSL Compilation]
+
+    CompileMetalPrism --> LinkMetal{macOS?}
+    CompileHLSLPrismYes --> ProcessPrism[Process Prism Shaders]
+    SkipHLSLPrism --> ProcessPrism
+    CopyFragPrism --> ProcessPrism
+
+    LinkMetal -->|Yes| LinkMetalLib[Link Metal Library<br/>.air → .metallib<br/>xcrun metallib]
+    LinkMetal -->|No| ProcessPrism
+    LinkMetalLib --> ProcessPrism
+
+    ProcessPrism --> Complete([Build Complete<br/>Return to initial directory])
+
+    style Start fill:#e1f5e1
+    style Complete fill:#e1f5e1
+    style BaseModule fill:#e3f2fd
+    style GraphicsModule fill:#e3f2fd
+    style CompileMetalDecora fill:#fff3e0
+    style CompileMetalPrism fill:#fff3e0
+    style LinkMetalLib fill:#fff3e0
+    style CompileHLSLDecoraYes fill:#f3e5f5
+    style CompileHLSLPrismYes fill:#f3e5f5
+    style SkipHLSLDecora fill:#ffebee
+    style SkipHLSLPrism fill:#ffebee
