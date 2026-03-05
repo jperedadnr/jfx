@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2026, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -567,8 +567,12 @@ static jlong _createWindowCommonDo(JNIEnv *env, jobject jWindow, jlong jOwnerPtr
             NSWindowCollectionBehavior behavior = [window->nsWindow collectionBehavior];
             if (!isPopup && !isUtility && !window->owner)
             {
-                // Only ownerless windows should have the Full Screen Toggle control
-                behavior |= (1 << 7) /* NSWindowCollectionBehaviorFullScreenPrimary */;
+                if (window->isResizable) {
+                    // Only resizable ownerless windows should have the Full Screen Toggle control
+                    behavior |= NSWindowCollectionBehaviorFullScreenPrimary;
+                }
+                // else: non-resizable ownerless windows keep the default behavior, which doesn't allow
+                // full screen access
             }
             else
             {
