@@ -328,6 +328,17 @@
     [self reorderChildWindows];
 }
 
+- (void)windowDidFailToExitFullScreen:(NSNotification *)notification
+{
+    //NSLog(@"windowDidFailToExitFullScreen");
+
+    // Fullscreen exit failed - window remains in fullscreen mode, restore buttons
+    BOOL isWindowEnabled = self->isEnabled;
+    [[self->nsWindow standardWindowButton:NSWindowZoomButton] setEnabled:isWindowEnabled];
+    [[self->nsWindow standardWindowButton:NSWindowMiniaturizeButton] setEnabled: NO];
+    [[self->nsWindow standardWindowButton:NSWindowZoomButton] setEnabled: isWindowEnabled && self->isResizable];
+}
+
 - (BOOL)windowShouldClose:(NSNotification *)notification
 {
     if (self->isEnabled)
