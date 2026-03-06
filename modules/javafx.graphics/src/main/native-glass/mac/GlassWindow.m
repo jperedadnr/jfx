@@ -567,12 +567,9 @@ static jlong _createWindowCommonDo(JNIEnv *env, jobject jWindow, jlong jOwnerPtr
             NSWindowCollectionBehavior behavior = [window->nsWindow collectionBehavior];
             if (!isPopup && !isUtility && !window->owner)
             {
-                if (window->isResizable) {
-                    // Only resizable ownerless windows should have the Full Screen Toggle control
-                    behavior |= NSWindowCollectionBehaviorFullScreenPrimary;
-                }
-                // else: non-resizable ownerless windows keep the default behavior, which doesn't allow
-                // full screen access
+                // Only resizable ownerless windows should have the Full Screen Toggle control
+                // This behavior is applied later in _setResizable:YES when the window becomes resizable.
+                // Non-resizable ownerless windows keep the default behavior, which doesn't allow full screen access
             }
             else
             {
@@ -830,7 +827,7 @@ JNIEXPORT void JNICALL Java_com_sun_glass_ui_mac_MacWindow__1setEnabled
         window->isEnabled = (BOOL)isEnabled;
 
         NSUInteger mask = [window->nsWindow styleMask];
-        BOOL isInFullScreen = (mask & NSFullScreenWindowMask) != 0;
+        BOOL isInFullScreen = (mask & NSWindowStyleMaskFullScreen) != 0;
         BOOL isPopupOrUtility = (mask & NSWindowStyleMaskUtilityWindow) != 0 || (mask & NSWindowStyleMaskNonactivatingPanel) != 0;
         BOOL isRegularWindow = !window->owner && !isPopupOrUtility;
         NSUInteger managedBits = (NSUInteger)(NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable);
