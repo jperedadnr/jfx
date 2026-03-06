@@ -601,6 +601,10 @@ static jlong _createWindowCommonDo(JNIEnv *env, jobject jWindow, jlong jOwnerPtr
         window->isSizeAssigned = NO;
         window->isLocationAssigned = NO;
         window->isResizable = NO;
+
+        // Initialize enabledStyleMask with current miniaturizable and resizable bits
+        window->enabledStyleMask = [window->nsWindow styleMask] & (NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable);
+
         [window _setResizable:NO]; // actual value will be set later with a separate JNI downcall
         [window->nsWindow setAppearance:isDarkFrame
             ? [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]
@@ -824,23 +828,56 @@ JNIEXPORT void JNICALL Java_com_sun_glass_ui_mac_MacWindow__1setEnabled
     {
         GlassWindow *window = getGlassWindow(env, jPtr);
         window->isEnabled = (BOOL)isEnabled;
+
+        NSUInteger mask = [window->nsWindow styleMask];
+        BOOL isInFullScreen = (mask & NSFullScreenWindowMask) != 0;
+        BOOL isPopupOrUtility = (mask & NSWindowStyleMaskUtilityWindow) != 0 || (mask & NSWindowStyleMaskNonactivatingPanel) != 0;
+        BOOL isRegularWindow = !window->owner && !isPopupOrUtility;
+        NSUInteger managedBits = (NSUInteger)(NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable);
+
+        NSButton *closeButton = [window->nsWindow standardWindowButton:NSWindowCloseButton];
         NSButton *zoomButton = [window->nsWindow standardWindowButton:NSWindowZoomButton];
-        if ((window->isEnabled) && (window->isResizable)){
-            [window->nsWindow setStyleMask: window->enabledStyleMask];
-            if (window->enabledStyleMask & NSWindowStyleMaskResizable) {
+
+        if ((window->isEnabled) && (window->isResizable)) {
+            // Restore miniaturizable and resizable styles, if not in fullscreen and is a regular window
+            if (!isInFullScreen && isRegularWindow) {
+                [window->nsWindow setStyleMask: (mask & ~managedBits) | window->enabledStyleMask];
+            }
+            // Restore zoom button state
+            if (zoomButton != nil) {
                 [zoomButton setEnabled:YES];
             }
-        }
-        else if((window->isEnabled) && (!window->isResizable)){
-            [window->nsWindow setStyleMask:
-                (window->enabledStyleMask & ~(NSUInteger) NSWindowStyleMaskResizable)];
-            [zoomButton setEnabled:NO];
-        }
-        else{
-            window->enabledStyleMask = [window->nsWindow styleMask];
-            [window->nsWindow setStyleMask:
-                (window->enabledStyleMask & ~(NSUInteger)(NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable))];
-            [zoomButton setEnabled:NO];
+            // Enable close button as window is re-enabled
+            if (closeButton != nil) {
+                [closeButton setEnabled:YES];
+            }
+        } else if ((window->isEnabled) && (!window->isResizable)) {
+            // Restore miniaturizable style, clear resizable style, if not in fullscreen and is a regular window
+            if (!isInFullScreen && isRegularWindow) {
+                [window->nsWindow setStyleMask:
+                    (mask & ~managedBits) | (window->enabledStyleMask & ~(NSUInteger) NSWindowStyleMaskResizable)];
+            }
+            // Disable zoom button as window is not resizable
+            if (zoomButton != nil) {
+                [zoomButton setEnabled:NO];
+            }
+            // Enable close button as window is re-enabled
+            if (closeButton != nil) {
+                [closeButton setEnabled:YES];
+            }
+        } else {
+            // Disabling the window - save both miniaturizable and resizable bits, if not in fullscreen and is a regular window
+            if (!isInFullScreen && isRegularWindow) {
+                window->enabledStyleMask = mask & managedBits;
+                [window->nsWindow setStyleMask: mask & ~managedBits];
+            }
+            // Disable both zoom and close buttons as window is disabled
+            if (zoomButton != nil) {
+                [zoomButton setEnabled:NO];
+            }
+            if (closeButton != nil) {
+                [closeButton setEnabled:NO];
+            }
         }
     }
     GLASS_POOL_EXIT;

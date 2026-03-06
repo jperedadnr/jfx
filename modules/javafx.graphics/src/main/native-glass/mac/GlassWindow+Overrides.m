@@ -241,10 +241,6 @@
     self->isWindowResizable = ((mask & NSWindowStyleMaskResizable) != 0);
     [[self->view delegate] setResizableForFullscreen:YES];
 
-    // Preserve the current miniaturizable and resizable bits before entering full screen
-    NSUInteger managedBits = (NSUInteger)(NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable);
-    self->enabledStyleMask = mask & managedBits;
-
     // When we switch to full-screen mode, we always need the standard window buttons to be shown.
     [[self->nsWindow standardWindowButton:NSWindowCloseButton] setHidden:NO];
     [[self->nsWindow standardWindowButton:NSWindowMiniaturizeButton] setHidden:NO];
