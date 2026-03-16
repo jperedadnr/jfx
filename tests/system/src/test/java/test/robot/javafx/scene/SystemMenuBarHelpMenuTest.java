@@ -69,7 +69,7 @@ public class SystemMenuBarHelpMenuTest {
     private static Menu menu;
     private static Stage stage;
 
-    private static final int DELAY = 100;
+    private static final int DELAY = 200;
 
     // Estimated x, y offset for the Help menu in the macOS system menu bar (after the Apple menu and java menu).
     private static final int MENU_BAR_X = 120;
@@ -124,7 +124,7 @@ public class SystemMenuBarHelpMenuTest {
 
         // Clean up: close the menu
         Util.runAndWait(() -> robot.keyType(KeyCode.ESCAPE));
-        Util.sleep(DELAY);
+        Util.sleep(DELAY); // wait for menu hiding animation to complete
     }
 
     /**
@@ -182,7 +182,7 @@ public class SystemMenuBarHelpMenuTest {
             // hide menu
             robot.mouseClick(MouseButton.PRIMARY);
         });
-        Util.sleep(2 * DELAY); // wait for menu hiding animation to complete
+        Util.sleep(DELAY); // wait for menu hiding animation to complete
 
         // Verify the menu is closed.
         Assertions.assertFalse(menu.isShowing(), "Menu should be closed");
@@ -211,7 +211,7 @@ public class SystemMenuBarHelpMenuTest {
 
         // Clean up: close the menu
         Util.runAndWait(() -> robot.keyType(KeyCode.ESCAPE));
-        Util.sleep(DELAY);
+        Util.sleep(DELAY); // wait for menu hiding animation to complete
     }
 
     public static class TestApp extends Application {
