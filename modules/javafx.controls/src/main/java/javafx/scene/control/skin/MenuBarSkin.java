@@ -495,23 +495,25 @@ public class MenuBarSkin extends SkinBase<MenuBar> {
     }
 
     private static void setSystemMenu(Stage stage) {
-        if (stage != null && stage.isFocused()) {
-            while (stage != null && stage.getOwner() instanceof Stage) {
-                MenuBarSkin skin = getMenuBarSkin(stage);
-                if (skin != null && skin.wrappedMenus != null) {
-                    break;
-                } else {
-                    // This is a secondary stage (dialog) that doesn't
-                    // have own menu bar.
-                    //
-                    // Continue looking for a menu bar in the parent stage.
-                    stage = (Stage)stage.getOwner();
+        if (stage != null) {
+            if (stage.isFocused()) {
+                while (stage != null && stage.getOwner() instanceof Stage) {
+                    MenuBarSkin skin = getMenuBarSkin(stage);
+                    if (skin != null && skin.wrappedMenus != null) {
+                        break;
+                    } else {
+                        // This is a secondary stage (dialog) that doesn't
+                        // have own menu bar.
+                        //
+                        // Continue looking for a menu bar in the parent stage.
+                        stage = (Stage)stage.getOwner();
+                    }
                 }
+            } else {
+                // The stage lost focus, but we don't need to remove its menubar now.
+                // If an owned dialog is shown, the owner stage should keep it as it was.
+                return;
             }
-        } else if (stage != null && !stage.isFocused()) {
-            // The stage lost focus, but we don't need to remove its menubar now.
-            // If an owned dialog is shown, the owner stage should keep it as it was.
-            return;
         }
 
         if (stage != currentMenuBarStage) {
