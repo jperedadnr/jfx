@@ -321,13 +321,16 @@
     // This handler is only called for popup windows as the observer
     // is only registered for popups in _createWindowCommonDo
 
-    // If this popup is not visible, don't cancel the menu event
-    if (![self->nsWindow isVisible]) {
+    // If this popup is not visible or is a non-auto-hide popup, return early, without cancelling the menu event
+    // or hiding the popup.
+    // Note that only auto-hide popups have an active focus grab.
+    if (![self->nsWindow isVisible] || ![GlassWindow _hasGrab]) {
         return;
     }
 
-    // When there is a mouse click over the system menu bar, and a popup window is showing,
-    // we consume the event by immediately closing the popup without allowing the menu to appear.
+    // When there is a mouse click over the system menu bar, and an auto-hide popup
+    // window is showing, we consume the event by immediately closing the popup
+    // without allowing the menu to appear.
     NSMenu *menu = notification.object;
     if (menu != nil) {
         [menu cancelTrackingWithoutAnimation];
@@ -336,13 +339,6 @@
     // For auto-hide popups, _resetGrab fires FOCUS_UNGRAB on the popup's owner window, which
     // will trigger doAutoHide() -> hide() on the popup.
     [GlassWindow _resetGrab];
-
-    // For non-auto-hide popups, jWindowNotifyClose fires WINDOW_CLOSE_REQUEST,
-    // and that calls hide() on the popup.
-    if ([self->nsWindow isVisible]) {
-        GET_MAIN_JENV;
-        (*env)->CallVoidMethod(env, self->jWindow, jWindowNotifyClose);
-    }
 }
 
 #pragma mark --- Title Icon
