@@ -25,8 +25,7 @@
 
 package jfx.incubator.scene.control.richtext;
 
-import com.sun.jfx.incubator.scene.control.richtext.VFlow;
-import jfx.incubator.scene.control.richtext.RichTextArea;
+import jfx.incubator.scene.control.richtext.skin.VFlow;
 
 /**
  * RichTextArea shim.

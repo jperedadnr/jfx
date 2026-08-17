@@ -30,6 +30,9 @@ import java.util.List;
 import com.sun.javafx.util.Utils;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.model.EmbeddedImage;
+import jfx.incubator.scene.control.richtext.skin.CellArrangement;
+import jfx.incubator.scene.control.richtext.skin.TextCell;
+import jfx.incubator.scene.control.richtext.skin.VFlow;
 
 /// Helper for the EmbeddedImage class.
 public class EmbeddedImageHelper {

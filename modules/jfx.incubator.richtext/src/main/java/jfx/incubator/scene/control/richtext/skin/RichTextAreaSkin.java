@@ -29,6 +29,8 @@ package jfx.incubator.scene.control.richtext.skin;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaBehavior;
 import javafx.collections.ObservableList;
 import javafx.event.EventHandler;
 import javafx.geometry.Orientation;
@@ -57,10 +59,8 @@ import javafx.scene.shape.VLineTo;
 import javafx.scene.text.Font;
 import com.sun.jfx.incubator.scene.control.input.InputMapHelper;
 import com.sun.jfx.incubator.scene.control.richtext.Params;
-import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaBehavior;
 import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaHelper;
 import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaSkinHelper;
-import com.sun.jfx.incubator.scene.control.richtext.VFlow;
 import com.sun.jfx.incubator.scene.control.richtext.util.ListenerHelper;
 import com.sun.jfx.incubator.scene.control.richtext.util.RichUtils;
 import jfx.incubator.scene.control.richtext.RichTextArea;
@@ -128,7 +128,7 @@ public class RichTextAreaSkin extends SkinBase<RichTextArea> {
         hscroll.setOrientation(Orientation.HORIZONTAL);
         hscroll.addEventFilter(ScrollEvent.ANY, (ev) -> ev.consume());
 
-        vflow = new VFlow(this, vscroll, hscroll);
+        vflow = createVFlow();
         getChildren().add(vflow);
 
         behavior = new RichTextAreaBehavior(control);
@@ -382,6 +382,17 @@ public class RichTextAreaSkin extends SkinBase<RichTextArea> {
     }
 
     /**
+     * Creates the vflow.
+     * <p>
+     * The subclasses may override this method to provide custom VFlow implementation.
+     *
+     * @return the vflow
+     */
+    protected VFlow createVFlow() {
+        return new VFlow(this, vscroll, hscroll);
+    }
+
+    /**
      * Creates the vertical scroll bar.
      * <p>
      * The subclasses may override this method to provide custom ScrollBar implementation.
@@ -403,8 +414,28 @@ public class RichTextAreaSkin extends SkinBase<RichTextArea> {
         return new ScrollBar();
     }
 
-    private VFlow getVFlow() {
+    /**
+     * Returns the skin's {@link VFlow}.
+     * @return vflow instance
+     */
+    protected final VFlow getVFlow() {
         return vflow;
+    }
+
+    /**
+     * Returns the skin's horizontal scroll bar.
+     * @return horizontal scroll bar instance
+     */
+    protected final ScrollBar getHScrollBar() {
+        return hscroll;
+    }
+
+    /**
+     * Returns the skin's vertical scroll bar.
+     * @return vertical scroll bar instance
+     */
+    protected final ScrollBar getVScrollBar() {
+        return vscroll;
     }
 
     /**

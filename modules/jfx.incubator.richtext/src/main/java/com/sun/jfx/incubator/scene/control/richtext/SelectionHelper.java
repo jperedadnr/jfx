@@ -32,6 +32,8 @@ import javafx.scene.shape.LineTo;
 import javafx.scene.shape.MoveTo;
 import javafx.scene.shape.PathElement;
 
+import java.util.List;
+
 /**
  * Selection Helper encapsulates the logic required to generate selection shapes.
  *
@@ -52,7 +54,7 @@ import javafx.scene.shape.PathElement;
  * TODO this class can be static because everything happens in the FX app thread.
  */
 public class SelectionHelper {
-    private final FxPathBuilder pathBuilder;
+    private final List<PathElement> pathElements;
     private final double left;
     private final double right;
     private double topUp = Double.POSITIVE_INFINITY;
@@ -65,8 +67,8 @@ public class SelectionHelper {
     private double bottomRight = Double.NEGATIVE_INFINITY;
     private static final double EPSILON = 0.001; // float point arithmetic is inexact
 
-    public SelectionHelper(FxPathBuilder b, double left, double right) {
-        this.pathBuilder = b;
+    public SelectionHelper(List<PathElement> b, double left, double right) {
+        this.pathElements = b;
         this.left = left;
         this.right = right;
     }
@@ -106,29 +108,29 @@ public class SelectionHelper {
         // only if the middle exists
         if (bottomUp > topDn) {
             if (topLTR) {
-                pathBuilder.moveto(topRight, topUp);
-                pathBuilder.lineto(right, topUp);
-                pathBuilder.lineto(right, td);
-                pathBuilder.lineto(topRight, td);
-                pathBuilder.lineto(topRight, topUp);
+                moveto(topRight, topUp);
+                lineto(right, topUp);
+                lineto(right, td);
+                lineto(topRight, td);
+                lineto(topRight, topUp);
             } else {
                 // TODO
             }
 
-            pathBuilder.moveto(left, td);
-            pathBuilder.lineto(right, td);
-            pathBuilder.lineto(right, bottomUp);
-            pathBuilder.lineto(left, bottomUp);
-            pathBuilder.lineto(left, td);
+            moveto(left, td);
+            lineto(right, td);
+            lineto(right, bottomUp);
+            lineto(left, bottomUp);
+            lineto(left, td);
 
             // trailer
 
             if (bottomLTR) {
-                pathBuilder.moveto(left, bottomUp);
-                pathBuilder.lineto(bottomLeft, bottomUp);
-                pathBuilder.lineto(bottomLeft, bd);
-                pathBuilder.lineto(left, bd);
-                pathBuilder.lineto(left, bottomUp);
+                moveto(left, bottomUp);
+                lineto(bottomLeft, bottomUp);
+                lineto(bottomLeft, bd);
+                lineto(left, bd);
+                lineto(left, bottomUp);
             } else {
                 // TODO
             }
@@ -227,7 +229,7 @@ public class SelectionHelper {
             // TODO special handling when outside of visible area
 
             adjust(top, topLeft, topDn, leftPadding, lineSpacing);
-            pathBuilder.addAll(top);
+            pathElements.addAll(List.of(top));
         } else {
             process(bottom, this::determineBottomYLimits);
             process(bottom, this::determineBottomXLimits);
@@ -239,9 +241,18 @@ public class SelectionHelper {
 //            D.p(" top: y=" + r(topUp) + ".." + r(topDn) + " x=" + r(topLeft) + ".." + r(topRight));
 //            D.p(" bot: y=" + r(bottomUp) + ".." + r(bottomDn) + " x=" + r(bottomLeft) + ".." + r(bottomRight));
 
-            pathBuilder.addAll(top);
+            pathElements.addAll(List.of(top));
             generateMiddle(topLTR, bottomLTR, lineSpacing);
-            pathBuilder.addAll(bottom);
+            pathElements.addAll(List.of(bottom));
         }
     }
+
+    private void moveto(double x, double y) {
+        pathElements.add(new MoveTo(x, y));
+    }
+
+    private void lineto(double x, double y) {
+        pathElements.add(new LineTo(x, y));
+    }
+
 }

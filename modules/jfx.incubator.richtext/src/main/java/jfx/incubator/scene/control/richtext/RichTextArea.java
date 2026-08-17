@@ -67,7 +67,7 @@ import com.sun.jfx.incubator.scene.control.richtext.RTAccessibilityHelper;
 import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaHelper;
 import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaSkinHelper;
 import com.sun.jfx.incubator.scene.control.richtext.StringBuilderStyledOutput;
-import com.sun.jfx.incubator.scene.control.richtext.VFlow;
+import jfx.incubator.scene.control.richtext.skin.VFlow;
 import com.sun.jfx.incubator.scene.control.richtext.util.RichUtils;
 import jfx.incubator.scene.control.input.FunctionTag;
 import jfx.incubator.scene.control.input.InputMap;

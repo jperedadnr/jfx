@@ -23,13 +23,12 @@
  * questions.
  */
 
-package com.sun.jfx.incubator.scene.control.richtext;
+package jfx.incubator.scene.control.richtext.skin;
 
 import javafx.scene.Node;
 import javafx.scene.text.Text;
 import jfx.incubator.scene.control.richtext.model.StyleAttribute;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
-import jfx.incubator.scene.control.richtext.skin.CellContext;
 
 /**
  * Assist in creating virtualized text cells.

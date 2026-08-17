@@ -25,12 +25,21 @@
 // This code borrows heavily from the following project, with permission from the author:
 // https://github.com/andy-goryachev/FxEditor
 
-package com.sun.jfx.incubator.scene.control.richtext;
+package jfx.incubator.scene.control.richtext.skin;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+
+import com.sun.jfx.incubator.scene.control.richtext.ClippedPane;
+import com.sun.jfx.incubator.scene.control.richtext.CssStyles;
+import com.sun.jfx.incubator.scene.control.richtext.FastCache;
+import com.sun.jfx.incubator.scene.control.richtext.Params;
+import com.sun.jfx.incubator.scene.control.richtext.RichParagraphHelper;
+import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaHelper;
+import com.sun.jfx.incubator.scene.control.richtext.SelectionHelper;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
@@ -74,7 +83,6 @@ import jfx.incubator.scene.control.richtext.model.RichTextModel;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.StyledSegment;
 import jfx.incubator.scene.control.richtext.model.StyledTextModel;
-import jfx.incubator.scene.control.richtext.skin.RichTextAreaSkin;
 
 /**
  * Contains all the parts representing the visuals of the RichTextAreaSkin.
@@ -116,6 +124,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
     private final Timeline caretAnimation;
     private final FastCache<TextCell> cellCache;
     private CellArrangement arrangement;
+    private final RowMap rowMap;
     private boolean dirty = true;
     private FastCache<Node> leftCache;
     private FastCache<Node> rightCache;
@@ -160,7 +169,8 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         hscroll.setUnitIncrement(Params.SCROLL_BARS_UNIT_INCREMENT);
         hscroll.setBlockIncrement(Params.SCROLL_BARS_BLOCK_INCREMENT);
 
-        cellCache = new FastCache(Params.CELL_CACHE_SIZE);
+        cellCache = new FastCache<>(Params.CELL_CACHE_SIZE);
+        rowMap = createRowMap();
 
         getStyleClass().add("vflow");
         setPadding(new Insets(Params.LAYOUT_FOCUS_BORDER));
@@ -237,6 +247,36 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         handleOriginChange();
     }
 
+    /**
+     * Creates the cell arrangement.
+     * <p>
+     * The subclasses may override this method to provide custom CellArrangement implementation.
+     *
+     * @return the cell arrangement
+     */
+    protected CellArrangement createCellArrangement() {
+        return new CellArrangement(this, contentPaddingTop, contentPaddingBottom, rowMap);
+    }
+
+    /**
+     * Creates the row map.
+     * <p>
+     * The subclasses may override this method to provide custom RowMap implementation.
+     *
+     * @return the row map
+     */
+    protected RowMap createRowMap() {
+        return new RowMap();
+    }
+
+    /**
+     * Called when the row map has been updated.
+     * @param clearCache whether to clear the cache
+     */
+    protected final void rowMapUpdated(boolean clearCache) {
+        requestControlLayout(clearCache);
+    }
+
     public void dispose() {
         subscriptions.unsubscribe();
         caretPath.visibleProperty().unbind();
@@ -252,7 +292,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         return t;
     }
 
-    public void handleModelChange() {
+    void handleModelChange() {
         setOrigin(new Origin(0, -contentPaddingTop));
         handleWrapText();
 //        setUnwrappedContentWidth(0.0);
@@ -261,7 +301,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
 //        control.select(TextPos.ZERO);
     }
 
-    public void handleWrapText() {
+    void handleWrapText() {
         if (control.isWrapText()) {
             double w = viewPortWidth;
             setUnwrappedContentWidth(w);
@@ -276,7 +316,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         requestControlLayout(true);
     }
 
-    public void handleDecoratorChange() {
+    void handleDecoratorChange() {
         leftCache = updateSideCache(control.getLeftDecorator(), leftCache);
         rightCache = updateSideCache(control.getRightDecorator(), rightCache);
         requestControlLayout(false);
@@ -298,14 +338,14 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         return cache;
     }
 
-    public void invalidateLayout() {
+    void invalidateLayout() {
         cellCache.clear();
         requestLayout();
         updateHorizontalScrollBar(); // defer?
         updateVerticalScrollBar(); // defer?
     }
 
-    public void handleContentPadding() {
+    void handleContentPadding() {
         Insets m = control.getContentPadding();
         if (m == null) {
             m = Insets.EMPTY;
@@ -423,14 +463,14 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         requestLayout();
     }
 
-    public void handleSelectionChange() {
+    void handleSelectionChange() {
         setSuppressBlink(true);
         updateCaretAndSelection();
         scrollCaretToVisible();
         setSuppressBlink(false);
     }
 
-    public void updateCaretAndSelection() {
+    void updateCaretAndSelection() {
         if (arrangement == null) {
             removeCaretAndSelection();
             return;
@@ -449,22 +489,22 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
 
         // current line highlight
         if (control.isHighlightCurrentParagraph()) {
-            FxPathBuilder b = new FxPathBuilder();
-            createCurrentLineHighlight(b, caret);
-            caretLineHighlight.getElements().setAll(b.getPathElements());
+            final List<PathElement> elements = new ArrayList<>();
+            createCurrentLineHighlight(elements, caret);
+            caretLineHighlight.getElements().setAll(elements);
         } else {
             caretLineHighlight.getElements().clear();
         }
 
         // selection
-        FxPathBuilder b = new FxPathBuilder();
-        createSelectionHighlight(b, anchor, caret);
-        selectionHighlight.getElements().setAll(b.getPathElements());
+        final List<PathElement> elements = new ArrayList<>();
+        createSelectionHighlight(elements, anchor, caret);
+        selectionHighlight.getElements().setAll(elements);
 
         // caret
-        b = new FxPathBuilder();
-        createCaretPath(b, caret);
-        caretPath.getElements().setAll(b.getPathElements());
+        elements.clear();
+        createCaretPath(elements, caret);
+        caretPath.getElements().setAll(elements);
     }
 
     protected void removeCaretAndSelection() {
@@ -473,14 +513,14 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         caretPath.getElements().clear();
     }
 
-    protected void createCaretPath(FxPathBuilder b, TextPos p) {
+    protected void createCaretPath(List<PathElement> elements, TextPos p) {
         CaretInfo c = getCaretInfo(p);
         if (c != null) {
-            b.addAll(c.path());
+            Collections.addAll(elements, c.path());
         }
     }
 
-    protected void createSelectionHighlight(FxPathBuilder b, TextPos start, TextPos end) {
+    protected void createSelectionHighlight(List<PathElement> elements, TextPos start, TextPos end) {
         // probably unnecessary
         if ((start == null) || (end == null)) {
             return;
@@ -535,10 +575,10 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         boolean bottomLTR = true;
 
         double lineSpacing = 0.0; // FIX JDK-8317120
-        new SelectionHelper(b, left, right).generate(top, bottom, topLTR, bottomLTR, contentPaddingLeft, lineSpacing);
+        new SelectionHelper(elements, left, right).generate(top, bottom, topLTR, bottomLTR, contentPaddingLeft, lineSpacing);
     }
 
-    protected void createCurrentLineHighlight(FxPathBuilder b, TextPos caret) {
+    protected void createCurrentLineHighlight(List<PathElement> elements, TextPos caret) {
         int ix = caret.index();
         TextCell cell = arrangement().getVisibleCell(ix);
         if (cell != null) {
@@ -548,11 +588,11 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
             } else {
                 w = Math.max(getWidth(), contentWidth());
             }
-            cell.addBoxOutline(b, 0.0, snapPositionX(w), cell.getCellHeight());
+            cell.addBoxOutline(elements, 0.0, snapPositionX(w), cell.getCellHeight());
         }
     }
 
-    /** uses vflow.content cooridinates */
+    /** uses vflow.content coordinates */
     public TextPos getTextPosLocal(double localX, double localY) {
         return arrangement().getTextPos(localX - contentPaddingLeft, localY);
     }
@@ -642,6 +682,10 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         return control.getParagraphCount();
     }
 
+    public final int getRowCount() {
+        return rowMap.getRowCount(getParagraphCount());
+    }
+
     /**
      * Returns control's content padding, always non-null.
      * @return the content padding
@@ -673,7 +717,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
             double av = ar.averageHeight();
             double max = ar.estimatedMax();
             double h = getViewPortHeight();
-            val = toScrollBarValue((topCellIndex() - ar.topCount()) * av + ar.topHeight(), h, max);
+            val = toScrollBarValue(ar.topIndex() * av + ar.topHeight(), h, max);
             visible = h / max;
         }
 
@@ -686,7 +730,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
     }
 
     /** handles user moving the vertical scroll bar */
-    public void handleVerticalScroll() {
+    void handleVerticalScroll() {
         if (handleScrollEvents) {
             if (getParagraphCount() == 0) {
                 return;
@@ -714,9 +758,9 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
             double val = vscroll.getValue();
             double pos = (val - min) / max;
 
-            int lineCount = getParagraphCount();
-            int ix = Math.max(0, (int)Math.round(pos * (lineCount - 1)));
-            Origin p = new Origin(ix, 0.0);
+            int lineCount = getRowCount();
+            int row = Math.max(0, (int)Math.round(pos * (lineCount - 1)));
+            Origin p = new Origin(rowMap.getModelIndex(row), 0.0);
             setOrigin(p);
             layoutCells(false);
 
@@ -761,7 +805,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
     }
 
     /** handles user moving the horizontal scroll bar */
-    public void handleHorizontalScroll() {
+    void handleHorizontalScroll() {
         if (handleScrollEvents) {
             if ((arrangement == null) || control.isWrapText()) {
                 return;
@@ -922,7 +966,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
     }
 
     /** returns a non-null layout, laying out cells if necessary */
-    protected CellArrangement arrangement() {
+    public CellArrangement arrangement() {
         if (!inReflow && dirty || (arrangement == null)) {
             layoutChildren();
         }
@@ -1066,6 +1110,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
 
     @Override
     public void onContentChange(ContentChange ch) {
+        rowMap.onContentChange(ch);
         if (ch.isEdit()) {
             Origin newOrigin = computeNewOrigin(ch);
             if (newOrigin != null) {
@@ -1196,12 +1241,16 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         int ix = p.index();
         if (ix == caretIndex) {
             if (down) {
-                ix++;
-                if (ix >= skin.getSkinnable().getParagraphCount()) {
+                do {
+                    ix++;
+                } while (ix < getParagraphCount() && isParagraphHidden(ix));
+                if (ix >= getParagraphCount()) {
                     return skin.getSkinnable().getDocumentEnd();
                 }
             } else {
-                ix--;
+                do {
+                    ix--;
+                } while (ix >= 0 && isParagraphHidden(ix));
                 if (ix < 0) {
                     return TextPos.ZERO;
                 }
@@ -1214,7 +1263,11 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         return p;
     }
 
-    public void handleUseContentHeight() {
+    public boolean isParagraphHidden(int index) {
+        return rowMap.isHidden(index);
+    }
+
+    void handleUseContentHeight() {
         boolean on = control.isUseContentHeight();
         if (on) {
             setUnwrappedContentWidth(0.0);
@@ -1224,7 +1277,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         requestControlLayout(false);
     }
 
-    public void handleUseContentWidth() {
+    void handleUseContentWidth() {
         boolean on = control.isUseContentWidth();
         if (on) {
             setUnwrappedContentWidth(0.0);
@@ -1365,7 +1418,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
             arrangement.removeNodesFrom(content);
             arrangement = null;
         }
-        arrangement = new CellArrangement(this, contentPaddingTop, contentPaddingBottom);
+        arrangement = createCellArrangement();
 
         double width = getWidth();
         if (width == 0.0) {
@@ -1383,7 +1436,8 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         leftSide = computeSideWidth(leftDecorator);
         rightSide = computeSideWidth(rightDecorator);
 
-        int paragraphCount = getParagraphCount();
+        int rowCount = getRowCount();
+        int originRow = Math.min(rowMap.getViewRow(topCellIndex()), Math.max(0, rowCount - 1));
         boolean useContentHeight = control.isUseContentHeight();
         boolean useContentWidth = control.isUseContentWidth();
         boolean wrap = control.isWrapText() && !useContentWidth;
@@ -1412,9 +1466,9 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         double defaultInterval = getDefaultInterval();
 
         // populating visible part of the sliding window + bottom margin
-        int i = topCellIndex();
-        for ( ; i < paragraphCount; i++) {
-            TextCell cell = prepareCell(i, maxWidth, defaultInterval);
+        int row = originRow;
+        for ( ; row < rowCount; row++) {
+            TextCell cell = prepareCell(rowMap.getModelIndex(row), maxWidth, defaultInterval);
 
             double h = cell.prefHeight(availableWidth) + getLineSpacing(cell.getContent());
             h = snapSizeY(h);
@@ -1471,7 +1525,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
             arrangement.setVisibleCellCount(count);
         }
 
-        if (i == paragraphCount) {
+        if (row == rowCount) {
             y += contentPaddingBottom;
         }
 
@@ -1481,8 +1535,8 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
                 leftCache = updateSideCache(leftDecorator, null);
             }
 
-            for (i = 0; i < arrangement.getVisibleCellCount(); i++) {
-                TextCell cell = arrangement.getCellAt(i);
+            for (row = 0; row < arrangement.getVisibleCellCount(); row++) {
+                TextCell cell = arrangement.getCellAt(row);
                 int ix = cell.getIndex();
                 Node n = leftCache.get(ix);
                 if (n == null) {
@@ -1493,7 +1547,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
                     }
                 }
                 if (n != null) {
-                    arrangement.addLeftNode(i, n);
+                    arrangement.addLeftNode(row, n);
                 }
             }
         }
@@ -1503,8 +1557,8 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
                 rightCache = updateSideCache(rightDecorator, null);
             }
 
-            for (i = 0; i < arrangement.getVisibleCellCount(); i++) {
-                TextCell cell = arrangement.getCellAt(i);
+            for (row = 0; row < arrangement.getVisibleCellCount(); row++) {
+                TextCell cell = arrangement.getCellAt(row);
                 int ix = cell.getIndex();
                 Node n = rightCache.get(ix);
                 if (n == null) {
@@ -1515,7 +1569,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
                     }
                 }
                 if (n != null) {
-                    arrangement.addRightNode(i, n);
+                    arrangement.addRightNode(row, n);
                 }
             }
         }
@@ -1528,8 +1582,9 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         count = 0;
         y = ytop;
 
-        // populate top margin, going backwards from topCellIndex
-        for (i = topCellIndex() - 1; i >= 0; i--) {
+        // populate top margin, going backwards from the origin row
+        for (row = originRow - 1; row >= 0; row--) {
+            int i = rowMap.getModelIndex(row);
             TextCell cell = prepareCell(i, maxWidth, defaultInterval);
 
             double h = cell.prefHeight(availableWidth) + getLineSpacing(cell.getContent());
@@ -1681,8 +1736,8 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         double x = wrap ? 0.0 : contentPaddingLeft;
 
         int sz = arrangement.getVisibleCellCount();
-        for (i = 0; i < sz; i++) {
-            TextCell cell = arrangement.getCellAt(i);
+        for (row = 0; row < sz; row++) {
+            TextCell cell = arrangement.getCellAt(row);
             double ch = cell.getCellHeight();
             double cy = cell.getY();
             double cw = wrap ? viewPortWidth : cell.getCellWidth();
@@ -1693,7 +1748,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
 
             // place side nodes
             if (addLeft) {
-                Node n = arrangement.getLeftNodeAt(i);
+                Node n = arrangement.getLeftNodeAt(row);
                 if (n != null) {
                     leftGutter.getChildren().add(n);
                     n.applyCss();
@@ -1702,7 +1757,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
             }
 
             if (addRight) {
-                Node n = arrangement.getRightNodeAt(i);
+                Node n = arrangement.getRightNodeAt(row);
                 if (n != null) {
                     rightGutter.getChildren().add(n);
                     n.applyCss();
@@ -1731,6 +1786,9 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         for (int ix = ix1; ix <= ix2; ix++) {
             TextCell cell = arrangement().getVisibleCell(ix);
             if (cell == null) {
+                if (rowMap.isHidden(ix)) {
+                    continue;
+                }
                 break;
             }
             int beginOffset = (ix == ix1) ? start.offset() : 0;
@@ -1793,9 +1851,9 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
                 content.getChildren().add(dropTarget);
             }
 
-            FxPathBuilder b = new FxPathBuilder();
-            createCaretPath(b, p);
-            dropTarget.getElements().setAll(b.getPathElements());
+            List<PathElement> elements = new ArrayList<>();
+            createCaretPath(elements, p);
+            dropTarget.getElements().setAll(elements);
             dropTarget.setVisible(true);
         }
     }

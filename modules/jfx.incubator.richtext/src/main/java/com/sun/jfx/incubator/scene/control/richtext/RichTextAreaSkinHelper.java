@@ -30,6 +30,7 @@ import com.sun.javafx.util.Utils;
 import com.sun.jfx.incubator.scene.control.richtext.util.ListenerHelper;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.skin.RichTextAreaSkin;
+import jfx.incubator.scene.control.richtext.skin.VFlow;
 
 /**
  * Manages RichTextAreaSkin Accessor.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2023, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,45 +22,22 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-// This code borrows heavily from the following project, with permission from the author:
-// https://github.com/andy-goryachev/FxEditor
 
-package com.sun.jfx.incubator.scene.control.richtext;
-
-import java.util.ArrayList;
-import java.util.List;
-import javafx.scene.shape.LineTo;
-import javafx.scene.shape.MoveTo;
-import javafx.scene.shape.PathElement;
+package jfx.incubator.scene.control.richtext.skin;
 
 /**
- * Conventient utility for building javafx {@link Path}
+ * View origin: model index of the top paragraph index + offset in pixels from the upper edge of the top cell to
+ * the upper edge of the view area.
+ *
+ * @param index the model index of a paragraph at the top of visible area
+ * @param offset the distance in pixels from the top of the visible area to the top of the topmost paragraph
  */
-public class FxPathBuilder {
-    private final ArrayList<PathElement> elements = new ArrayList<>();
+public record Origin(int index, double offset) {
+    /** beginning of the document */
+    public static final Origin ZERO = new Origin(0, 0.0);
 
-    public FxPathBuilder() {
-    }
-
-    public void add(PathElement em) {
-        elements.add(em);
-    }
-
-    public void addAll(PathElement... es) {
-        for (PathElement em : es) {
-            elements.add(em);
-        }
-    }
-
-    public void moveto(double x, double y) {
-        add(new MoveTo(x, y));
-    }
-
-    public void lineto(double x, double y) {
-        add(new LineTo(x, y));
-    }
-
-    public List<PathElement> getPathElements() {
-        return elements;
+    @Override
+    public String toString() {
+        return "Origin{index=" + index + ", offset=" + offset + "}";
     }
 }

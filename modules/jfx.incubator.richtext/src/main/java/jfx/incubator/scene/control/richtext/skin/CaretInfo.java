@@ -23,8 +23,9 @@
  * questions.
  */
 
-package com.sun.jfx.incubator.scene.control.richtext;
+package jfx.incubator.scene.control.richtext.skin;
 
+import java.util.Arrays;
 import java.util.Objects;
 import javafx.scene.shape.LineTo;
 import javafx.scene.shape.MoveTo;
@@ -59,7 +60,7 @@ public final class CaretInfo {
      * @param path the caret path
      * @return the CaretInfo instance
      */
-    public static CaretInfo create(double lineSpacing, PathElement[] path) {
+    static CaretInfo create(double lineSpacing, PathElement[] path) {
         Objects.requireNonNull(path);
         if (path.length == 0) {
             throw new IllegalArgumentException("non-empty path is required");
@@ -160,7 +161,7 @@ public final class CaretInfo {
      * @return the non-null array of path elements
      */
     public final PathElement[] path() {
-        return path;
+        return Arrays.copyOf(path, path.length);
     }
 
     /**

@@ -35,7 +35,7 @@ import javafx.scene.Node;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import com.sun.jfx.incubator.scene.control.richtext.RichParagraphHelper;
-import com.sun.jfx.incubator.scene.control.richtext.TextCell;
+import jfx.incubator.scene.control.richtext.skin.TextCell;
 
 /**
  * Represents a single immutable paragraph within the {@code StyledModel}.

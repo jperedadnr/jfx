@@ -41,7 +41,7 @@ import javafx.scene.image.Image;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import com.sun.jfx.incubator.scene.control.richtext.ImageCellPane;
-import com.sun.jfx.incubator.scene.control.richtext.TextCell;
+import jfx.incubator.scene.control.richtext.skin.TextCell;
 import jfx.incubator.scene.control.richtext.StyleResolver;
 import jfx.incubator.scene.control.richtext.TextPos;
 

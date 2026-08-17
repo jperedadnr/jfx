@@ -25,7 +25,7 @@
 // This code borrows heavily from the following project, with permission from the author:
 // https://github.com/andy-goryachev/FxEditor
 
-package com.sun.jfx.incubator.scene.control.richtext;
+package jfx.incubator.scene.control.richtext.skin;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,6 +34,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+
+import com.sun.jfx.incubator.scene.control.richtext.FirstLineIndentSpacer;
+import com.sun.jfx.incubator.scene.control.richtext.HighlightShape;
+import com.sun.jfx.incubator.scene.control.richtext.RangeInfo;
+import com.sun.jfx.incubator.scene.control.richtext.RequiresComplexLayout;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
@@ -50,7 +55,6 @@ import com.sun.jfx.incubator.scene.control.richtext.util.RichUtils;
 import jfx.incubator.scene.control.richtext.model.StyleAttribute;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.TabStops;
-import jfx.incubator.scene.control.richtext.skin.CellContext;
 
 /**
  * Provides a visual representation of a paragraph.
@@ -63,7 +67,7 @@ import jfx.incubator.scene.control.richtext.skin.CellContext;
  * Each visible TextCell will be resized horizontally to fill the available width and then resized vertically
  * according to its preferred size for that width.
  */
-public final class TextCell extends BorderPane {
+public class TextCell extends BorderPane {
     private final int index;
     private final Region content;
     private double width;
@@ -80,7 +84,7 @@ public final class TextCell extends BorderPane {
      * @param embedsNode whether the content is a paragraph
      */
     public TextCell(int index, Region content, boolean embedsNode) {
-        Objects.nonNull(content);
+        Objects.requireNonNull(content);
         this.index = index;
         this.content = content;
         this.embedsNode = embedsNode;
@@ -115,7 +119,7 @@ public final class TextCell extends BorderPane {
      * Adds a non-text node to the text flow.
      * @param node the node to add
      */
-    public void add(Node node) {
+    void add(Node node) {
         flow().getChildren().add(node);
         embedsNode = true;
         checkClient(node);
@@ -134,7 +138,7 @@ public final class TextCell extends BorderPane {
      * Adds a text segment to the text flow.
      * @param t the text segment
      */
-    public void addTextSegment(Text t) {
+    void addTextSegment(Text t) {
         flow().getChildren().add(t);
     }
 
@@ -175,7 +179,7 @@ public final class TextCell extends BorderPane {
      * Valid only when cell is obtained from the arrangement.
      * @return y coordinate relative to origin
      */
-    public double getY() {
+    double getY() {
         return y;
     }
 
@@ -183,27 +187,27 @@ public final class TextCell extends BorderPane {
      * Valid only when cell is obtained from the arrangement.
      * @return y the cell height
      */
-    public double getCellHeight() {
+    double getCellHeight() {
         return height;
     }
 
-    public void setCellWidth(double w) {
+    void setCellWidth(double w) {
         width = w;
     }
 
-    public double getCellWidth() {
+    double getCellWidth() {
         return width;
     }
 
-    public void addBoxOutline(FxPathBuilder b, double x, double w, double h) {
+    void addBoxOutline(List<PathElement> elements, double x, double w, double h) {
         double y0 = getLayoutY();
         double y1 = y0 + h;
 
-        b.moveto(x, y0);
-        b.lineto(w, y0);
-        b.lineto(w, y1);
-        b.lineto(x, y1);
-        b.lineto(x, y0);
+        elements.add(new MoveTo(x, y0));
+        elements.add(new LineTo(w, y0));
+        elements.add(new LineTo(w, y1));
+        elements.add(new LineTo(x, y1));
+        elements.add(new LineTo(x, y0));
     }
 
     /**
@@ -215,7 +219,7 @@ public final class TextCell extends BorderPane {
      * @param leading the character bias
      * @return the array of path elements translated to the target coordinates
      */
-    public PathElement[] getCaretShape(Region target, int charIndex, boolean leading) {
+    protected PathElement[] getCaretShape(Region target, int charIndex, boolean leading) {
         PathElement[] p;
         if (content instanceof TextFlow f) {
             p = f.getCaretShape(charIndex, leading);
@@ -250,7 +254,7 @@ public final class TextCell extends BorderPane {
      * @param end the end offset
      * @return the array of path elements translated to the target coordinates
      */
-    public PathElement[] getUnderlineShape(Region target, int start, int end) {
+    protected PathElement[] getUnderlineShape(Region target, int start, int end) {
         PathElement[] p;
         if (content instanceof TextFlow f) {
             p = f.getUnderlineShape(start, end);
@@ -275,7 +279,7 @@ public final class TextCell extends BorderPane {
      * @param end the end offset
      * @return the array of path elements translated to the target coordinates
      */
-    public PathElement[] getRangeShape(Region target, int start, int end) {
+    protected PathElement[] getRangeShape(Region target, int start, int end) {
         PathElement[] p;
         if (content instanceof TextFlow f) {
             p = f.getRangeShape(start, end, true);
@@ -350,7 +354,7 @@ public final class TextCell extends BorderPane {
      *
      * @param bullet
      */
-    public void setBullet(String bullet) {
+    void setBullet(String bullet) {
         Label b = new Label(bullet);
         b.setAlignment(Pos.TOP_CENTER);
         // TODO get some attributes from the first text segment - font? color? or use default paragraph attrs?
@@ -362,7 +366,7 @@ public final class TextCell extends BorderPane {
      *
      * @return the line spacing
      */
-    public double getLineSpacing() {
+    double getLineSpacing() {
         if (content instanceof TextFlow f) {
             return f.getLineSpacing();
         }
@@ -375,7 +379,7 @@ public final class TextCell extends BorderPane {
      * @param offset the character offset
      * @return the line index
      */
-    public Integer lineForOffset(int offset) {
+    Integer lineForOffset(int offset) {
         if (content instanceof TextFlow f) {
             return RichUtils.lineForOffset(f, offset);
         }
@@ -388,7 +392,7 @@ public final class TextCell extends BorderPane {
      * @param line the line index
      * @return the line start offset
      */
-    public Integer lineStart(int line) {
+    Integer lineStart(int line) {
         if (content instanceof TextFlow f) {
             return RichUtils.lineStart(f, line);
         }
@@ -401,7 +405,7 @@ public final class TextCell extends BorderPane {
      * @param line the line index
      * @return the line offset
      */
-    public Integer lineEnd(int line) {
+    Integer lineEnd(int line) {
         if (content instanceof TextFlow f) {
             return RichUtils.lineEnd(f, line);
         }
@@ -420,7 +424,7 @@ public final class TextCell extends BorderPane {
         return RangeInfo.of(width, height);
     }
 
-    public boolean isInsideText(double x, double y, boolean down) {
+    boolean isInsideText(double x, double y, boolean down) {
         y -= snappedTopInset();
         y -= content.snappedTopInset();
 
@@ -437,7 +441,7 @@ public final class TextCell extends BorderPane {
         return false;
     }
 
-    public double findHitCandidate(double py, boolean down) {
+    double findHitCandidate(double py, boolean down) {
         double dy = snappedTopInset() + content.snappedTopInset();
         double y = py - dy;
 
@@ -461,7 +465,7 @@ public final class TextCell extends BorderPane {
         }
     }
 
-    public Integer lineEdge(boolean start, int caretIndex, int caretOffset) {
+    Integer lineEdge(boolean start, int caretIndex, int caretOffset) {
         if (content instanceof TextFlow f) {
             int line = RichUtils.lineForOffset(f, caretOffset);
             if (start) {
@@ -473,7 +477,7 @@ public final class TextCell extends BorderPane {
         return null;
     }
 
-    public void setParagraphAttributes(StyleAttributeMap a, double defaultInterval) {
+    void setParagraphAttributes(StyleAttributeMap a, double defaultInterval) {
         Double firstLineIndent = a.getFirstLineIndent();
         if (firstLineIndent != null) {
             add(new FirstLineIndentSpacer(firstLineIndent));
@@ -506,7 +510,7 @@ public final class TextCell extends BorderPane {
         }
     }
 
-    public void updateVFlowContext(VFlow f) {
+    void updateVFlowContext(VFlow f) {
         if (clients != null) {
             for (RequiresComplexLayout r : clients) {
                 r.updateVFlowContext(f);
@@ -515,7 +519,7 @@ public final class TextCell extends BorderPane {
     }
 
     // collects and coalesces decorations that run over more than one segment
-    public void decorateRun(int length, StyleAttribute<?> a, CellContext.RunDecor type, String styleName) {
+    void decorateRun(int length, StyleAttribute<?> a, CellContext.RunDecor type, String styleName) {
         if (decorator == null) {
             decorator = new Decorator(flow());
         }
@@ -523,7 +527,7 @@ public final class TextCell extends BorderPane {
     }
 
     /// Applies decorations in a consistent order (sorted by style name).
-    public void applyDecorations() {
+    void applyDecorations() {
         if (decorator != null) {
             for (DecorationRun d : decorator.getSortedRuns()) {
                 switch (d.type) {

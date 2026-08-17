@@ -33,7 +33,7 @@ import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import com.sun.jfx.incubator.scene.control.richtext.EmbeddedImageHelper;
 import com.sun.jfx.incubator.scene.control.richtext.RequiresComplexLayout;
-import com.sun.jfx.incubator.scene.control.richtext.VFlow;
+import jfx.incubator.scene.control.richtext.skin.VFlow;
 
 /**
  * An attribute which allows an image to be embedded into the {@link RichTextModel}.

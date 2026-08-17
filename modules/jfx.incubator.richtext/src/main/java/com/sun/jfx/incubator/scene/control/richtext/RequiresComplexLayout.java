@@ -25,6 +25,8 @@
 
 package com.sun.jfx.incubator.scene.control.richtext;
 
+import jfx.incubator.scene.control.richtext.skin.VFlow;
+
 /// Internal interface which enables an implementation adjust its geometry to the current state of
 /// the enveloping `VFlow`.
 public interface RequiresComplexLayout {

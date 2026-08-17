@@ -63,6 +63,9 @@ import jfx.incubator.scene.control.richtext.model.DataFormatHandler;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.StyledInput;
 import jfx.incubator.scene.control.richtext.model.StyledTextModel;
+import jfx.incubator.scene.control.richtext.skin.CaretInfo;
+import jfx.incubator.scene.control.richtext.skin.TextCell;
+import jfx.incubator.scene.control.richtext.skin.VFlow;
 
 /**
  * This class provides the RichTextArea behavior by registering input mappings and
@@ -517,7 +520,7 @@ public class RichTextAreaBehavior extends BehaviorBase<RichTextArea> {
             delta = -delta;
         }
         vflow.scrollVerticalPixels(delta);
-        vflow.layoutChildren();
+        vflow.layout();
 
         double x = Math.max(0.0, phantomX);
         double y = autoScrollUp ? 0.0 : vflow.getViewPortHeight();
@@ -580,7 +583,9 @@ public class RichTextAreaBehavior extends BehaviorBase<RichTextArea> {
         int ix = caret.index();
         TextPos end = control.getParagraphEnd(ix);
         if (caret.isSameInsertionIndex(end)) {
-            ix++;
+            do {
+                ix++;
+            } while (ix < control.getParagraphCount() && vflow.isParagraphHidden(ix));
             if (ix >= control.getParagraphCount()) {
                 return null;
             }
@@ -593,7 +598,9 @@ public class RichTextAreaBehavior extends BehaviorBase<RichTextArea> {
         int ix = caret.index();
         TextPos p = TextPos.ofLeading(ix, 0);
         if (caret.isSameInsertionIndex(p)) {
-            --ix;
+            do {
+                --ix;
+            } while (ix >= 0 && vflow.isParagraphHidden(ix));
             if (ix < 0) {
                 return null;
             }
