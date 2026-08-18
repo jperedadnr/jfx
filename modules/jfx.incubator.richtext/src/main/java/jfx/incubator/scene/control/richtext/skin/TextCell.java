@@ -119,7 +119,7 @@ public class TextCell extends BorderPane {
      * Adds a non-text node to the text flow.
      * @param node the node to add
      */
-    void add(Node node) {
+    protected void add(Node node) {
         flow().getChildren().add(node);
         embedsNode = true;
         checkClient(node);
@@ -138,7 +138,7 @@ public class TextCell extends BorderPane {
      * Adds a text segment to the text flow.
      * @param t the text segment
      */
-    void addTextSegment(Text t) {
+    protected void addTextSegment(Text t) {
         flow().getChildren().add(t);
     }
 
@@ -187,7 +187,7 @@ public class TextCell extends BorderPane {
      * Valid only when cell is obtained from the arrangement.
      * @return y the cell height
      */
-    double getCellHeight() {
+    public final double getCellHeight() {
         return height;
     }
 
@@ -199,7 +199,16 @@ public class TextCell extends BorderPane {
         return width;
     }
 
-    void addBoxOutline(List<PathElement> elements, double x, double w, double h) {
+    /**
+     * Adds a rectangular outline of the cell to the given list of path elements,
+     * in the cell's frame of reference.
+     *
+     * @param elements the list to add to
+     * @param x the left edge
+     * @param w the right edge
+     * @param h the height
+     */
+    protected void addBoxOutline(List<PathElement> elements, double x, double w, double h) {
         double y0 = getLayoutY();
         double y1 = y0 + h;
 
@@ -366,7 +375,7 @@ public class TextCell extends BorderPane {
      *
      * @return the line spacing
      */
-    double getLineSpacing() {
+    protected double getLineSpacing() {
         if (content instanceof TextFlow f) {
             return f.getLineSpacing();
         }
@@ -465,7 +474,16 @@ public class TextCell extends BorderPane {
         }
     }
 
-    Integer lineEdge(boolean start, int caretIndex, int caretOffset) {
+    /**
+     * Returns the start (or end) offset of the text line containing the given offset,
+     * when the content is a {@code TextFlow}, or null otherwise.
+     *
+     * @param start whether to return the line start (true) or the line end (false)
+     * @param caretIndex the caret paragraph index
+     * @param caretOffset the caret character offset
+     * @return the line edge offset, or null
+     */
+    protected Integer lineEdge(boolean start, int caretIndex, int caretOffset) {
         if (content instanceof TextFlow f) {
             int line = RichUtils.lineForOffset(f, caretOffset);
             if (start) {

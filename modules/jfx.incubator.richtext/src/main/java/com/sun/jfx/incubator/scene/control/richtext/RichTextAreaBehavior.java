@@ -64,7 +64,6 @@ import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.StyledInput;
 import jfx.incubator.scene.control.richtext.model.StyledTextModel;
 import jfx.incubator.scene.control.richtext.skin.CaretInfo;
-import jfx.incubator.scene.control.richtext.skin.TextCell;
 import jfx.incubator.scene.control.richtext.skin.VFlow;
 
 /**
@@ -752,56 +751,7 @@ public class RichTextAreaBehavior extends BehaviorBase<RichTextArea> {
     }
 
     protected TextPos nextCharacterVisually(TextPos start, boolean moveRight) {
-        if (isRTL()) {
-            moveRight = !moveRight;
-        }
-
-        RichTextArea control = getControl();
-        TextCell cell = vflow.getCell(start.index());
-        int cix = start.offset();
-        if (moveRight) {
-            cix++;
-            if (cix > cell.getTextLength()) {
-                int ix = cell.getIndex() + 1;
-                TextPos p;
-                if (ix < control.getParagraphCount()) {
-                    // next line
-                    p = TextPos.ofLeading(ix, 0);
-                } else {
-                    // end of last paragraph w/o newline
-                    p = TextPos.ofLeading(cell.getIndex(), cell.getTextLength());
-                }
-                return p;
-            }
-        } else {
-            if (start.offset() == 0) {
-                int ix = cell.getIndex() - 1;
-                if (ix >= 0) {
-                    // end of prev line
-                    return control.getParagraphEnd(ix);
-                }
-                return null;
-            }
-        }
-
-        // using default locale, same as TextInputControl.backward() for example
-        BreakIterator br = BreakIterator.getCharacterInstance();
-        String text = getPlainText(cell.getIndex());
-        br.setText(text);
-        int off = start.offset();
-        try {
-            int ix = moveRight ? br.following(off) : br.preceding(off);
-            if (ix == BreakIterator.DONE) {
-                System.err.println(" --- SHOULD NOT HAPPEN: BreakIterator.DONE off=" + off); // FIX
-                return null;
-            }
-            return TextPos.ofLeading(start.index(), ix);
-        } catch(Exception e) {
-            // TODO need to use a logger!
-            System.err.println("offset=" + off + " text=[" + text + "]"); // FIX
-            e.printStackTrace();
-            return null;
-        }
+        return vflow.nextCharacterVisually(start, moveRight);
     }
 
     /**

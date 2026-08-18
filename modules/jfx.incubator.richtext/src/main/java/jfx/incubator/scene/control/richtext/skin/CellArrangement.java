@@ -36,7 +36,6 @@ import javafx.scene.layout.Region;
 import javafx.scene.shape.PathElement;
 import javafx.scene.text.HitInfo;
 import javafx.scene.text.TextFlow;
-import com.sun.jfx.incubator.scene.control.richtext.util.RichUtils;
 import jfx.incubator.scene.control.richtext.TextPos;
 
 /**
@@ -65,6 +64,13 @@ public class CellArrangement {
     private Node[] left;
     private Node[] right;
 
+    /**
+     * Creates a new CellArrangement instance.
+     * @param f the VFlow
+     * @param contentPaddingTop the top content padding, in pixels
+     * @param contentPaddingBottom the bottom content padding, in pixels
+     * @param rowMap the RowMap
+     */
     public CellArrangement(VFlow f, double contentPaddingTop, double contentPaddingBottom, RowMap rowMap) {
         this.flowWidth = f.getWidth();
         this.flowHeight = f.getViewPortHeight();
@@ -99,6 +105,7 @@ public class CellArrangement {
             ", topHeight=" + topHeight +
             ", bottomHeight=" + bottomHeight +
             ", lineCount=" + lineCount +
+            ", rowCount=" + rowCount +
             ", average=" + averageHeight() +
             ", unwrapped=" + getUnwrappedWidth() +
             "}";
@@ -112,11 +119,18 @@ public class CellArrangement {
         unwrappedWidth = w;
     }
 
-    /** returns snapped(ceil) size */
+    /**
+     * returns snapped(ceil) size
+     * @return the unwrapped width of the text flow, in pixels
+     */
     public double getUnwrappedWidth() {
         return unwrappedWidth;
     }
 
+    /**
+     * returns the number of visible cells in the arrangement
+     * @return the number of visible cells in the arrangement
+     */
     public int getVisibleCellCount() {
         return visibleCount;
     }
@@ -125,7 +139,12 @@ public class CellArrangement {
         visibleCount = n;
     }
 
-    /** finds text position inside the sliding window, in cell coordinates */
+    /**
+     * finds text position inside the sliding window, in cell coordinates
+     * @param cellX the x coordinate within the cell
+     * @param cellY the y coordinate within the cell
+     * @return the text position
+     */
     public TextPos getTextPos(double cellX, double cellY) {
         if (lineCount == 0) {
             return TextPos.ZERO;
@@ -145,18 +164,16 @@ public class CellArrangement {
                 if (r instanceof TextFlow f) {
                     Point2D p = new Point2D(cellX - r.getLayoutX(), y - r.getLayoutY());
                     HitInfo h = f.getHitInfo(p);
-                    int ii = h.getInsertionIndex();
-                    int ci = h.getCharIndex();
-                    boolean leading = h.isLeading();
-                    return new TextPos(cell.getIndex(), ii, ci, leading);
+                    return toTextPos(cell, h.getInsertionIndex(), h.getCharIndex(), h.isLeading());
                 } else {
                     return TextPos.ofLeading(cell.getIndex(), 0);
                 }
             }
 
             int cix = 0;
-            if (r instanceof TextFlow f) {
-                cix = RichUtils.getTextLength(f);
+            if (r instanceof TextFlow) {
+                // the cell's text length, which may exclude view-only decorations added by subclasses
+                cix = cell.getTextLength();
             }
             return TextPos.ofLeading(cell.getIndex(), cix);
         }
@@ -164,7 +181,41 @@ public class CellArrangement {
         return TextPos.ZERO;
     }
 
-    /** returns the cell contained in this layout, or null */
+    /**
+     * Converts a text flow hit within the given cell to a {@code TextPos}.
+     * <p>
+     * The subclasses may override this method to remap hits on view-only decorations
+     * (text flow indexes past the cell's own text) to their real document positions.
+     *
+     * @param cell the hit cell
+     * @param insertionIndex the insertion index within the cell's text flow
+     * @param charIndex the character index within the cell's text flow
+     * @param leading whether the hit is on the leading edge of the character
+     * @return the text position
+     */
+    protected TextPos toTextPos(TextCell cell, int insertionIndex, int charIndex, boolean leading) {
+        return new TextPos(cell.getIndex(), insertionIndex, charIndex, leading);
+    }
+
+    /**
+     * Creates a {@code CaretInfo} instance from the given caret path.
+     * <p>
+     * The subclasses may use this method to build the caret geometry for positions
+     * they resolve themselves, for example on view-only decorations.
+     *
+     * @param lineSpacing the line spacing
+     * @param path the caret path, must not be empty
+     * @return the CaretInfo instance
+     */
+    protected final CaretInfo createCaretInfo(double lineSpacing, PathElement[] path) {
+        return CaretInfo.create(lineSpacing, path);
+    }
+
+    /**
+     * returns the cell contained in this layout, or null
+     * @param modelIndex the model index of the cell
+     * @return the cell contained in this layout, or null
+     */
     public TextCell getCell(int modelIndex) {
         if (rowMap.isHidden(modelIndex)) {
             return null;
@@ -172,7 +223,12 @@ public class CellArrangement {
         return getCellForRow(rowMap.getViewRow(modelIndex));
     }
 
-    TextCell getCellForRow(int row) {
+    /**
+     * Returns the cell at the given view row contained in this layout, or null
+     * @param row the view row
+     * @return the cell at the given view row contained in this layout, or null
+     */
+    protected TextCell getCellForRow(int row) {
         int ix = row - originRow;
         if (ix < 0) {
             if ((ix + topCount()) >= 0) {
@@ -186,7 +242,11 @@ public class CellArrangement {
         return null;
     }
 
-    /** returns a visible cell, or null */
+    /**
+     * returns a visible cell, or null
+     * @param modelIndex the model index of the cell
+     * @return a visible cell, or null
+     */
     public TextCell getVisibleCell(int modelIndex) {
         if (rowMap.isHidden(modelIndex)) {
             return null;
@@ -199,7 +259,11 @@ public class CellArrangement {
         return null;
     }
 
-    /** returns a TextCell from the visible or bottom margin parts, or null */
+    /**
+     * returns a TextCell from the visible or bottom margin parts, or null
+     * @param ix the index of the cell
+     * @return a TextCell from the visible or bottom margin parts, or null
+     */
     public TextCell getCellAt(int ix) {
         if (ix < visibleCount) {
             return cells.get(ix);
@@ -242,11 +306,18 @@ public class CellArrangement {
         bottomCount = ix;
     }
 
-    /** visible + bottom margin cells */
+    /**
+     * returns the bottom margin cells
+     * @return the number of bottom margin cells
+     */
     public int bottomCount() {
         return bottomCount;
     }
 
+    /**
+     * returns the number of cells in the arrangement
+     * @return the number of cells in the arrangement
+     */
     public int cellCount() {
         return cells.size();
     }
@@ -255,11 +326,18 @@ public class CellArrangement {
         bottomHeight = h;
     }
 
-    /** in pixels from the first visible cell to the last cell in the arrangement */
+    /**
+     * returns the bottom height in pixels from the first visible cell to the last cell in the arrangement
+     * @return the bottom height in pixels from the first visible cell to the last cell in the arrangement
+     */
     public double bottomHeight() {
         return bottomHeight;
     }
 
+    /**
+     * returns the number of top margin cells
+     * @return the number of top margin cells
+     */
     public int topCount() {
         return cells.size() - bottomCount;
     }
@@ -268,11 +346,15 @@ public class CellArrangement {
         topHeight = h;
     }
 
+    /**
+     * returns the top height in pixels
+     * @return the top height in pixels
+     */
     public double topHeight() {
         return topHeight;
     }
 
-    public double averageHeight() {
+    double averageHeight() {
         int sz = cells.size();
         if (sz == 0) {
             return 20; // any reasonable non-zero number would work
@@ -280,7 +362,7 @@ public class CellArrangement {
         return (topHeight + bottomHeight) / sz;
     }
 
-    public double estimatedMax() {
+    double estimatedMax() {
         return (rowCount - topCount() - bottomCount) * averageHeight() + topHeight + bottomHeight;
     }
 
@@ -318,17 +400,27 @@ public class CellArrangement {
         return 0;
     }
 
-    /** returns a row index of the first cell in the sliding window top margin */
+    /**
+     * returns a row index of the first cell in the sliding window top margin
+     * @return a row index of the first cell in the sliding window top margin
+     */
     public int topIndex() {
         return originRow - topCount();
     }
 
-    /** returns a row index of the last cell in the sliding window bottom margin + 1 */
+    /**
+     * returns a row index of the last cell in the sliding window bottom margin + 1
+     * @return a row index of the last cell in the sliding window bottom margin + 1
+     */
     public int bottomIndex() {
         return originRow + bottomCount;
     }
 
-    /** returns the new origin after scrolling for delta pixels within the arrangement */
+    /**
+     * returns the new origin after scrolling for delta pixels within the arrangement
+     * @param delta the number of pixels to scroll
+     * @return the new origin after scrolling for delta pixels within the arrangement
+     */
     Origin moveOrigin(double delta) {
         int topIx = topIndex();
         int btmIx = bottomIndex();
@@ -381,7 +473,10 @@ public class CellArrangement {
         return right[index];
     }
 
-    /** last cell at the bottom of the arrangement */
+    /**
+     * last cell at the bottom of the arrangement
+     * @return the last cell at the bottom of the arrangement
+     */
     private TextCell lastBottomCell() {
         if (bottomCount == 0) {
             return null;

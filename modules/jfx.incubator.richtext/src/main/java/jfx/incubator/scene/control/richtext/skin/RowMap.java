@@ -27,9 +27,26 @@ package jfx.incubator.scene.control.richtext.skin;
 import jfx.incubator.scene.control.richtext.model.ContentChange;
 
 /**
- * Immutable snapshot of the mapping between visible row indices and model paragraph indices.
+ * Defines the mapping between visible row indices and model paragraph indices.
  * <p>A "row" is the index of a paragraph in the visible sequence: hidden paragraphs do not occupy a row.
  * When there are no hidden paragraphs (by default), row indices and model indices are identical.</p>
+ * <p>The RichTextArea uses the RowMap to determine the mapping between model indices that traverse the document,
+ * and view rows, which are the paragraphs rendered in the viewport. While the model is based in the document,
+ * the view is a filtered representation of the model. Therefore, subclasses can implement custom mapping logic
+ * and achieve features like:</p>
+ * <ul>
+ *     <li>Search/filter mode, showing only paragraphs with results</li>
+ *     <li>Log/console, filtering out paragraphs based on log levels</li>
+ *     <li>Outline/summary mode, showing headings and hiding details</li>
+ *     <li>Code folding in the {@code CodeArea}</li>
+ *     <li>Collapsible sections</li>
+ *     <li>Any other custom mapping logic to show and hide paragraphs</li>
+ * </ul>
+ * <p>In all cases, since the model doesn't change, applying or removing the filter is a fast operation,
+ * as the model doesn't need to be recreated. In other words, {@link RowMap} plays a role for {@code RichTextArea}
+ * and {@code CodeArea} similar to {@code FilteredList} for {@code ListView}.</p>
+ * <p>As the model can change at any time, notifications are sent via {@link #onContentChange(ContentChange)}
+ * so the view can be updated properly.</p>
  * <p>Hidden paragraphs shouldn't have the caret, and it is possible to hide all the paragraphs, in
  * which case a placeholder could be shown.</p>
  */

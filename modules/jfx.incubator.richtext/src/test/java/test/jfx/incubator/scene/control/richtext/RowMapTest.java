@@ -113,6 +113,7 @@ public class RowMapTest {
         for (int i = 0; i < NUM_PARAGRAPHS - HIDDEN_PARAGRAPHS; i++) {
             int modelIndex = rowMap.getModelIndex(i);
             assertEquals(expectedModelIndices[i], modelIndex, "Expected model index " + expectedModelIndices[i] + " for view row " + i + ", but got " + modelIndex);
+            assertFalse(rowMap.isHidden(modelIndex), "Expected model index " + modelIndex + " to be visible, but it is hidden");
         }
     }
 
@@ -154,7 +155,7 @@ public class RowMapTest {
         control.select(TextPos.ofLeading(1, 0));
         assertNotNull(vFlow.getCaretInfo(), "Expected caret info to be not null for visible paragraph, but got " + vFlow.getCaretInfo());
         control.select(TextPos.ofLeading(4, 1), TextPos.ofLeading(6, 3));
-        List<PathElement> rangeShape = vFlow.getRangeShape(TextPos.ofLeading(4, 1), TextPos.ofLeading(6, 3));
+        List<PathElement> rangeShape = ((TestVFlow) vFlow).getRangeShape(TextPos.ofLeading(4, 1), TextPos.ofLeading(6, 3));
         assertNotNull(rangeShape, "Expected range shape to be not null for visible paragraphs, but got " + rangeShape);
         assertFalse(rangeShape.isEmpty(), "Expected range shape to be not empty for visible paragraphs, but got " + rangeShape);
         control.select(TextPos.ofLeading(4, 10));
@@ -216,8 +217,8 @@ public class RowMapTest {
         }
 
         @Override
-        protected CellArrangement createCellArrangement() {
-            cellArrangement = new CellArrangement(this, 0, 0, testRowMap);
+        protected CellArrangement createCellArrangement(double contentPaddingTop, double contentPaddingBottom, RowMap rowMap) {
+            cellArrangement = super.createCellArrangement(contentPaddingTop, contentPaddingBottom, rowMap);
             return cellArrangement;
         }
 
@@ -227,6 +228,11 @@ public class RowMapTest {
 
         public CellArrangement getCellArrangement() {
             return cellArrangement;
+        }
+
+        @Override
+        public List<PathElement> getRangeShape(TextPos start, TextPos end) {
+            return super.getRangeShape(start, end);
         }
     }
 
