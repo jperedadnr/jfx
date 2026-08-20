@@ -1,0 +1,10 @@
+.rich-text-area .section-chevron {
+    -fx-font-size: 20px;
+    -fx-text-fill: firebrick;
+    -fx-padding: 4 2 0 6;
+    -fx-cursor: hand;
+}
+
+.rich-text-area .section-chevron:hover {
+    -fx-text-fill: sandybrown;
+}
