@@ -32,12 +32,12 @@
 
 package com.oracle.demo.richtext.headings;
 
-import javafx.collections.SetChangeListener;
 import javafx.event.Event;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollBar;
 import javafx.scene.control.Tooltip;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import jfx.incubator.scene.control.richtext.TextPos;
 import jfx.incubator.scene.control.richtext.model.RichParagraph;
@@ -50,25 +50,15 @@ public class HeadingsVFlow extends VFlow {
     private static final String EXPANDED = "\u25BE"; // ▾
 
     private final HeadingsRTA control;
-    private final SetChangeListener<ParagraphRange> collapsedSectionsListener = this::handleCollapsedSectionsChange;
-    private HeadingsRowMap rowMap;
 
     public HeadingsVFlow(HeadingsRTASkin skin, ScrollBar vScrollBar, ScrollBar hScrollBar) {
         super(skin, vScrollBar, hScrollBar);
         control = (HeadingsRTA) getControl();
-        control.getCollapsedSections().addListener(collapsedSectionsListener);
     }
 
     @Override
     protected RowMap createRowMap() {
-        rowMap = new HeadingsRowMap(control);
-        return rowMap;
-    }
-
-    @Override
-    protected void dispose() {
-        control.getCollapsedSections().removeListener(collapsedSectionsListener);
-        super.dispose();
+        return new HeadingsRowMap(control);
     }
 
     @Override
@@ -104,21 +94,4 @@ public class HeadingsVFlow extends VFlow {
         cell.setRight(chevron);
     }
 
-    private void handleCollapsedSectionsChange(SetChangeListener.Change<? extends ParagraphRange> change) {
-        if (change.wasAdded()) {
-            moveCaretOutOfSection(change.getElementAdded());
-        }
-        rowMap.invalidate();
-        rowMapUpdated(true);
-    }
-
-    private void moveCaretOutOfSection(ParagraphRange section) {
-        TextPos p = control.getCaretPosition();
-        if (p == null) {
-            return;
-        }
-        if (section.contains(p.index())) {
-            control.select(control.getParagraphEnd(section.start()));
-        }
-    }
 }

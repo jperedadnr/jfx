@@ -284,6 +284,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
     protected final RowMap getRowMap() {
         if (rowMap == null) {
             rowMap = createRowMap();
+            rowMap.setOnChange(this::rowMapUpdated);
         }
         return rowMap;
     }
@@ -305,6 +306,20 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
      */
     protected final void rowMapUpdated(boolean clearCache) {
         requestControlLayout(clearCache);
+
+        TextPos p = control.getCaretPosition();
+        if (p == null) {
+            return;
+        }
+        if (getRowMap().isHidden(p.index())) {
+            // the caret is in a hidden paragraph, move it to the next visible paragraph
+            int rowCount = getRowCount();
+            if (rowCount == 0) {
+                return;
+            }
+            int row = Math.min(getRowMap().getViewRow(p.index()), rowCount - 1);
+            control.select(TextPos.ofLeading(getRowMap().getModelIndex(row), 0));
+        }
     }
 
     /**
@@ -313,6 +328,9 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
     protected void dispose() {
         subscriptions.unsubscribe();
         caretPath.visibleProperty().unbind();
+        if (rowMap != null) {
+            rowMap.dispose();
+        }
     }
 
     /**

@@ -26,12 +26,14 @@ package jfx.incubator.scene.control.richtext.skin;
 
 import jfx.incubator.scene.control.richtext.model.ContentChange;
 
+import java.util.function.Consumer;
+
 /**
  * Defines the mapping between visible row indices and model paragraph indices.
  * <p>A "row" is the index of a paragraph in the visible sequence: hidden paragraphs do not occupy a row.
  * When there are no hidden paragraphs (by default), row indices and model indices are identical.</p>
  * <p>The RichTextArea uses the RowMap to determine the mapping between model indices that traverse the document,
- * and view rows, which are the paragraphs rendered in the viewport. While the model is based in the document,
+ * and view rows, which are the paragraphs rendered in the viewport. While the model is based on the document,
  * the view is a filtered representation of the model. Therefore, subclasses can implement custom mapping logic
  * and achieve features like:</p>
  * <ul>
@@ -51,6 +53,8 @@ import jfx.incubator.scene.control.richtext.model.ContentChange;
  * which case a placeholder could be shown.</p>
  */
 public class RowMap {
+
+    private Consumer<Boolean> onChange;
 
     /**
      * Creates a new RowMap instance.
@@ -103,5 +107,33 @@ public class RowMap {
      */
     public void onContentChange(ContentChange ch) {
         // No-op
+    }
+
+    /**
+     * Notifies the owning flow that the mapping has changed, and the view should be updated
+     * by requesting a layout pass. The {@code clearCache} parameter indicates whether the cache should be cleared.
+     * <p>Implementations should update their internal state before calling this method.</p>
+     * @param clearCache whether to clear the cache of the owning flow
+     */
+    protected final void notifyChange(boolean clearCache) {
+        if (onChange != null) {
+            onChange.accept(clearCache);
+        }
+    }
+
+    /**
+     * Disposes of any resources held by this RowMap. Subclasses can override this method to perform
+     * cleanup when the RowMap is no longer needed.
+     */
+    protected void dispose() {
+        // no-op
+    }
+
+    /**
+     * Installed by the owning flow to receive notifications when the mapping changes.
+     * @param onChange the callback to be invoked when the mapping changes
+     */
+    final void setOnChange(Consumer<Boolean> onChange) {
+        this.onChange = onChange;
     }
 }

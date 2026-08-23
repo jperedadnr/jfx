@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
+import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableSet;
 import javafx.geometry.Insets;
@@ -109,8 +110,8 @@ public class HeadingsRTA extends RichTextArea {
         int sz = getParagraphCount();
         for (int i = 0; i < sz; i++) {
             String s = getPlainText(i);
-            if (s != null && HEADING_PATTERN.matcher(s).matches()) {
-                setHeading(i, true);
+            if (s != null) {
+                setHeading(i, HEADING_PATTERN.matcher(s).matches());
             }
         }
         clearUndoRedo();
@@ -236,7 +237,8 @@ public class HeadingsRTA extends RichTextArea {
                 change.getStart().offset() == getParagraphEnd(start).offset()) {
             String text = getPlainText(start + 1);
             if (text != null && text.isBlank()) {
-                applyStyle(TextPos.ofLeading(start + 1, 0), TextPos.ofLeading(start + 1, 0), BODY_ATTRS);
+                Platform.runLater(() ->
+                        applyStyle(TextPos.ofLeading(start + 1, 0), TextPos.ofLeading(start + 1, 0), BODY_ATTRS));
             }
         }
 

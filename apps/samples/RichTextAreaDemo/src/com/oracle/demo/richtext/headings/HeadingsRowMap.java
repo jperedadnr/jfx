@@ -37,6 +37,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import javafx.collections.SetChangeListener;
 import jfx.incubator.scene.control.richtext.model.ContentChange;
 import jfx.incubator.scene.control.richtext.skin.RowMap;
 
@@ -47,9 +48,17 @@ public class HeadingsRowMap extends RowMap {
     private int[] ends = new int[0];
     private int[] hiddenBefore = new int[0];
     private boolean dirty = true;
+    private final SetChangeListener<ParagraphRange> collapsedSectionsListener = this::handleCollapsedSectionsChange;
 
     public HeadingsRowMap(HeadingsRTA control) {
         this.control = control;
+        control.getCollapsedSections().addListener(collapsedSectionsListener);
+    }
+
+    @Override
+    public void dispose() {
+        control.getCollapsedSections().removeListener(collapsedSectionsListener);
+        super.dispose();
     }
 
     public void invalidate() {
@@ -92,6 +101,11 @@ public class HeadingsRowMap extends RowMap {
     @Override
     public void onContentChange(ContentChange change) {
         invalidate();
+    }
+
+    private void handleCollapsedSectionsChange(SetChangeListener.Change<? extends ParagraphRange> change) {
+        invalidate();
+        notifyChange(true);
     }
 
     private void validate() {

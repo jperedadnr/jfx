@@ -243,9 +243,9 @@ public class RichTextAreaBehavior extends BehaviorBase<RichTextArea> {
         }
 
         Pane cp = vflow.getContentPane();
-        cp.addEventFilter(MouseEvent.MOUSE_CLICKED, this::handleMouseClicked);
-        cp.addEventFilter(MouseEvent.MOUSE_PRESSED, this::handleMousePressed);
-        cp.addEventFilter(MouseEvent.MOUSE_RELEASED, this::handleMouseReleased);
+        cp.addEventHandler(MouseEvent.MOUSE_CLICKED, this::handleMouseClicked);
+        cp.addEventHandler(MouseEvent.MOUSE_PRESSED, this::handleMousePressed);
+        cp.addEventHandler(MouseEvent.MOUSE_RELEASED, this::handleMouseReleased);
         cp.addEventFilter(MouseEvent.MOUSE_DRAGGED, this::handleMouseDragged);
         cp.addEventFilter(ScrollEvent.SCROLL_STARTED, this::handleScrollEventStarted);
         cp.addEventHandler(ScrollEvent.SCROLL_FINISHED, this::handleScrollEventFinished);

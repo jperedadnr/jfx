@@ -36,7 +36,6 @@ import jfx.incubator.scene.control.richtext.skin.RichTextAreaSkin;
 import jfx.incubator.scene.control.richtext.skin.VFlow;
 
 public class HeadingsRTASkin extends RichTextAreaSkin {
-    private HeadingsVFlow headingsVFlow;
 
     public HeadingsRTASkin(HeadingsRTA control) {
         super(control);
@@ -44,11 +43,10 @@ public class HeadingsRTASkin extends RichTextAreaSkin {
 
     @Override
     protected VFlow createVFlow() {
-        headingsVFlow = new HeadingsVFlow(this, getVScrollBar(), getHScrollBar());
-        return headingsVFlow;
+        return new HeadingsVFlow(this, getVScrollBar(), getHScrollBar());
     }
 
     public final HeadingsVFlow getHeadingsVFlow() {
-        return headingsVFlow;
+        return (HeadingsVFlow) getVFlow();
     }
 }
