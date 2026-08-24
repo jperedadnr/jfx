@@ -173,12 +173,12 @@ public class RowMapTest {
         }
 
         @Override
-        public int getViewRow(int modelIndex) {
+        public int getViewRowImpl(int modelIndex) {
             return modelIndex - hiddenParagraphs.headSet(modelIndex).size();
         }
 
         @Override
-        public int getModelIndex(int row) {
+        public int getModelIndexImpl(int row) {
             int modelIndex = row;
             for (int hiddenIndex : hiddenParagraphs) {
                 if (hiddenIndex <= modelIndex) {
@@ -191,12 +191,12 @@ public class RowMapTest {
         }
 
         @Override
-        public int getRowCount(int modelParagraphCount) {
+        public int getRowCountImpl(int modelParagraphCount) {
             return modelParagraphCount - hiddenParagraphs.size();
         }
 
         @Override
-        public boolean isHidden(int modelIndex) {
+        public boolean isHiddenImpl(int modelIndex) {
             return hiddenParagraphs.contains(modelIndex);
         }
     }

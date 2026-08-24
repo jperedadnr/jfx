@@ -38,7 +38,6 @@ import java.util.Collections;
 import java.util.List;
 
 import javafx.collections.SetChangeListener;
-import jfx.incubator.scene.control.richtext.model.ContentChange;
 import jfx.incubator.scene.control.richtext.skin.RowMap;
 
 public class HeadingsRowMap extends RowMap {
@@ -47,7 +46,6 @@ public class HeadingsRowMap extends RowMap {
     private int[] starts = new int[0];
     private int[] ends = new int[0];
     private int[] hiddenBefore = new int[0];
-    private boolean dirty = true;
     private final SetChangeListener<ParagraphRange> collapsedSectionsListener = this::handleCollapsedSectionsChange;
 
     public HeadingsRowMap(HeadingsRTA control) {
@@ -56,30 +54,17 @@ public class HeadingsRowMap extends RowMap {
     }
 
     @Override
-    public void dispose() {
-        control.getCollapsedSections().removeListener(collapsedSectionsListener);
-        super.dispose();
-    }
-
-    public void invalidate() {
-        dirty = true;
-    }
-
-    @Override
-    public int getRowCount(int modelParagraphCount) {
-        validate();
+    protected int getRowCountImpl(int modelParagraphCount) {
         return modelParagraphCount - countHiddenParagraphsBefore(modelParagraphCount);
     }
 
     @Override
-    public int getViewRow(int modelIndex) {
-        validate();
+    protected int getViewRowImpl(int modelIndex) {
         return modelIndex - countHiddenParagraphsBefore(modelIndex);
     }
 
     @Override
-    public int getModelIndex(int row) {
-        validate();
+    protected int getModelIndexImpl(int row) {
         int modelIndex = row;
         for (int i = 0; i < starts.length; i++) {
             if (starts[i] - hiddenBefore[i] <= row) {
@@ -92,28 +77,13 @@ public class HeadingsRowMap extends RowMap {
     }
 
     @Override
-    public boolean isHidden(int modelIndex) {
-        validate();
+    protected boolean isHiddenImpl(int modelIndex) {
         int index = indexOfRange(modelIndex);
         return index >= 0 && modelIndex < ends[index];
     }
 
     @Override
-    public void onContentChange(ContentChange change) {
-        invalidate();
-    }
-
-    private void handleCollapsedSectionsChange(SetChangeListener.Change<? extends ParagraphRange> change) {
-        invalidate();
-        notifyChange(true);
-    }
-
-    private void validate() {
-        if (!dirty) {
-            return;
-        }
-        dirty = false;
-
+    protected void refreshMap() {
         hiddenRanges.clear();
         int maxCount = control.getParagraphCount();
         for (ParagraphRange range : control.getCollapsedSections()) {
@@ -134,6 +104,12 @@ public class HeadingsRowMap extends RowMap {
         }
     }
 
+    @Override
+    protected void dispose() {
+        control.getCollapsedSections().removeListener(collapsedSectionsListener);
+        super.dispose();
+    }
+
     private void addHiddenRange(ParagraphRange newRange) {
         int index = Collections.binarySearch(hiddenRanges, newRange);
         if (index < 0) {
@@ -150,6 +126,10 @@ public class HeadingsRowMap extends RowMap {
     private int indexOfRange(int modelIndex) {
         int index = Arrays.binarySearch(starts, modelIndex);
         return index >= 0 ? index : -index - 2;
+    }
+
+    private void handleCollapsedSectionsChange(SetChangeListener.Change<? extends ParagraphRange> change) {
+        notifyChange(true);
     }
 
 }

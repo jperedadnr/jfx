@@ -24,9 +24,9 @@
  */
 package jfx.incubator.scene.control.richtext.skin;
 
-import jfx.incubator.scene.control.richtext.model.ContentChange;
-
 import java.util.function.Consumer;
+
+import jfx.incubator.scene.control.richtext.model.ContentChange;
 
 /**
  * Defines the mapping between visible row indices and model paragraph indices.
@@ -49,12 +49,14 @@ import java.util.function.Consumer;
  * and {@code CodeArea} similar to {@code FilteredList} for {@code ListView}.</p>
  * <p>As the model can change at any time, notifications are sent via {@link #onContentChange(ContentChange)}
  * so the view can be updated properly.</p>
- * <p>Hidden paragraphs shouldn't have the caret, and it is possible to hide all the paragraphs, in
- * which case a placeholder could be shown.</p>
+ * <p>Subclasses should override the impl methods to provide its custom mapping logic, override {@link #refreshMap()}
+ * to recompute the internal state, and call {@link #notifyChange(boolean)} when the external state changes.
+ * {@link #dispose()} can be overridden if added listeners need to be released.</p>
  */
 public class RowMap {
 
     private Consumer<Boolean> onChange;
+    private boolean dirty = true;
 
     /**
      * Creates a new RowMap instance.
@@ -64,40 +66,90 @@ public class RowMap {
     }
 
     /**
-     * Returns the number of visible rows in the view, given the number of paragraphs in the model.
+     * Returns the number of visible rows in the view, given the number of paragraphs in the model, once the map is
+     * validated.
      * @param modelParagraphCount the number of paragraphs in the model
      * @return the number of visible rows in the view
      */
-    public int getRowCount(int modelParagraphCount) {
+    public final int getRowCount(int modelParagraphCount) {
+        validate();
+        return getRowCountImpl(modelParagraphCount);
+    }
+
+    /**
+     * Returns the number of visible rows in the view, given the number of paragraphs in the model.
+     * This method is called after the map is validated, and subclasses can override it to provide custom logic for
+     * computing the number of visible rows based on the model paragraph count.
+     * @param modelParagraphCount the number of paragraphs in the model
+     * @return the number of visible rows in the view
+     */
+    protected int getRowCountImpl(int modelParagraphCount) {
         return modelParagraphCount;
     }
 
     /**
-     * Returns the model index of the paragraph at the given row in the view.
+     * Returns the model index of the paragraph at the given row in the view, once the map is
+     * validated.
      * @param row the row index in the view
      * @return the model index of the paragraph at the given row
      */
-    public int getModelIndex(int row) {
+    public final int getModelIndex(int row) {
+        validate();
+        return getModelIndexImpl(row);
+    }
+
+    /**
+     * Returns the model index of the paragraph at the given row in the view.
+     * This method is called after the map is validated, and subclasses can override it to provide
+     * custom logic for computing the model index based on the view row index.
+     * @param row the row index in the view
+     * @return the model index of the paragraph at the given row
+     */
+    protected int getModelIndexImpl(int row) {
         return row;
     }
 
     /**
-     * Returns the number of visible paragraphs preceding the given model index.
+     * Returns the number of visible paragraphs preceding the given model index, once the mapping is validated.
      * For a visible paragraph, this is its view row index. For a hidden paragraph, this is the
      * view row index of the next visible paragraph.
      * @param modelIndex the model index of the paragraph
      * @return the view row index of the paragraph at the given model index
      */
-    public int getViewRow(int modelIndex) {
+    public final int getViewRow(int modelIndex) {
+        validate();
+        return getViewRowImpl(modelIndex);
+    }
+
+    /**
+     * Returns the number of visible paragraphs preceding the given model index.
+     * This method is called after the map is validated, and subclasses can override it to provide
+     * custom logic for computing the view row index based on the model index.
+     * @param modelIndex the model index of the paragraph
+     * @return the view row index of the paragraph at the given model index
+     */
+    protected int getViewRowImpl(int modelIndex) {
         return modelIndex;
     }
 
     /**
-     * Returns whether the paragraph at the given model index is hidden.
+     * Returns whether the paragraph at the given model index is hidden, once the mapping is validated.
      * @param modelIndex the model index of the paragraph
      * @return true if the paragraph is hidden, false otherwise
      */
-    public boolean isHidden(int modelIndex) {
+    public final boolean isHidden(int modelIndex) {
+        validate();
+        return isHiddenImpl(modelIndex);
+    }
+
+    /**
+     * Returns whether the paragraph at the given model index is hidden.
+     * This method is called after the map is validated, and subclasses can override it to provide
+     * custom logic for determining whether a paragraph is hidden based on its model index.
+     * @param modelIndex the model index of the paragraph
+     * @return true if the paragraph is hidden, false otherwise
+     */
+    protected boolean isHiddenImpl(int modelIndex) {
         return false;
     }
 
@@ -105,20 +157,29 @@ public class RowMap {
      * Called when the content of the model changes.
      * @param ch the content change
      */
-    public void onContentChange(ContentChange ch) {
-        // No-op
+    protected void onContentChange(ContentChange ch) {
+        invalidate();
     }
 
     /**
      * Notifies the owning flow that the mapping has changed, and the view should be updated
      * by requesting a layout pass. The {@code clearCache} parameter indicates whether the cache should be cleared.
-     * <p>Implementations should update their internal state before calling this method.</p>
+     * <p>The map is invalidated and lazily refreshed via {@link #refreshMap()}.</p>
      * @param clearCache whether to clear the cache of the owning flow
      */
     protected final void notifyChange(boolean clearCache) {
+        invalidate();
         if (onChange != null) {
             onChange.accept(clearCache);
         }
+    }
+
+    /**
+     * Refreshes the mapping.
+     * Subclasses can override this method to recompute the mapping when it is marked as dirty.
+     */
+    protected void refreshMap() {
+        // no-op
     }
 
     /**
@@ -127,6 +188,25 @@ public class RowMap {
      */
     protected void dispose() {
         // no-op
+    }
+
+    /**
+     * Marks the mapping as dirty, indicating that it needs to be refreshed. This method is called when the mapping changes,
+     * but can be called for other purposes as well. The mapping will be refreshed the next time it is validated.
+     */
+    protected final void invalidate() {
+        dirty = true;
+    }
+
+    /**
+     * Validates the mapping, refreshing it if it is marked as dirty. This method is called before any mapping operations
+     * to ensure that the mapping is up-to-date, but can be called for other purposes as well.
+     */
+    protected final void validate() {
+        if (dirty) {
+            refreshMap();
+            dirty = false;
+        }
     }
 
     /**

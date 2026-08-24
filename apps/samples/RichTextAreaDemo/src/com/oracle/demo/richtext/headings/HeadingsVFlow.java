@@ -85,6 +85,7 @@ public class HeadingsVFlow extends VFlow {
             chevron.visibleProperty().bind(cell.hoverProperty());
         }
         chevron.setOnMousePressed(Event::consume);
+        chevron.setOnMouseReleased(Event::consume);
         chevron.setOnMouseClicked(event -> {
             event.consume();
             control.toggleSection(section);
