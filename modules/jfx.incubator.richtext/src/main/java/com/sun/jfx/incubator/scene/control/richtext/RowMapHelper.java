@@ -25,9 +25,40 @@
 
 package com.sun.jfx.incubator.scene.control.richtext;
 
-/// Internal interface which enables an implementation adjust its geometry to the current state of
-/// the enveloping `VFlow`.
-public interface RequiresComplexLayout {
-    /// Invoked during {@link VFlow#layoutCells(boolean)}
-    public void updateVFlowContext(VFlow flow);
+import java.util.function.Consumer;
+
+import jfx.incubator.scene.control.richtext.model.ContentChange;
+import jfx.incubator.scene.control.richtext.skin.RowMap;
+
+/**
+ * Manages RowMap Accessor.
+ */
+public class RowMapHelper {
+    public interface Accessor {
+        void dispose(RowMap rowMap);
+        void onContentChange(RowMap rowMap, ContentChange change);
+        void setOnChange(RowMap rowMap, Consumer<Boolean> callback);
+    }
+
+    private static Accessor accessor;
+
+    public static void setAccessor(Accessor a) {
+        if (accessor != null) {
+            throw new IllegalStateException();
+        }
+        accessor = a;
+    }
+
+    public static void dispose(RowMap rowMap) {
+        accessor.dispose(rowMap);
+    }
+
+    public static void onContentChange(RowMap rowMap, ContentChange change) {
+        accessor.onContentChange(rowMap, change);
+    }
+
+    public static void setOnChange(RowMap rowMap, Consumer<Boolean> callback) {
+        accessor.setOnChange(rowMap, callback);
+    }
+
 }

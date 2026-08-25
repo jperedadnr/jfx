@@ -23,7 +23,7 @@
  * questions.
  */
 
-package jfx.incubator.scene.control.richtext.skin;
+package com.sun.jfx.incubator.scene.control.richtext;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -60,7 +60,7 @@ public final class CaretInfo {
      * @param path the caret path
      * @return the CaretInfo instance
      */
-    static CaretInfo create(double lineSpacing, PathElement[] path) {
+    public static CaretInfo create(double lineSpacing, PathElement[] path) {
         Objects.requireNonNull(path);
         if (path.length == 0) {
             throw new IllegalArgumentException("non-empty path is required");

@@ -25,7 +25,7 @@
 // This code borrows heavily from the following project, with permission from the author:
 // https://github.com/andy-goryachev/FxEditor
 
-package jfx.incubator.scene.control.richtext.skin;
+package com.sun.jfx.incubator.scene.control.richtext;
 
 import java.util.ArrayList;
 import javafx.collections.ObservableList;
@@ -37,6 +37,7 @@ import javafx.scene.shape.PathElement;
 import javafx.scene.text.HitInfo;
 import javafx.scene.text.TextFlow;
 import jfx.incubator.scene.control.richtext.TextPos;
+import jfx.incubator.scene.control.richtext.skin.RowMap;
 
 /**
  * Manages TextCells in a sliding window, comprised of the visible area and some number of screenfuls
@@ -111,11 +112,11 @@ public class CellArrangement {
             "}";
     }
 
-    void addCell(TextCell cell) {
+    public void addCell(TextCell cell) {
         cells.add(cell);
     }
 
-    void setUnwrappedWidth(double w) {
+    public void setUnwrappedWidth(double w) {
         unwrappedWidth = w;
     }
 
@@ -135,7 +136,7 @@ public class CellArrangement {
         return visibleCount;
     }
 
-    void setVisibleCellCount(int n) {
+    public void setVisibleCellCount(int n) {
         visibleCount = n;
     }
 
@@ -164,7 +165,10 @@ public class CellArrangement {
                 if (r instanceof TextFlow f) {
                     Point2D p = new Point2D(cellX - r.getLayoutX(), y - r.getLayoutY());
                     HitInfo h = f.getHitInfo(p);
-                    return toTextPos(cell, h.getInsertionIndex(), h.getCharIndex(), h.isLeading());
+                    int ii = h.getInsertionIndex();
+                    int ci = h.getCharIndex();
+                    boolean leading = h.isLeading();
+                    return new TextPos(cell.getIndex(), ii, ci, leading);
                 } else {
                     return TextPos.ofLeading(cell.getIndex(), 0);
                 }
@@ -179,36 +183,6 @@ public class CellArrangement {
         }
 
         return TextPos.ZERO;
-    }
-
-    /**
-     * Converts a text flow hit within the given cell to a {@code TextPos}.
-     * <p>
-     * The subclasses may override this method to remap hits on view-only decorations
-     * (text flow indexes past the cell's own text) to their real document positions.
-     *
-     * @param cell the hit cell
-     * @param insertionIndex the insertion index within the cell's text flow
-     * @param charIndex the character index within the cell's text flow
-     * @param leading whether the hit is on the leading edge of the character
-     * @return the text position
-     */
-    protected TextPos toTextPos(TextCell cell, int insertionIndex, int charIndex, boolean leading) {
-        return new TextPos(cell.getIndex(), insertionIndex, charIndex, leading);
-    }
-
-    /**
-     * Creates a {@code CaretInfo} instance from the given caret path.
-     * <p>
-     * The subclasses may use this method to build the caret geometry for positions
-     * they resolve themselves, for example on view-only decorations.
-     *
-     * @param lineSpacing the line spacing
-     * @param path the caret path, must not be empty
-     * @return the CaretInfo instance
-     */
-    protected final CaretInfo createCaretInfo(double lineSpacing, PathElement[] path) {
-        return CaretInfo.create(lineSpacing, path);
     }
 
     /**
@@ -228,7 +202,7 @@ public class CellArrangement {
      * @param row the view row
      * @return the cell at the given view row contained in this layout, or null
      */
-    protected TextCell getCellForRow(int row) {
+    public TextCell getCellForRow(int row) {
         int ix = row - originRow;
         if (ix < 0) {
             if ((ix + topCount()) >= 0) {
@@ -294,7 +268,7 @@ public class CellArrangement {
         return null;
     }
 
-    void removeNodesFrom(Pane p) {
+    public void removeNodesFrom(Pane p) {
         ObservableList<Node> cs = p.getChildren();
         for (int i = getVisibleCellCount() - 1; i >= 0; --i) {
             TextCell cell = cells.get(i);
@@ -302,7 +276,7 @@ public class CellArrangement {
         }
     }
 
-    void setBottomCount(int ix) {
+    public void setBottomCount(int ix) {
         bottomCount = ix;
     }
 
@@ -322,7 +296,7 @@ public class CellArrangement {
         return cells.size();
     }
 
-    void setBottomHeight(double h) {
+    public void setBottomHeight(double h) {
         bottomHeight = h;
     }
 
@@ -342,7 +316,7 @@ public class CellArrangement {
         return cells.size() - bottomCount;
     }
 
-    void setTopHeight(double h) {
+    public void setTopHeight(double h) {
         topHeight = h;
     }
 
@@ -354,7 +328,7 @@ public class CellArrangement {
         return topHeight;
     }
 
-    double averageHeight() {
+    public double averageHeight() {
         int sz = cells.size();
         if (sz == 0) {
             return 20; // any reasonable non-zero number would work
@@ -362,7 +336,7 @@ public class CellArrangement {
         return (topHeight + bottomHeight) / sz;
     }
 
-    double estimatedMax() {
+    public double estimatedMax() {
         return (rowCount - topCount() - bottomCount) * averageHeight() + topHeight + bottomHeight;
     }
 
@@ -421,7 +395,7 @@ public class CellArrangement {
      * @param delta the number of pixels to scroll
      * @return the new origin after scrolling for delta pixels within the arrangement
      */
-    Origin moveOrigin(double delta) {
+    public Origin moveOrigin(double delta) {
         int topIx = topIndex();
         int btmIx = bottomIndex();
         double y = delta;
@@ -451,25 +425,25 @@ public class CellArrangement {
         return new Origin(cell.getIndex(), off);
     }
 
-    void addLeftNode(int index, Node n) {
+    public void addLeftNode(int index, Node n) {
         if (left == null) {
             left = new Node[visibleCount];
         }
         left[index] = n;
     }
 
-    void addRightNode(int index, Node n) {
+    public void addRightNode(int index, Node n) {
         if (right == null) {
             right = new Node[visibleCount];
         }
         right[index] = n;
     }
 
-    Node getLeftNodeAt(int index) {
+    public Node getLeftNodeAt(int index) {
         return left[index];
     }
 
-    Node getRightNodeAt(int index) {
+    public Node getRightNodeAt(int index) {
         return right[index];
     }
 

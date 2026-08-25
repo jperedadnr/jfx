@@ -63,8 +63,6 @@ import jfx.incubator.scene.control.richtext.model.DataFormatHandler;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.StyledInput;
 import jfx.incubator.scene.control.richtext.model.StyledTextModel;
-import jfx.incubator.scene.control.richtext.skin.CaretInfo;
-import jfx.incubator.scene.control.richtext.skin.VFlow;
 
 /**
  * This class provides the RichTextArea behavior by registering input mappings and

@@ -26,6 +26,7 @@ package jfx.incubator.scene.control.richtext.skin;
 
 import java.util.function.Consumer;
 
+import com.sun.jfx.incubator.scene.control.richtext.RowMapHelper;
 import jfx.incubator.scene.control.richtext.model.ContentChange;
 
 /**
@@ -57,6 +58,25 @@ public class RowMap {
 
     private Consumer<Boolean> onChange;
     private boolean dirty = true;
+
+    static {
+        RowMapHelper.setAccessor(new RowMapHelper.Accessor() {
+            @Override
+            public void dispose(RowMap rowMap) {
+                rowMap.dispose();
+            }
+
+            @Override
+            public void onContentChange(RowMap rowMap, ContentChange change) {
+                rowMap.onContentChange(change);
+            }
+
+            @Override
+            public void setOnChange(RowMap rowMap, Consumer<Boolean> callback) {
+                rowMap.setOnChange(callback);
+            }
+        });
+    }
 
     /**
      * Creates a new RowMap instance.

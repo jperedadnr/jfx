@@ -25,7 +25,8 @@
 
 package jfx.incubator.scene.control.richtext;
 
-import jfx.incubator.scene.control.richtext.skin.VFlow;
+import com.sun.jfx.incubator.scene.control.richtext.CellArrangement;
+import com.sun.jfx.incubator.scene.control.richtext.VFlow;
 
 /**
  * RichTextArea shim.
@@ -34,5 +35,9 @@ public class RichTextAreaShim {
     /** for when we need to access VFlow */
     public static VFlow vflow(RichTextArea t) {
         return t.vflow();
+    }
+
+    public static CellArrangement arrangement(RichTextArea t) {
+        return t.cellArrangement();
     }
 }

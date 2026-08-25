@@ -23,7 +23,7 @@
  * questions.
  */
 
-package jfx.incubator.scene.control.richtext.skin;
+package com.sun.jfx.incubator.scene.control.richtext;
 
 /**
  * View origin: model index of the top paragraph index + offset in pixels from the upper edge of the top cell to

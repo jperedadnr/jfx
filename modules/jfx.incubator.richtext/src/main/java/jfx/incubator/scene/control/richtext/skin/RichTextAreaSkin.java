@@ -30,7 +30,9 @@ package jfx.incubator.scene.control.richtext.skin;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.sun.jfx.incubator.scene.control.richtext.CellArrangement;
 import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaBehavior;
+import com.sun.jfx.incubator.scene.control.richtext.VFlow;
 import javafx.collections.ObservableList;
 import javafx.event.EventHandler;
 import javafx.geometry.Orientation;
@@ -87,6 +89,7 @@ import jfx.incubator.scene.control.richtext.model.StyledTextModel;
 public class RichTextAreaSkin extends SkinBase<RichTextArea> {
     private final ListenerHelper listenerHelper;
     private final RichTextAreaBehavior behavior;
+    private final RowMap rowMap;
     private final VFlow vflow;
     private final ScrollBar vscroll;
     private final ScrollBar hscroll;
@@ -108,6 +111,11 @@ public class RichTextAreaSkin extends SkinBase<RichTextArea> {
             public ListenerHelper getListenerHelper(Skin<?> skin) {
                 return ((RichTextAreaSkin)skin).listenerHelper;
             }
+
+            @Override
+            public RowMap getRowMap(Skin<?> skin) {
+                return ((RichTextAreaSkin)skin).getRowMap();
+            }
         });
     }
 
@@ -128,7 +136,9 @@ public class RichTextAreaSkin extends SkinBase<RichTextArea> {
         hscroll.setOrientation(Orientation.HORIZONTAL);
         hscroll.addEventFilter(ScrollEvent.ANY, (ev) -> ev.consume());
 
-        vflow = createVFlow();
+        rowMap = createRowMap();
+
+        vflow = new VFlow(this, vscroll, hscroll);
         getChildren().add(vflow);
 
         behavior = new RichTextAreaBehavior(control);
@@ -232,6 +242,26 @@ public class RichTextAreaSkin extends SkinBase<RichTextArea> {
 
             super.dispose();
         }
+    }
+
+    /**
+     * Creates the row map instance.
+     * <p>
+     * Subclasses may override this method to provide a custom {@link RowMap} implementation.
+     * It gets called when this skin is constructed.
+     *
+     * @return the row map
+     */
+    protected RowMap createRowMap() {
+        return new RowMap();
+    }
+
+    /**
+     * Returns the row map which maps the visible rows to the model paragraphs.
+     * @return the row map
+     */
+    protected final RowMap getRowMap() {
+        return rowMap;
     }
 
     private void handleInputMethodEvent(InputMethodEvent ev) {
@@ -382,17 +412,6 @@ public class RichTextAreaSkin extends SkinBase<RichTextArea> {
     }
 
     /**
-     * Creates the vflow.
-     * <p>
-     * The subclasses may override this method to provide custom VFlow implementation.
-     *
-     * @return the vflow
-     */
-    protected VFlow createVFlow() {
-        return new VFlow(this, vscroll, hscroll);
-    }
-
-    /**
      * Creates the vertical scroll bar.
      * <p>
      * The subclasses may override this method to provide custom ScrollBar implementation.
@@ -414,11 +433,7 @@ public class RichTextAreaSkin extends SkinBase<RichTextArea> {
         return new ScrollBar();
     }
 
-    /**
-     * Returns the skin's {@link VFlow}.
-     * @return vflow instance
-     */
-    protected final VFlow getVFlow() {
+    private VFlow getVFlow() {
         return vflow;
     }
 

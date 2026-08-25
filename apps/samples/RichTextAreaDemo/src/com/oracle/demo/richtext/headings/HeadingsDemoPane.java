@@ -45,7 +45,6 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.Pane;
 import com.oracle.demo.richtext.rta.ROptionPane;
 import com.oracle.demo.richtext.util.FX;
-import jfx.incubator.scene.control.richtext.LineNumberDecorator;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 
 public class HeadingsDemoPane extends BorderPane {
@@ -75,7 +74,7 @@ public class HeadingsDemoPane extends BorderPane {
         CheckBox lineNumbers = new CheckBox("line numbers");
         FX.name(lineNumbers, "lineNumbers");
         lineNumbers.selectedProperty().addListener((_, _, s) -> {
-            control.setLeftDecorator(s ? new LineNumberDecorator() : null);
+            control.getHeadingsDecorator().showLineNumbersProperty().set(s);
         });
 
         op = new ROptionPane();

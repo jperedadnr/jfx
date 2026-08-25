@@ -29,7 +29,6 @@ import java.util.List;
 import java.util.function.Consumer;
 import com.sun.javafx.util.Utils;
 import jfx.incubator.scene.control.richtext.model.RichParagraph;
-import jfx.incubator.scene.control.richtext.skin.TextCell;
 
 /**
  * Provides access to internal methods in RichParagraph.

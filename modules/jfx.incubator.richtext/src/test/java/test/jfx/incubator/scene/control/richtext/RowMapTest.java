@@ -26,17 +26,16 @@ package test.jfx.incubator.scene.control.richtext;
 
 import com.sun.javafx.tk.Toolkit;
 import javafx.scene.Scene;
-import javafx.scene.control.ScrollBar;
 import javafx.scene.shape.PathElement;
 import javafx.stage.Stage;
 import jfx.incubator.scene.control.richtext.RichTextArea;
+import jfx.incubator.scene.control.richtext.RichTextAreaShim;
 import jfx.incubator.scene.control.richtext.TextPos;
-import jfx.incubator.scene.control.richtext.model.RichTextModel;
-import jfx.incubator.scene.control.richtext.skin.CellArrangement;
+import com.sun.jfx.incubator.scene.control.richtext.CellArrangement;
 import jfx.incubator.scene.control.richtext.skin.RichTextAreaSkin;
 import jfx.incubator.scene.control.richtext.skin.RowMap;
-import jfx.incubator.scene.control.richtext.skin.TextCell;
-import jfx.incubator.scene.control.richtext.skin.VFlow;
+import com.sun.jfx.incubator.scene.control.richtext.TextCell;
+import com.sun.jfx.incubator.scene.control.richtext.VFlow;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,7 +54,6 @@ public class RowMapTest {
     private static final int NUM_PARAGRAPHS = 20;
     private static final int HIDDEN_PARAGRAPHS = 4;
     private RichTextArea control;
-    private VFlow vFlow;
     private RowMap rowMap;
     private Stage stage;
 
@@ -65,8 +63,7 @@ public class RowMapTest {
 
         control = new RichTextArea();
         TestRichTextAreaSkin skin = new TestRichTextAreaSkin(control);
-        vFlow = skin.getTestVFlow();
-        rowMap = ((TestVFlow) vFlow).getTestRowMap();
+        rowMap = skin.getTestRowMap();
         control.setSkin(skin);
 
         StringBuilder sb = new StringBuilder();
@@ -90,6 +87,14 @@ public class RowMapTest {
 
     @Test
     public void countVisibleRowsTest() {
+        Scene scene = new Scene(control, 300, 200);
+        stage = new Stage();
+        stage.setScene(scene);
+        stage.show();
+
+        Toolkit.getToolkit().firePulse();
+        VFlow vFlow = RichTextAreaShim.vflow(control);
+
         int visibleRowCount = rowMap.getRowCount(NUM_PARAGRAPHS);
         assertEquals(16, visibleRowCount, "Expected 16 visible rows, but rowMap got " + visibleRowCount);
         visibleRowCount = vFlow.getRowCount();
@@ -144,7 +149,8 @@ public class RowMapTest {
         stage.show();
 
         Toolkit.getToolkit().firePulse();
-        CellArrangement arrangement = ((TestVFlow) vFlow).getCellArrangement();
+        VFlow vFlow = RichTextAreaShim.vflow(control);
+        CellArrangement arrangement = RichTextAreaShim.arrangement(control);
         assertNull(arrangement.getCell(0), "Expected cell for row 0 to be null, but got " + arrangement.getCell(0));
         TextCell cell = arrangement.getCell(1);
         assertNotNull(cell, "Expected cell for row 1 to be not null, but got " + cell);
@@ -155,7 +161,7 @@ public class RowMapTest {
         control.select(TextPos.ofLeading(1, 0));
         assertNotNull(vFlow.getCaretInfo(), "Expected caret info to be not null for visible paragraph, but got " + vFlow.getCaretInfo());
         control.select(TextPos.ofLeading(4, 1), TextPos.ofLeading(6, 3));
-        List<PathElement> rangeShape = ((TestVFlow) vFlow).getRangeShape(TextPos.ofLeading(4, 1), TextPos.ofLeading(6, 3));
+        List<PathElement> rangeShape = vFlow.getRangeShape(TextPos.ofLeading(4, 1), TextPos.ofLeading(6, 3));
         assertNotNull(rangeShape, "Expected range shape to be not null for visible paragraphs, but got " + rangeShape);
         assertFalse(rangeShape.isEmpty(), "Expected range shape to be not empty for visible paragraphs, but got " + rangeShape);
         control.select(TextPos.ofLeading(4, 10));
@@ -201,13 +207,11 @@ public class RowMapTest {
         }
     }
 
-    private static class TestVFlow extends VFlow {
+    private static class TestRichTextAreaSkin extends RichTextAreaSkin {
 
         private TestRowMap testRowMap;
-        private CellArrangement cellArrangement;
-
-        public TestVFlow(RichTextAreaSkin skin, ScrollBar vsb, ScrollBar hsb) {
-            super(skin, vsb, hsb);
+        public TestRichTextAreaSkin(RichTextArea control) {
+            super(control);
         }
 
         @Override
@@ -216,42 +220,8 @@ public class RowMapTest {
             return testRowMap;
         }
 
-        @Override
-        protected CellArrangement createCellArrangement(double contentPaddingTop, double contentPaddingBottom, RowMap rowMap) {
-            cellArrangement = super.createCellArrangement(contentPaddingTop, contentPaddingBottom, rowMap);
-            return cellArrangement;
-        }
-
         public TestRowMap getTestRowMap() {
             return testRowMap;
-        }
-
-        public CellArrangement getCellArrangement() {
-            return cellArrangement;
-        }
-
-        @Override
-        public List<PathElement> getRangeShape(TextPos start, TextPos end) {
-            return super.getRangeShape(start, end);
-        }
-    }
-
-    private static class TestRichTextAreaSkin extends RichTextAreaSkin {
-
-        private TestVFlow testVFlow;
-
-        public TestRichTextAreaSkin(RichTextArea control) {
-            super(control);
-        }
-
-        @Override
-        protected VFlow createVFlow() {
-            testVFlow = new TestVFlow(this, getVScrollBar(), getHScrollBar());
-            return testVFlow;
-        }
-
-        public TestVFlow getTestVFlow() {
-            return testVFlow;
         }
     }
 

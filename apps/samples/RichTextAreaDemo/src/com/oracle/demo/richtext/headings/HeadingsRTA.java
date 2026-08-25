@@ -40,6 +40,7 @@ import java.util.regex.Pattern;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableSet;
+import javafx.collections.SetChangeListener;
 import javafx.geometry.Insets;
 import javafx.scene.paint.Color;
 import jfx.incubator.scene.control.richtext.RichTextArea;
@@ -78,12 +79,14 @@ public class HeadingsRTA extends RichTextArea {
             FXCollections.unmodifiableObservableSet(collapsedSections);
 
     private final StyledTextModel.Listener modelListener = this::handleModelChange;
+    private final HeadingsDecorator headingsDecorator = new HeadingsDecorator(this);
 
     public HeadingsRTA() {
         super(new RichTextModel());
         setWrapText(true);
         setContentPadding(new Insets(10));
         setHighlightCurrentParagraph(true);
+        setLeftDecorator(headingsDecorator);
 
         getModel().addListener(modelListener);
         modelProperty().addListener((_, oldModel, newModel) -> {
@@ -95,11 +98,18 @@ public class HeadingsRTA extends RichTextArea {
             }
             expandAllSections();
         });
+        collapsedSections.addListener((SetChangeListener<ParagraphRange>) _ -> {
+            getHeadingsDecorator().refreshDecorator();
+        });
     }
 
     @Override
     protected RichTextAreaSkin createDefaultSkin() {
         return new HeadingsRTASkin(this);
+    }
+
+    public final HeadingsDecorator getHeadingsDecorator() {
+        return headingsDecorator;
     }
 
     public void loadDocument(String text) {
@@ -222,7 +232,11 @@ public class HeadingsRTA extends RichTextArea {
     }
 
     private void handleModelChange(ContentChange change) {
-        if (collapsedSections.isEmpty() || !change.isEdit()) {
+        if (!change.isEdit()) {
+            return;
+        }
+        if (collapsedSections.isEmpty()) {
+            getHeadingsDecorator().refreshDecorator();
             return;
         }
 
@@ -265,5 +279,6 @@ public class HeadingsRTA extends RichTextArea {
 
         collapsedSections.retainAll(updatedSections);
         collapsedSections.addAll(updatedSections);
+        getHeadingsDecorator().refreshDecorator();
     }
 }

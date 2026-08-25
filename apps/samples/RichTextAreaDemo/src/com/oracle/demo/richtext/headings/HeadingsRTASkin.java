@@ -33,7 +33,7 @@
 package com.oracle.demo.richtext.headings;
 
 import jfx.incubator.scene.control.richtext.skin.RichTextAreaSkin;
-import jfx.incubator.scene.control.richtext.skin.VFlow;
+import jfx.incubator.scene.control.richtext.skin.RowMap;
 
 public class HeadingsRTASkin extends RichTextAreaSkin {
 
@@ -42,11 +42,7 @@ public class HeadingsRTASkin extends RichTextAreaSkin {
     }
 
     @Override
-    protected VFlow createVFlow() {
-        return new HeadingsVFlow(this, getVScrollBar(), getHScrollBar());
-    }
-
-    public final HeadingsVFlow getHeadingsVFlow() {
-        return (HeadingsVFlow) getVFlow();
+    protected RowMap createRowMap() {
+        return new HeadingsRowMap((HeadingsRTA) getSkinnable());
     }
 }
