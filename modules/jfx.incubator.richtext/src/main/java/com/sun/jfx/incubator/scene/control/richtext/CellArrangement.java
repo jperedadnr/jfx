@@ -28,6 +28,8 @@
 package com.sun.jfx.incubator.scene.control.richtext;
 
 import java.util.ArrayList;
+
+import com.sun.jfx.incubator.scene.control.richtext.util.RichUtils;
 import javafx.collections.ObservableList;
 import javafx.geometry.Point2D;
 import javafx.scene.Node;
@@ -65,13 +67,6 @@ public class CellArrangement {
     private Node[] left;
     private Node[] right;
 
-    /**
-     * Creates a new CellArrangement instance.
-     * @param f the VFlow
-     * @param contentPaddingTop the top content padding, in pixels
-     * @param contentPaddingBottom the bottom content padding, in pixels
-     * @param rowMap the RowMap
-     */
     public CellArrangement(VFlow f, double contentPaddingTop, double contentPaddingBottom, RowMap rowMap) {
         this.flowWidth = f.getWidth();
         this.flowHeight = f.getViewPortHeight();
@@ -86,7 +81,7 @@ public class CellArrangement {
 
     // TODO not called right now, use it to skip reflow when not necessary
     // (may need to include left and right content padding or a sum thereof */
-    boolean isValid(VFlow f, double padLeft, double padTop) {
+    public boolean isValid(VFlow f, double padLeft, double padTop) {
         return
             (f.getWidth() == flowWidth) &&
             (f.getHeight() == flowHeight) &&
@@ -120,18 +115,11 @@ public class CellArrangement {
         unwrappedWidth = w;
     }
 
-    /**
-     * returns snapped(ceil) size
-     * @return the unwrapped width of the text flow, in pixels
-     */
+    /** returns snapped(ceil) size */
     public double getUnwrappedWidth() {
         return unwrappedWidth;
     }
 
-    /**
-     * returns the number of visible cells in the arrangement
-     * @return the number of visible cells in the arrangement
-     */
     public int getVisibleCellCount() {
         return visibleCount;
     }
@@ -140,12 +128,7 @@ public class CellArrangement {
         visibleCount = n;
     }
 
-    /**
-     * finds text position inside the sliding window, in cell coordinates
-     * @param cellX the x coordinate within the cell
-     * @param cellY the y coordinate within the cell
-     * @return the text position
-     */
+    /** finds text position inside the sliding window, in cell coordinates */
     public TextPos getTextPos(double cellX, double cellY) {
         if (lineCount == 0) {
             return TextPos.ZERO;
@@ -175,9 +158,8 @@ public class CellArrangement {
             }
 
             int cix = 0;
-            if (r instanceof TextFlow) {
-                // the cell's text length, which may exclude view-only decorations added by subclasses
-                cix = cell.getTextLength();
+            if (r instanceof TextFlow f) {
+                cix = RichUtils.getTextLength(f);
             }
             return TextPos.ofLeading(cell.getIndex(), cix);
         }
@@ -185,11 +167,7 @@ public class CellArrangement {
         return TextPos.ZERO;
     }
 
-    /**
-     * returns the cell contained in this layout, or null
-     * @param modelIndex the model index of the cell
-     * @return the cell contained in this layout, or null
-     */
+    /** returns the cell contained in this layout, or null */
     public TextCell getCell(int modelIndex) {
         if (rowMap.isHidden(modelIndex)) {
             return null;
@@ -197,11 +175,7 @@ public class CellArrangement {
         return getCellForRow(rowMap.getViewRow(modelIndex));
     }
 
-    /**
-     * Returns the cell at the given view row contained in this layout, or null
-     * @param row the view row
-     * @return the cell at the given view row contained in this layout, or null
-     */
+    /** Returns the cell at the given view row contained in this layout, or null */
     public TextCell getCellForRow(int row) {
         int ix = row - originRow;
         if (ix < 0) {
@@ -216,11 +190,7 @@ public class CellArrangement {
         return null;
     }
 
-    /**
-     * returns a visible cell, or null
-     * @param modelIndex the model index of the cell
-     * @return a visible cell, or null
-     */
+    /** returns a visible cell, or null */
     public TextCell getVisibleCell(int modelIndex) {
         if (rowMap.isHidden(modelIndex)) {
             return null;
@@ -233,11 +203,7 @@ public class CellArrangement {
         return null;
     }
 
-    /**
-     * returns a TextCell from the visible or bottom margin parts, or null
-     * @param ix the index of the cell
-     * @return a TextCell from the visible or bottom margin parts, or null
-     */
+    /** returns a TextCell from the visible or bottom margin parts, or null */
     public TextCell getCellAt(int ix) {
         if (ix < visibleCount) {
             return cells.get(ix);
@@ -280,18 +246,11 @@ public class CellArrangement {
         bottomCount = ix;
     }
 
-    /**
-     * returns the bottom margin cells
-     * @return the number of bottom margin cells
-     */
+    /** visible + bottom margin cells */
     public int bottomCount() {
         return bottomCount;
     }
 
-    /**
-     * returns the number of cells in the arrangement
-     * @return the number of cells in the arrangement
-     */
     public int cellCount() {
         return cells.size();
     }
@@ -300,18 +259,11 @@ public class CellArrangement {
         bottomHeight = h;
     }
 
-    /**
-     * returns the bottom height in pixels from the first visible cell to the last cell in the arrangement
-     * @return the bottom height in pixels from the first visible cell to the last cell in the arrangement
-     */
+    /** in pixels from the first visible cell to the last cell in the arrangement */
     public double bottomHeight() {
         return bottomHeight;
     }
 
-    /**
-     * returns the number of top margin cells
-     * @return the number of top margin cells
-     */
     public int topCount() {
         return cells.size() - bottomCount;
     }
@@ -320,10 +272,6 @@ public class CellArrangement {
         topHeight = h;
     }
 
-    /**
-     * returns the top height in pixels
-     * @return the top height in pixels
-     */
     public double topHeight() {
         return topHeight;
     }
@@ -374,27 +322,17 @@ public class CellArrangement {
         return 0;
     }
 
-    /**
-     * returns a row index of the first cell in the sliding window top margin
-     * @return a row index of the first cell in the sliding window top margin
-     */
+    /** returns a model index of the first cell in the sliding window top margin */
     public int topIndex() {
         return originRow - topCount();
     }
 
-    /**
-     * returns a row index of the last cell in the sliding window bottom margin + 1
-     * @return a row index of the last cell in the sliding window bottom margin + 1
-     */
+    /** returns a model index of the last cell in the sliding window bottom margin + 1 */
     public int bottomIndex() {
         return originRow + bottomCount;
     }
 
-    /**
-     * returns the new origin after scrolling for delta pixels within the arrangement
-     * @param delta the number of pixels to scroll
-     * @return the new origin after scrolling for delta pixels within the arrangement
-     */
+    /** returns the new origin after scrolling for delta pixels within the arrangement */
     public Origin moveOrigin(double delta) {
         int topIx = topIndex();
         int btmIx = bottomIndex();
@@ -447,10 +385,7 @@ public class CellArrangement {
         return right[index];
     }
 
-    /**
-     * last cell at the bottom of the arrangement
-     * @return the last cell at the bottom of the arrangement
-     */
+    /** last cell at the bottom of the arrangement */
     private TextCell lastBottomCell() {
         if (bottomCount == 0) {
             return null;

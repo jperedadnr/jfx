@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,36 +22,45 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+// This code borrows heavily from the following project, with permission from the author:
+// https://github.com/andy-goryachev/FxEditor
 
 package com.sun.jfx.incubator.scene.control.richtext;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
-import com.sun.javafx.util.Utils;
-import jfx.incubator.scene.control.richtext.model.RichParagraph;
+import javafx.scene.shape.LineTo;
+import javafx.scene.shape.MoveTo;
+import javafx.scene.shape.PathElement;
 
 /**
- * Provides access to internal methods in RichParagraph.
+ * Conventient utility for building javafx {@link Path}
  */
-public class RichParagraphHelper {
-    public interface Accessor {
-        public List<Consumer<TextCell>> getHighlights(RichParagraph p);
+public class FxPathBuilder {
+    private final ArrayList<PathElement> elements = new ArrayList<>();
+
+    public FxPathBuilder() {
     }
 
-    static {
-        Utils.forceInit(RichParagraph.class);
+    public void add(PathElement em) {
+        elements.add(em);
     }
 
-    private static Accessor accessor;
-
-    public static void setAccessor(Accessor a) {
-        if (accessor != null) {
-            throw new IllegalStateException();
+    public void addAll(PathElement... es) {
+        for (PathElement em : es) {
+            elements.add(em);
         }
-        accessor = a;
     }
 
-    public static List<Consumer<TextCell>> getHighlights(RichParagraph p) {
-        return accessor.getHighlights(p);
+    public void moveto(double x, double y) {
+        add(new MoveTo(x, y));
+    }
+
+    public void lineto(double x, double y) {
+        add(new LineTo(x, y));
+    }
+
+    public List<PathElement> getPathElements() {
+        return elements;
     }
 }

@@ -196,24 +196,15 @@ public final class TextCell extends BorderPane {
         return width;
     }
 
-    /**
-     * Adds a rectangular outline of the cell to the given list of path elements,
-     * in the cell's frame of reference.
-     *
-     * @param elements the list to add to
-     * @param x the left edge
-     * @param w the right edge
-     * @param h the height
-     */
-    public void addBoxOutline(List<PathElement> elements, double x, double w, double h) {
+    public void addBoxOutline(FxPathBuilder b, double x, double w, double h) {
         double y0 = getLayoutY();
         double y1 = y0 + h;
 
-        elements.add(new MoveTo(x, y0));
-        elements.add(new LineTo(w, y0));
-        elements.add(new LineTo(w, y1));
-        elements.add(new LineTo(x, y1));
-        elements.add(new LineTo(x, y0));
+        b.moveto(x, y0);
+        b.lineto(w, y0);
+        b.lineto(w, y1);
+        b.lineto(x, y1);
+        b.lineto(x, y0);
     }
 
     /**
@@ -471,15 +462,6 @@ public final class TextCell extends BorderPane {
         }
     }
 
-    /**
-     * Returns the start (or end) offset of the text line containing the given offset,
-     * when the content is a {@code TextFlow}, or null otherwise.
-     *
-     * @param start whether to return the line start (true) or the line end (false)
-     * @param caretIndex the caret paragraph index
-     * @param caretOffset the caret character offset
-     * @return the line edge offset, or null
-     */
     public Integer lineEdge(boolean start, int caretIndex, int caretOffset) {
         if (content instanceof TextFlow f) {
             int line = RichUtils.lineForOffset(f, caretOffset);

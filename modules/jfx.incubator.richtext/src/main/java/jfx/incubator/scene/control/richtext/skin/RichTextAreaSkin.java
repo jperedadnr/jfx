@@ -30,9 +30,6 @@ package jfx.incubator.scene.control.richtext.skin;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.sun.jfx.incubator.scene.control.richtext.CellArrangement;
-import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaBehavior;
-import com.sun.jfx.incubator.scene.control.richtext.VFlow;
 import javafx.collections.ObservableList;
 import javafx.event.EventHandler;
 import javafx.geometry.Orientation;
@@ -61,8 +58,10 @@ import javafx.scene.shape.VLineTo;
 import javafx.scene.text.Font;
 import com.sun.jfx.incubator.scene.control.input.InputMapHelper;
 import com.sun.jfx.incubator.scene.control.richtext.Params;
+import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaBehavior;
 import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaHelper;
 import com.sun.jfx.incubator.scene.control.richtext.RichTextAreaSkinHelper;
+import com.sun.jfx.incubator.scene.control.richtext.VFlow;
 import com.sun.jfx.incubator.scene.control.richtext.util.ListenerHelper;
 import com.sun.jfx.incubator.scene.control.richtext.util.RichUtils;
 import jfx.incubator.scene.control.richtext.RichTextArea;
@@ -435,22 +434,6 @@ public class RichTextAreaSkin extends SkinBase<RichTextArea> {
 
     private VFlow getVFlow() {
         return vflow;
-    }
-
-    /**
-     * Returns the skin's horizontal scroll bar.
-     * @return horizontal scroll bar instance
-     */
-    protected final ScrollBar getHScrollBar() {
-        return hscroll;
-    }
-
-    /**
-     * Returns the skin's vertical scroll bar.
-     * @return vertical scroll bar instance
-     */
-    protected final ScrollBar getVScrollBar() {
-        return vscroll;
     }
 
     /**

@@ -241,9 +241,9 @@ public class RichTextAreaBehavior extends BehaviorBase<RichTextArea> {
         }
 
         Pane cp = vflow.getContentPane();
-        cp.addEventHandler(MouseEvent.MOUSE_CLICKED, this::handleMouseClicked);
-        cp.addEventHandler(MouseEvent.MOUSE_PRESSED, this::handleMousePressed);
-        cp.addEventHandler(MouseEvent.MOUSE_RELEASED, this::handleMouseReleased);
+        cp.addEventFilter(MouseEvent.MOUSE_CLICKED, this::handleMouseClicked);
+        cp.addEventFilter(MouseEvent.MOUSE_PRESSED, this::handleMousePressed);
+        cp.addEventFilter(MouseEvent.MOUSE_RELEASED, this::handleMouseReleased);
         cp.addEventFilter(MouseEvent.MOUSE_DRAGGED, this::handleMouseDragged);
         cp.addEventFilter(ScrollEvent.SCROLL_STARTED, this::handleScrollEventStarted);
         cp.addEventHandler(ScrollEvent.SCROLL_FINISHED, this::handleScrollEventFinished);
@@ -517,7 +517,7 @@ public class RichTextAreaBehavior extends BehaviorBase<RichTextArea> {
             delta = -delta;
         }
         vflow.scrollVerticalPixels(delta);
-        vflow.layout();
+        vflow.layoutChildren();
 
         double x = Math.max(0.0, phantomX);
         double y = autoScrollUp ? 0.0 : vflow.getViewPortHeight();
