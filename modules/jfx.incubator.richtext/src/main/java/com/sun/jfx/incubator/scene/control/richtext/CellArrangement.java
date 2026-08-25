@@ -29,7 +29,6 @@ package com.sun.jfx.incubator.scene.control.richtext;
 
 import java.util.ArrayList;
 
-import com.sun.jfx.incubator.scene.control.richtext.util.RichUtils;
 import javafx.collections.ObservableList;
 import javafx.geometry.Point2D;
 import javafx.scene.Node;
@@ -38,6 +37,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.shape.PathElement;
 import javafx.scene.text.HitInfo;
 import javafx.scene.text.TextFlow;
+import com.sun.jfx.incubator.scene.control.richtext.util.RichUtils;
 import jfx.incubator.scene.control.richtext.TextPos;
 import jfx.incubator.scene.control.richtext.skin.RowMap;
 

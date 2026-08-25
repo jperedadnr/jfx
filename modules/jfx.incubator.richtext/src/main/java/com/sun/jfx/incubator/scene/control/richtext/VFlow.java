@@ -244,10 +244,7 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         handleOriginChange();
     }
 
-    /**
-     * Called when the row map has been updated.
-     * @param clearCache whether to clear the cache
-     */
+    /** Called when the row map has been updated. */
     protected final void rowMapUpdated(boolean clearCache) {
         requestControlLayout(clearCache);
 
@@ -1360,6 +1357,10 @@ public class VFlow extends Pane implements StyleResolver, StyledTextModel.Listen
         super.requestLayout();
     }
 
+    /**
+     * Requests full layout with optional clearing of the cached cells.
+     * @param clearCache if true, clears the cell cache
+     */
     public void requestControlLayout(boolean clearCache) {
         if (clearCache) {
             cellCache.clear();
